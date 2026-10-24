@@ -1,0 +1,64 @@
+# Production overrides: HTTPS via Caddy on ports 80/443, required secrets,
+# no demo users. Enabled by COMPOSE_FILE in the server's .env
+# (see .env.production.example and docs/deployment.md).
+services:
+  caddy:
+    image: caddy:2.10.2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      WIKID_DOMAIN: ${WIKID_DOMAIN:?Set WIKID_DOMAIN in .env}
+    volumes:
+      - ./docker/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - web
+
+  # Only Caddy is reachable from outside
+  web:
+    ports: !reset []
+
+  api:
+    environment:
+      CORS_ORIGINS: https://${WIKID_DOMAIN:?Set WIKID_DOMAIN in .env}
+      PUBLIC_API_URL: https://${WIKID_DOMAIN:?Set WIKID_DOMAIN in .env}/api
+      SESSION_COOKIE_SECURE: "true"
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@db:5432/wikid-tiptap
+      COMPLIANCE_DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@compliance-db:5432/wikid-compliance
+      S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in .env}
+      COMPLIANCE_S3_SECRET_KEY: ${COMPLIANCE_MINIO_ROOT_PASSWORD:?Set COMPLIANCE_MINIO_ROOT_PASSWORD in .env}
+      WIKID_ADMIN_EMAIL: ${WIKID_ADMIN_EMAIL:?Set WIKID_ADMIN_EMAIL in .env}
+      WIKID_ADMIN_PASSWORD: ${WIKID_ADMIN_PASSWORD:?Set WIKID_ADMIN_PASSWORD in .env}
+      WIKID_SEED_DEMO_USERS: "false"
+
+  db:
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+
+  compliance-db:
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+
+  minio:
+    environment:
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in .env}
+
+  minio-init:
+    environment:
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in .env}
+
+  compliance-minio:
+    environment:
+      MINIO_ROOT_PASSWORD: ${COMPLIANCE_MINIO_ROOT_PASSWORD:?Set COMPLIANCE_MINIO_ROOT_PASSWORD in .env}
+
+  compliance-minio-init:
+    environment:
+      MINIO_ROOT_PASSWORD: ${COMPLIANCE_MINIO_ROOT_PASSWORD:?Set COMPLIANCE_MINIO_ROOT_PASSWORD in .env}
+
+volumes:
+  caddy-data:
+  caddy-config:

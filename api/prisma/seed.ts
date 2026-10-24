@@ -25,26 +25,16 @@ async function main() {
   const pageId         = '00000000-0000-0000-0000-000000000300';
 
   const DEFAULT_PASSWORD = 'wikid';
-  const adminHash = await hashPassword(DEFAULT_PASSWORD);
-  const aliceHash = await hashPassword(DEFAULT_PASSWORD);
-  const bobHash   = await hashPassword(DEFAULT_PASSWORD);
+  // Production installs set their own admin login and skip the demo users
+  const adminEmail = process.env.WIKID_ADMIN_EMAIL?.trim() || 'admin@wikid.local';
+  const adminPassword = process.env.WIKID_ADMIN_PASSWORD || DEFAULT_PASSWORD;
+  const seedDemoUsers = process.env.WIKID_SEED_DEMO_USERS !== 'false';
+  const adminHash = await hashPassword(adminPassword);
 
   await prisma.user.upsert({
     where: { id: systemUserId },
-    update: { email: 'admin@wikid.local', displayName: 'System Admin', passwordHash: adminHash },
-    create: { id: systemUserId, email: 'admin@wikid.local', displayName: 'System Admin', passwordHash: adminHash },
-  });
-
-  await prisma.user.upsert({
-    where: { id: aliceId },
-    update: { email: 'alice@wikid.local', displayName: 'Alice', passwordHash: aliceHash },
-    create: { id: aliceId, email: 'alice@wikid.local', displayName: 'Alice', passwordHash: aliceHash },
-  });
-
-  await prisma.user.upsert({
-    where: { id: bobId },
-    update: { email: 'bob@wikid.local', displayName: 'Bob', passwordHash: bobHash },
-    create: { id: bobId, email: 'bob@wikid.local', displayName: 'Bob', passwordHash: bobHash },
+    update: { email: adminEmail, displayName: 'System Admin', passwordHash: adminHash },
+    create: { id: systemUserId, email: adminEmail, displayName: 'System Admin', passwordHash: adminHash },
   });
 
   await prisma.workspace.upsert({
@@ -59,17 +49,34 @@ async function main() {
     create: { id: systemMembershipId, userId: systemUserId, workspaceId, role: 'OWNER' },
   });
 
-  await prisma.userWorkspace.upsert({
-    where: { id: aliceMembershipId },
-    update: { role: 'OWNER' },
-    create: { id: aliceMembershipId, userId: aliceId, workspaceId, role: 'OWNER' },
-  });
+  if (seedDemoUsers) {
+    const aliceHash = await hashPassword(DEFAULT_PASSWORD);
+    const bobHash   = await hashPassword(DEFAULT_PASSWORD);
 
-  await prisma.userWorkspace.upsert({
-    where: { id: bobMembershipId },
-    update: { role: 'OWNER' },
-    create: { id: bobMembershipId, userId: bobId, workspaceId, role: 'OWNER' },
-  });
+    await prisma.user.upsert({
+      where: { id: aliceId },
+      update: { email: 'alice@wikid.local', displayName: 'Alice', passwordHash: aliceHash },
+      create: { id: aliceId, email: 'alice@wikid.local', displayName: 'Alice', passwordHash: aliceHash },
+    });
+
+    await prisma.user.upsert({
+      where: { id: bobId },
+      update: { email: 'bob@wikid.local', displayName: 'Bob', passwordHash: bobHash },
+      create: { id: bobId, email: 'bob@wikid.local', displayName: 'Bob', passwordHash: bobHash },
+    });
+
+    await prisma.userWorkspace.upsert({
+      where: { id: aliceMembershipId },
+      update: { role: 'OWNER' },
+      create: { id: aliceMembershipId, userId: aliceId, workspaceId, role: 'OWNER' },
+    });
+
+    await prisma.userWorkspace.upsert({
+      where: { id: bobMembershipId },
+      update: { role: 'OWNER' },
+      create: { id: bobMembershipId, userId: bobId, workspaceId, role: 'OWNER' },
+    });
+  }
 
   await prisma.page.upsert({
     where: { id: pageId },
@@ -77,7 +84,7 @@ async function main() {
     create: {
       id: pageId,
       workspaceId,
-      authorId: aliceId,
+      authorId: seedDemoUsers ? aliceId : systemUserId,
       title: 'Welcome to Wikid',
       isPinned: true,
       isFavorite: true,
@@ -94,10 +101,10 @@ async function main() {
     },
   });
 
-  console.log(`Seeded users (default password: "${DEFAULT_PASSWORD}"):`);
-  console.log('  admin@wikid.local  — System Admin');
-  console.log('  alice@wikid.local  — Alice');
-  console.log('  bob@wikid.local    — Bob');
+  console.log(`Seeded admin: ${adminEmail}`);
+  if (seedDemoUsers) {
+    console.log(`Seeded demo users (password: "${DEFAULT_PASSWORD}"): alice@wikid.local, bob@wikid.local`);
+  }
 }
 
 main()

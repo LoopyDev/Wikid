@@ -8,6 +8,7 @@ coverage/
 .env
 .env.*
 !.env.example
+!.env.production.example
 
 # Generated
 .prisma/
@@ -27,3 +28,4 @@ collab/data/
 
 # Personal notes, plans and trackers (not published)
 /notes/
+/backups/

@@ -73,6 +73,8 @@ Only port 8088 is published. The databases and MinIO stay on Docker's internal n
 
 `docker compose down` stops the stack and keeps your data. `docker compose down -v` also deletes the data.
 
+To run it on a server with HTTPS, your own admin login and backups, see [`docs/deployment.md`](docs/deployment.md).
+
 ## Development setup
 
 Requirements: Node.js 20+, Docker.
@@ -129,7 +131,7 @@ Wikid hasn't had a security review yet. How it works today:
 
 - **Sessions:** logging in sets a signed, `HttpOnly`, `SameSite=Lax` session cookie (14 days). A global guard rejects any API request without a valid session, and every request acts as the logged-in user, whatever user ID the client sends.
 - **Frontend and API location:** the frontend and API must be on the same site (for example `wiki.example.com` and `api.wiki.example.com`) so the browser sends the cookie. Set `CORS_ORIGINS` to your frontend's URL and serve both over HTTPS in production.
-- **Defaults:** before deploying, change the dev-only defaults: `postgres`/`postgres` for the databases, `minioadmin`/`minioadmin` for MinIO, the seeded accounts' `wikid` password, and the `change-me` secrets.
+- **Defaults:** the dev setup uses well-known defaults (`postgres`/`postgres`, `minioadmin`/`minioadmin`, demo accounts with the password `wikid`). The production setup in [`docs/deployment.md`](docs/deployment.md) requires your own passwords and admin login, and creates no demo accounts.
 
 If you find a security issue, please open a private security advisory on GitHub instead of a public issue.
 

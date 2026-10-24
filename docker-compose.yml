@@ -4,7 +4,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       POSTGRES_DB: wikid-tiptap
     volumes:
       - pgdata:/var/lib/postgresql/data
@@ -19,7 +19,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       POSTGRES_DB: wikid-compliance
     volumes:
       - compliance-pgdata:/var/lib/postgresql/data
@@ -99,8 +99,8 @@ services:
       PUBLIC_API_URL: ${WIKID_PUBLIC_URL:-http://localhost:8088}/api
       PRINT_BASE_URL: http://web
       PRINT_API_URL: http://web/api
-      DATABASE_URL: postgresql://postgres:postgres@db:5432/wikid-tiptap
-      COMPLIANCE_DATABASE_URL: postgresql://postgres:postgres@compliance-db:5432/wikid-compliance
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@db:5432/wikid-tiptap
+      COMPLIANCE_DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@compliance-db:5432/wikid-compliance
       COLLAB_SERVER_URL: http://collab:1234
       S3_ENDPOINT: http://minio:9000
       S3_REGION: ${S3_REGION:-us-east-1}
@@ -113,6 +113,10 @@ services:
       COMPLIANCE_S3_SECRET_KEY: ${COMPLIANCE_MINIO_ROOT_PASSWORD:-minioadmin}
       COMPLIANCE_S3_BUCKET: ${COMPLIANCE_S3_BUCKET:-wikid-compliance}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      # First-start seed: admin login, and whether to add the demo users
+      WIKID_ADMIN_EMAIL: ${WIKID_ADMIN_EMAIL:-admin@wikid.local}
+      WIKID_ADMIN_PASSWORD: ${WIKID_ADMIN_PASSWORD:-wikid}
+      WIKID_SEED_DEMO_USERS: ${WIKID_SEED_DEMO_USERS:-true}
     volumes:
       - app-state:/state
     depends_on:

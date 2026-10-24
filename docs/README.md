@@ -30,6 +30,7 @@ How Wikid works, for people running it or contributing to it. Setup steps are in
 
 ## Guides
 
+- [Deployment](deployment.md): running Wikid on a server with HTTPS, backups and restores
 - [Maintenance template](guides/maintenance-template.md): setting up compliant inventory and maintenance databases
 
 ## Development
