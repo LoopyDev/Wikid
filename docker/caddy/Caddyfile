@@ -1,7 +1,23 @@
 # Caddy gets and renews the HTTPS certificate for WIKID_DOMAIN automatically
 # (Let's Encrypt), redirects HTTP to HTTPS, and passes everything to nginx.
+(no_server_headers) {
+	# Don't advertise the software behind the site
+	header {
+		-Server
+		-Via
+		defer
+	}
+}
+
 {$WIKID_DOMAIN} {
+	import no_server_headers
 	encode zstd gzip
 	header Strict-Transport-Security "max-age=31536000"
 	reverse_proxy web:80
+}
+
+# Explicit HTTP-to-HTTPS redirect, so its headers can be controlled too
+http://{$WIKID_DOMAIN} {
+	import no_server_headers
+	redir https://{host}{uri} 308
 }
