@@ -42,7 +42,7 @@ A self-hosted wiki and workspace with a block-based editor, structured databases
 | Collab server (`collab/`) | Hocuspocus, Yjs |
 | Storage | S3-compatible (MinIO for local dev) |
 
-See [`Docs/Architecture/architecture.md`](Docs/Architecture/architecture.md) for how the pieces fit together.
+See [`docs/architecture/overview.md`](docs/architecture/overview.md) for how the pieces fit together.
 
 ## Quick start (Docker)
 
@@ -109,7 +109,7 @@ Log in with one of the seeded demo accounts: `admin@wikid.local`, `alice@wikid.l
 
 To enable the AI features, set `ANTHROPIC_API_KEY` in `.env`. Without it, the AI endpoints return 503 and the rest of the app works normally.
 
-For the compliance database's optional immutability guards, see [`Docs/Compliance/setup.md`](Docs/Compliance/setup.md).
+For the compliance database's optional immutability guards, see [`docs/compliance/setup.md`](docs/compliance/setup.md).
 
 ### Tests
 
@@ -129,7 +129,7 @@ If you find a security issue, please open a private security advisory on GitHub 
 
 ## Contributing
 
-Issues and pull requests are welcome. For larger changes, please open an issue first so we can talk through the approach. Design notes and feature plans live in [`Docs/`](Docs/).
+Issues and pull requests are welcome. For larger changes, please open an issue first so we can talk through the approach. Architecture and feature docs live in [`docs/`](docs/).
 
 ## License
 

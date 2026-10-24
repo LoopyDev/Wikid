@@ -24,3 +24,6 @@ collab/data/
 .playwright-mcp/
 .vscode/
 .idea/
+
+# Personal notes, plans and trackers (not published)
+/notes/

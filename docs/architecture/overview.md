@@ -24,7 +24,7 @@
 ## Collaboration
 - The `collab/` server runs Hocuspocus on `:1234`. Clients authenticate with a short-lived JWT signed with `COLLAB_JWT_SECRET`.
 - The collab server persists Yjs updates through the API (authenticated with `COLLAB_API_SECRET`), debounced by `COLLAB_STORE_DEBOUNCE_MS`.
-- Doc names are `ws:<workspaceId>:<pageId>` for pages and `ws:<workspaceId>:db:<pageId>` for databases. See `collabPersistence.md` and `databaseStructure.md`.
+- Doc names are `ws:<workspaceId>:<pageId>` for pages and `ws:<workspaceId>:db:<pageId>` for databases. See [`collab-persistence.md`](collab-persistence.md) and [`database-collab-structure.md`](database-collab-structure.md).
 
 ## Data Layer (Prisma + Postgres)
 - Main models: `User`, `Workspace`, `UserWorkspace`, `Page` (hierarchical via `parentId`; kinds `DOC` / `DATABASE`), `Database`, `DatabaseField`, `DatabaseRow`, `DatabaseForm`, `CollabDoc`, `FileAsset`.

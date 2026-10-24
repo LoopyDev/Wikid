@@ -62,7 +62,7 @@ The AI is instructed to return `newText` using the same inline markdown syntax. 
 
 On revert, `tr.replaceWith(from, to, originalNode)` restores the exact original ProseMirror node including all marks — no information loss.
 
-See [`aiMarkdown.md`](./aiMarkdown.md) for full details on the markdown utilities.
+See [`ai-markdown.md`](./ai-markdown.md) for full details on the markdown utilities.
 
 ## Files
 
