@@ -44,7 +44,33 @@ A self-hosted wiki and workspace with a block-based editor, structured databases
 
 See [`Docs/Architecture/architecture.md`](Docs/Architecture/architecture.md) for how the pieces fit together.
 
-## Getting started
+## Quick start (Docker)
+
+Requirements: Docker with Compose v2.
+
+```bash
+docker compose up -d --build
+```
+
+Open http://localhost:8088 and log in as `admin@wikid.local` with password `wikid`. The first build takes a few minutes.
+
+On first start, the stack runs the database migrations, seeds the demo accounts, and generates the session and collab secrets into the `app-state` volume. nginx serves the app, the API (`/api`), and the collab server (`/collab`) from one origin.
+
+Optional settings go in a `.env` file next to `docker-compose.yml`:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `WIKID_PORT` | `8088` | Host port for the app |
+| `WIKID_PUBLIC_URL` | `http://localhost:8088` | URL people use to reach the app (used for CORS and upload links) |
+| `SESSION_COOKIE_SECURE` | `false` | Set to `true` when serving over HTTPS |
+| `ANTHROPIC_API_KEY` | | Enables the AI features |
+| `SESSION_SECRET`, `COLLAB_JWT_SECRET`, `COLLAB_API_SECRET` | generated | Set to use your own secrets |
+
+Only port 8088 is published. The databases and MinIO stay on Docker's internal network.
+
+`docker compose down` stops the stack and keeps your data. `docker compose down -v` also deletes the data.
+
+## Development setup
 
 Requirements: Node.js 20+, Docker.
 
@@ -57,7 +83,8 @@ cp web/.env.example web/.env
 # to the same values in .env and collab/.env. Generate each with:
 #   openssl rand -hex 32
 
-# 2. Start Postgres (x2) and MinIO (x2)
+# 2. Start Postgres (x2) and MinIO (x2). COMPOSE_FILE in .env adds docker-compose.dev.yml,
+#    which publishes them on localhost (5435, 5436, 9000-9003)
 docker compose up -d db compliance-db minio compliance-minio minio-init compliance-minio-init
 
 # 3. Install dependencies

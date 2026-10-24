@@ -3,6 +3,14 @@ import { api } from '../api/client';
 import { fallbackDoc, normalizeEditorDoc } from '../utils/editorDoc';
 import { SYSTEM_ADMIN_ID } from '../constants/system-admin';
 
+// A path like "/collab" means the collab server sits behind the same origin as the app
+const resolveCollabUrl = (url) => {
+  if (!url) return 'ws://localhost:1234';
+  if (!url.startsWith('/') || typeof window === 'undefined') return url;
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  return `${protocol}//${window.location.host}${url}`;
+};
+
 export const useWorkspaceStore = defineStore('workspace', {
   state: () => ({
     workspaceName: 'Wikid Workspace',
@@ -34,7 +42,7 @@ export const useWorkspaceStore = defineStore('workspace', {
     collabToken: null,
     collabDocName: null,
     collabWorkspaceId: null,
-    collabUrl: import.meta.env.VITE_COLLAB_URL || 'ws://localhost:1234',
+    collabUrl: resolveCollabUrl(import.meta.env.VITE_COLLAB_URL),
     pendingTitleUpdates: {},
   }),
   getters: {

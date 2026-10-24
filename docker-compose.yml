@@ -6,8 +6,6 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: wikid-tiptap
-    ports:
-      - "5435:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -23,8 +21,6 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: wikid-compliance
-    ports:
-      - "5436:5432"
     volumes:
       - compliance-pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -40,9 +36,6 @@ services:
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
-    ports:
-      - "9000:9000"
-      - "9001:9001"
     volumes:
       - minio-data:/data
 
@@ -53,9 +46,6 @@ services:
     environment:
       MINIO_ROOT_USER: ${COMPLIANCE_MINIO_ROOT_USER:-minioadmin}
       MINIO_ROOT_PASSWORD: ${COMPLIANCE_MINIO_ROOT_PASSWORD:-minioadmin}
-    ports:
-      - "9002:9000"
-      - "9003:9003"
     volumes:
       - compliance-minio-data:/data
 
@@ -65,7 +55,7 @@ services:
       - minio
     entrypoint: >
       /bin/sh -c "
-      /usr/bin/mc alias set local http://minio:9000 $$MINIO_ROOT_USER $$MINIO_ROOT_PASSWORD;
+      until /usr/bin/mc alias set local http://minio:9000 $$MINIO_ROOT_USER $$MINIO_ROOT_PASSWORD; do sleep 1; done;
       /usr/bin/mc mb -p local/$$MINIO_BUCKET || true;
       /usr/bin/mc anonymous set private local/$$MINIO_BUCKET;
       exit 0;
@@ -81,7 +71,7 @@ services:
       - compliance-minio
     entrypoint: >
       /bin/sh -c "
-      /usr/bin/mc alias set compliance http://compliance-minio:9000 $$MINIO_ROOT_USER $$MINIO_ROOT_PASSWORD;
+      until /usr/bin/mc alias set compliance http://compliance-minio:9000 $$MINIO_ROOT_USER $$MINIO_ROOT_PASSWORD; do sleep 1; done;
       /usr/bin/mc mb -p compliance/$$MINIO_BUCKET || true;
       /usr/bin/mc anonymous set private compliance/$$MINIO_BUCKET;
       exit 0;
@@ -91,26 +81,88 @@ services:
       MINIO_ROOT_PASSWORD: ${COMPLIANCE_MINIO_ROOT_PASSWORD:-minioadmin}
       MINIO_BUCKET: ${COMPLIANCE_S3_BUCKET:-wikid-compliance}
 
-  imgproxy:
-    image: darthsim/imgproxy:v3.30.0
+  # --- App (docker compose up) ---
+  api:
+    build:
+      context: .
+      dockerfile: docker/api/Dockerfile
     restart: unless-stopped
     environment:
-      IMGPROXY_KEY: ${IMGPROXY_KEY}
-      IMGPROXY_SALT: ${IMGPROXY_SALT}
-      IMGPROXY_USE_S3: "true"
-      IMGPROXY_S3_ENDPOINT: http://minio:9000
-      IMGPROXY_S3_REGION: ${S3_REGION:-us-east-1}
-      IMGPROXY_S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
-      IMGPROXY_S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
-      IMGPROXY_S3_BUCKET: ${S3_BUCKET:-wikid}
-      IMGPROXY_S3_USE_SSL: "false"
-      IMGPROXY_S3_FORCE_PATH_STYLE: "true"
-    ports:
-      - "8081:8080"
+      NODE_ENV: production
+      PORT: 3000
+      # Generated on first start if unset; see docker/api/entrypoint.sh
+      SESSION_SECRET: ${SESSION_SECRET:-}
+      COLLAB_JWT_SECRET: ${COLLAB_JWT_SECRET:-}
+      COLLAB_API_SECRET: ${COLLAB_API_SECRET:-}
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
+      CORS_ORIGINS: ${WIKID_PUBLIC_URL:-http://localhost:8088}
+      PUBLIC_API_URL: ${WIKID_PUBLIC_URL:-http://localhost:8088}/api
+      PRINT_BASE_URL: http://web
+      PRINT_API_URL: http://web/api
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/wikid-tiptap
+      COMPLIANCE_DATABASE_URL: postgresql://postgres:postgres@compliance-db:5432/wikid-compliance
+      COLLAB_SERVER_URL: ws://collab:1234
+      S3_ENDPOINT: http://minio:9000
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
+      S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      S3_BUCKET: ${S3_BUCKET:-wikid}
+      COMPLIANCE_S3_ENDPOINT: http://compliance-minio:9000
+      COMPLIANCE_S3_REGION: ${S3_REGION:-us-east-1}
+      COMPLIANCE_S3_ACCESS_KEY: ${COMPLIANCE_MINIO_ROOT_USER:-minioadmin}
+      COMPLIANCE_S3_SECRET_KEY: ${COMPLIANCE_MINIO_ROOT_PASSWORD:-minioadmin}
+      COMPLIANCE_S3_BUCKET: ${COMPLIANCE_S3_BUCKET:-wikid-compliance}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    volumes:
+      - app-state:/state
     depends_on:
-      - minio
+      db:
+        condition: service_healthy
+      compliance-db:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+      compliance-minio-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/').then((r) => process.exit(r.status < 500 ? 0 : 1), () => process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 120s
+
+  collab:
+    build:
+      context: .
+      dockerfile: docker/collab/Dockerfile
+    restart: unless-stopped
+    environment:
+      COLLAB_PORT: 1234
+      COLLAB_HOST: 0.0.0.0
+      COLLAB_JWT_SECRET: ${COLLAB_JWT_SECRET:-}
+      COLLAB_API_SECRET: ${COLLAB_API_SECRET:-}
+      COLLAB_API_URL: http://api:3000
+    volumes:
+      - app-state:/state:ro
+    depends_on:
+      api:
+        condition: service_healthy
+
+  web:
+    build:
+      context: .
+      dockerfile: docker/web/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "${WIKID_PORT:-8088}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+      collab:
+        condition: service_started
 
 volumes:
+  app-state:
   pgdata:
   minio-data:
   compliance-pgdata:

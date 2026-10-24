@@ -5,7 +5,8 @@ import { SESSION_COOKIE, signSession } from '../auth/session.util';
 @Injectable()
 export class PdfService {
   private readonly printBaseUrl = (process.env.PRINT_BASE_URL || 'http://localhost:5173').replace(/\/$/, '');
-  private readonly apiBaseUrl = (process.env.PUBLIC_API_URL || `http://localhost:${process.env.PORT || 3000}`).replace(/\/$/, '');
+  // The API URL as the headless browser sees it, which can differ from the public one inside Docker
+  private readonly apiBaseUrl = (process.env.PRINT_API_URL || process.env.PUBLIC_API_URL || `http://localhost:${process.env.PORT || 3000}`).replace(/\/$/, '');
 
   async generatePagePdf(pageId: string, userId?: string, userName?: string, theme?: string, scale?: number): Promise<Buffer> {
     const qs = new URLSearchParams();

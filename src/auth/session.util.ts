@@ -45,7 +45,8 @@ export function readCookie(header: string | undefined, name: string): string | n
 export const sessionCookieOptions = () => ({
   httpOnly: true,
   sameSite: 'lax' as const,
-  secure: process.env.NODE_ENV === 'production',
+  // SESSION_COOKIE_SECURE=false allows plain-HTTP installs (e.g. the Docker setup on localhost)
+  secure: process.env.SESSION_COOKIE_SECURE ? process.env.SESSION_COOKIE_SECURE === 'true' : process.env.NODE_ENV === 'production',
   path: '/',
   maxAge: SESSION_TTL_SECONDS * 1000,
 });
