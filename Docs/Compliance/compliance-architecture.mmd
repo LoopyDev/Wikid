@@ -1,0 +1,34 @@
+flowchart LR
+  subgraph Client
+    UI[Web App<br/>Forms and Workflow UI]
+  end
+
+  subgraph API
+    CS[Compliance Service<br/>validation and workflow]
+    WS[Workspace Service<br/>non-compliance]
+  end
+
+  subgraph Storage
+    CDB[(Compliance Postgres<br/>append-only)]
+    WDB[(Workspace Postgres)]
+    MINIO[(MinIO - Compliance Attachments)]
+    WMINIO[(MinIO - Workspace Assets)]
+  end
+
+  UI -->|submit/amend validate| CS
+  UI -->|save draft| WS
+  WS -->|load draft| UI
+  UI -->|edit workspace content| WS
+
+  CS -->|create Record| CDB
+  CS -->|append RecordRevision| CDB
+  CS -->|append AuditEvent| CDB
+  CS -->|store attachment| MINIO
+  WS -->|store draft/workspace data| WDB
+  WS -->|store attachment| WMINIO
+
+  CDB -->|workflow config version| CS
+
+  UI -->|export request| CS
+  CS -->|export and log read| CDB
+  CS -->|verify hash on download| MINIO

@@ -1,0 +1,243 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+generator erd {
+  provider = "prisma-erd-generator"
+  output   = "ERD.svg"
+  template = "mermaid"
+  mmdcPath = "node_modules/.bin"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                String          @id @default(uuid()) @db.Uuid
+  email             String          @unique
+  displayName       String
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  preferences       Json?
+  passwordHash      String?
+  pages             Page[]          @relation("PageAuthor")
+  memberships       UserWorkspace[]
+  personalWorkspace Workspace?      @relation("PersonalWorkspace")
+}
+
+model Workspace {
+  id              String          @id @default(uuid()) @db.Uuid
+  name            String
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  personalOwnerId String?         @unique @db.Uuid
+  databases       Database[]
+  pages           Page[]
+  memberships     UserWorkspace[]
+  personalOwner   User?           @relation("PersonalWorkspace", fields: [personalOwnerId], references: [id])
+}
+
+model UserWorkspace {
+  id          String        @id @default(uuid()) @db.Uuid
+  userId      String        @db.Uuid
+  workspaceId String        @db.Uuid
+  role        WorkspaceRole @default(EDITOR)
+  createdAt   DateTime      @default(now())
+  user        User          @relation(fields: [userId], references: [id])
+  workspace   Workspace     @relation(fields: [workspaceId], references: [id])
+
+  @@unique([userId, workspaceId])
+}
+
+model Page {
+  id                String          @id @default(uuid()) @db.Uuid
+  workspaceId       String          @db.Uuid
+  parentId          String?         @db.Uuid
+  authorId          String?         @db.Uuid
+  title             String          @default("")
+  isPinned          Boolean         @default(false)
+  isFavorite        Boolean         @default(false)
+  icon              String?
+  coverImageAssetId String?         @db.Uuid
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  content           Json?
+  deletedAt         DateTime?
+  isDeleted         Boolean         @default(false)
+  position          Decimal         @default(0) @db.Decimal(10, 4)
+  kind              PageKind        @default(DOC)
+  visibility        PageVisibility  @default(PUBLIC)
+  setupStatus       PageSetupStatus @default(COMPLETE)
+  wikiHomeId        String?         @db.Uuid
+  wikiConfig        Json?
+  isHidden          Boolean         @default(false)
+  blocks            Block[]
+  database          Database?
+  databaseRows      DatabaseRow[]
+  author            User?           @relation("PageAuthor", fields: [authorId], references: [id])
+  coverImage        FileAsset?      @relation("CoverImage", fields: [coverImageAssetId], references: [id])
+  parent            Page?           @relation("PageHierarchy", fields: [parentId], references: [id])
+  children          Page[]          @relation("PageHierarchy")
+  workspace         Workspace       @relation(fields: [workspaceId], references: [id])
+
+  @@index([workspaceId])
+  @@index([parentId])
+  @@index([wikiHomeId])
+}
+
+model Database {
+  id             String          @id @default(uuid()) @db.Uuid
+  workspaceId    String          @db.Uuid
+  pageId         String          @unique @db.Uuid
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  complianceMode Boolean         @default(false)
+  page           Page            @relation(fields: [pageId], references: [id])
+  workspace      Workspace       @relation(fields: [workspaceId], references: [id])
+  fields         DatabaseField[]
+  forms          DatabaseForm[]
+  views          DatabaseView[]
+  rows           DatabaseRow[]
+
+  @@index([workspaceId])
+}
+
+model DatabaseField {
+  id         String            @id @default(uuid()) @db.Uuid
+  databaseId String            @db.Uuid
+  name       String
+  type       DatabaseFieldType
+  options    Json?
+  position   Decimal           @default(0) @db.Decimal(10, 4)
+  createdAt  DateTime          @default(now())
+  updatedAt  DateTime          @updatedAt
+  database   Database          @relation(fields: [databaseId], references: [id])
+
+  @@index([databaseId])
+}
+
+model DatabaseRow {
+  id         String   @id @default(uuid()) @db.Uuid
+  databaseId String   @db.Uuid
+  position   Decimal  @default(0) @db.Decimal(10, 4)
+  data       Json?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  pageId     String?  @db.Uuid
+  database   Database @relation(fields: [databaseId], references: [id])
+  page       Page?    @relation(fields: [pageId], references: [id])
+
+  @@unique([databaseId, pageId])
+  @@index([databaseId])
+  @@index([pageId])
+}
+
+model DatabaseForm {
+  id         String   @id @default(uuid()) @db.Uuid
+  databaseId String   @db.Uuid
+  name       String
+  fields     Json?
+  position   Decimal  @default(0) @db.Decimal(10, 4)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  icon       String?
+  database   Database @relation(fields: [databaseId], references: [id])
+
+  @@index([databaseId])
+}
+
+model DatabaseView {
+  id         String   @id @default(uuid()) @db.Uuid
+  databaseId String   @db.Uuid
+  name       String
+  type       String   @default("TABLE")
+  icon       String?
+  config     Json?
+  position   Decimal  @default(0) @db.Decimal(10, 4)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  database   Database @relation(fields: [databaseId], references: [id])
+
+  @@index([databaseId])
+}
+
+model CollabDoc {
+  documentName           String    @id
+  state                  Bytes
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+  materializedAt         DateTime?
+  materializeRequestedAt DateTime?
+}
+
+model Block {
+  id        String    @id @default(uuid()) @db.Uuid
+  pageId    String    @db.Uuid
+  parentId  String?   @db.Uuid
+  type      BlockType
+  position  Decimal   @default(0) @db.Decimal(10, 4)
+  content   String    @default("")
+  props     Json?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  page      Page      @relation(fields: [pageId], references: [id])
+  parent    Block?    @relation("BlockHierarchy", fields: [parentId], references: [id])
+  children  Block[]   @relation("BlockHierarchy")
+
+  @@index([pageId])
+  @@index([parentId])
+}
+
+model FileAsset {
+  id         String   @id @default(uuid()) @db.Uuid
+  key        String
+  mimeType   String
+  size       BigInt
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  pagesCover Page[]   @relation("CoverImage")
+}
+
+enum WorkspaceRole {
+  OWNER
+  EDITOR
+  VIEWER
+}
+
+enum PageVisibility {
+  PUBLIC
+  PRIVATE
+}
+
+enum PageSetupStatus {
+  PENDING
+  COMPLETE
+}
+
+enum PageKind {
+  DOC
+  DATABASE
+}
+
+enum DatabaseFieldType {
+  TEXT
+  NUMBER
+  DATE
+  CHECKBOX
+  SELECT
+  MULTI_SELECT
+  URL
+  RELATION
+}
+
+enum BlockType {
+  TEXT
+  HEADING
+  TODO
+  TOGGLE
+  LIST_ITEM
+  DIVIDER
+  EMBED
+}

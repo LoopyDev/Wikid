@@ -1,0 +1,26 @@
+# Dependencies & build output
+node_modules/
+dist/
+coverage/
+*.log
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Generated
+.prisma/
+/prisma/generated/
+
+# Local data
+/uploads/
+collab/data/
+
+# Tooling / OS
+.DS_Store
+.claude/
+.mcp.json
+.playwright-mcp/
+.vscode/
+.idea/

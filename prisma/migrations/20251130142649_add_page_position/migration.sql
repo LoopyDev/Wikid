@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "Page" ADD COLUMN     "position" DECIMAL(10,4) NOT NULL DEFAULT 0;

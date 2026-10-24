@@ -1,0 +1,117 @@
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: wikid-tiptap
+    ports:
+      - "5435:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d wikid-tiptap"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  compliance-db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: wikid-compliance
+    ports:
+      - "5436:5432"
+    volumes:
+      - compliance-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d wikid-compliance"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio-data:/data
+
+  compliance-minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9003"
+    environment:
+      MINIO_ROOT_USER: ${COMPLIANCE_MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${COMPLIANCE_MINIO_ROOT_PASSWORD:-minioadmin}
+    ports:
+      - "9002:9000"
+      - "9003:9003"
+    volumes:
+      - compliance-minio-data:/data
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      /usr/bin/mc alias set local http://minio:9000 $$MINIO_ROOT_USER $$MINIO_ROOT_PASSWORD;
+      /usr/bin/mc mb -p local/$$MINIO_BUCKET || true;
+      /usr/bin/mc anonymous set private local/$$MINIO_BUCKET;
+      exit 0;
+      "
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      MINIO_BUCKET: ${S3_BUCKET:-wikid}
+
+  compliance-minio-init:
+    image: minio/mc:latest
+    depends_on:
+      - compliance-minio
+    entrypoint: >
+      /bin/sh -c "
+      /usr/bin/mc alias set compliance http://compliance-minio:9000 $$MINIO_ROOT_USER $$MINIO_ROOT_PASSWORD;
+      /usr/bin/mc mb -p compliance/$$MINIO_BUCKET || true;
+      /usr/bin/mc anonymous set private compliance/$$MINIO_BUCKET;
+      exit 0;
+      "
+    environment:
+      MINIO_ROOT_USER: ${COMPLIANCE_MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${COMPLIANCE_MINIO_ROOT_PASSWORD:-minioadmin}
+      MINIO_BUCKET: ${COMPLIANCE_S3_BUCKET:-wikid-compliance}
+
+  imgproxy:
+    image: darthsim/imgproxy:v3.30.0
+    restart: unless-stopped
+    environment:
+      IMGPROXY_KEY: ${IMGPROXY_KEY}
+      IMGPROXY_SALT: ${IMGPROXY_SALT}
+      IMGPROXY_USE_S3: "true"
+      IMGPROXY_S3_ENDPOINT: http://minio:9000
+      IMGPROXY_S3_REGION: ${S3_REGION:-us-east-1}
+      IMGPROXY_S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
+      IMGPROXY_S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      IMGPROXY_S3_BUCKET: ${S3_BUCKET:-wikid}
+      IMGPROXY_S3_USE_SSL: "false"
+      IMGPROXY_S3_FORCE_PATH_STYLE: "true"
+    ports:
+      - "8081:8080"
+    depends_on:
+      - minio
+
+volumes:
+  pgdata:
+  minio-data:
+  compliance-pgdata:
+  compliance-minio-data:

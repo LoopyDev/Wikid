@@ -1,0 +1,151 @@
+generator complianceClient {
+  provider = "prisma-client-js"
+  output   = "../generated/compliance"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("COMPLIANCE_DATABASE_URL")
+}
+
+model ComplianceRecord {
+  id               String                  @id @default(uuid()) @db.Uuid
+  workspaceId      String                  @db.Uuid
+  sourceDatabaseId String                  @db.Uuid
+  status           ComplianceRecordStatus  @default(SUBMITTED)
+  latestRevisionId String?                 @unique @db.Uuid
+  workflowVersionId String?                @db.Uuid
+  legalHold        Boolean                 @default(false)
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
+
+  latestRevision   ComplianceRecordRevision? @relation("LatestRevision", fields: [latestRevisionId], references: [id])
+  revisions        ComplianceRecordRevision[] @relation("RecordRevisions")
+  auditEvents      ComplianceAuditEvent[]
+  attachments      ComplianceAttachment[]
+  workflowVersion  ComplianceWorkflowVersion? @relation(fields: [workflowVersionId], references: [id])
+
+  @@index([workspaceId])
+  @@index([sourceDatabaseId])
+  @@index([status])
+}
+
+model ComplianceRecordRevision {
+  id               String                   @id @default(uuid()) @db.Uuid
+  recordId         String                   @db.Uuid
+  workflowVersionId String?                 @db.Uuid
+  schemaVersionId  String?                  @db.Uuid
+  kind             ComplianceRevisionKind   @default(SUBMIT)
+  data             Json
+  attachmentHashes Json?
+  createdById      String?                  @db.Uuid
+  createdByName    String?
+  reason           String?
+  createdAt        DateTime                 @default(now())
+
+  record           ComplianceRecord         @relation("RecordRevisions", fields: [recordId], references: [id])
+  workflowVersion  ComplianceWorkflowVersion? @relation(fields: [workflowVersionId], references: [id])
+  schemaVersion    ComplianceSchemaVersion? @relation(fields: [schemaVersionId], references: [id])
+  latestFor        ComplianceRecord?        @relation("LatestRevision")
+  attachments      ComplianceAttachment[]
+  auditEvents      ComplianceAuditEvent[]
+
+  @@index([recordId])
+  @@index([workflowVersionId])
+  @@index([schemaVersionId])
+}
+
+model ComplianceAuditEvent {
+  id          String                  @id @default(uuid()) @db.Uuid
+  recordId    String                  @db.Uuid
+  revisionId  String?                 @db.Uuid
+  eventType   ComplianceAuditEventType
+  actorId     String?                 @db.Uuid
+  actorName   String?
+  metadata    Json?
+  createdAt   DateTime                @default(now())
+
+  record      ComplianceRecord        @relation(fields: [recordId], references: [id])
+  revision    ComplianceRecordRevision? @relation(fields: [revisionId], references: [id])
+
+  @@index([recordId])
+  @@index([revisionId])
+  @@index([eventType])
+}
+
+model ComplianceWorkflowVersion {
+  id               String   @id @default(uuid()) @db.Uuid
+  workspaceId      String   @db.Uuid
+  sourceDatabaseId String   @db.Uuid
+  config           Json
+  createdById      String?  @db.Uuid
+  createdByName    String?
+  createdAt        DateTime @default(now())
+
+  records   ComplianceRecord[]
+  revisions ComplianceRecordRevision[]
+
+  @@index([workspaceId])
+  @@index([sourceDatabaseId])
+}
+
+model ComplianceSchemaVersion {
+  id               String   @id @default(uuid()) @db.Uuid
+  workspaceId      String   @db.Uuid
+  sourceDatabaseId String   @db.Uuid
+  schema           Json
+  createdById      String?  @db.Uuid
+  createdByName    String?
+  createdAt        DateTime @default(now())
+
+  revisions ComplianceRecordRevision[]
+
+  @@index([workspaceId])
+  @@index([sourceDatabaseId])
+}
+
+model ComplianceAttachment {
+  id            String   @id @default(uuid()) @db.Uuid
+  recordId      String   @db.Uuid
+  revisionId    String?  @db.Uuid
+  hash          String
+  storageKey    String
+  size          BigInt
+  mimeType      String
+  originalName  String
+  uploadedById  String?  @db.Uuid
+  uploadedByName String?
+  uploadedAt    DateTime @default(now())
+
+  record   ComplianceRecord        @relation(fields: [recordId], references: [id])
+  revision ComplianceRecordRevision? @relation(fields: [revisionId], references: [id])
+
+  @@index([recordId])
+  @@index([revisionId])
+  @@index([hash])
+}
+
+enum ComplianceRecordStatus {
+  DRAFT
+  SUBMITTED
+  REVIEW
+  CLOSED
+  ARCHIVED
+}
+
+enum ComplianceRevisionKind {
+  SUBMIT
+  AMEND
+}
+
+enum ComplianceAuditEventType {
+  CREATE
+  SUBMIT
+  AMEND
+  TRANSITION
+  EXPORT
+  REVISION_VIEW
+  ARCHIVE
+  LEGAL_HOLD
+  LEGAL_HOLD_RELEASE
+}
