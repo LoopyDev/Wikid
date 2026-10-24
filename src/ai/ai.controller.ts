@@ -15,10 +15,10 @@ export class AiController {
 
   @Post('generate')
   async generate(
+    @Res() res: Response,
     @Body('prompt') prompt: string,
     @Body('context') context?: string,
     @Body('mode') mode?: AiMode,
-    @Res() res?: Response,
   ) {
     if (!prompt?.trim()) {
       throw new HttpException('prompt is required', HttpStatus.BAD_REQUEST);
@@ -65,12 +65,12 @@ export class AiController {
 
   @Post('chat')
   async chat(
+    @Res() res: Response,
     @Body('messages') messages: Array<{ role: 'user' | 'assistant'; content: string }>,
     @Body('workspaceId') workspaceId: string,
     @Body('pageContext') pageContext?: string,
     @Body('currentPageOnly') currentPageOnly?: boolean,
     @CurrentUser() user?: AuthUser,
-    @Res() res?: Response,
   ) {
     if (!messages?.length) {
       throw new HttpException('messages is required', HttpStatus.BAD_REQUEST);

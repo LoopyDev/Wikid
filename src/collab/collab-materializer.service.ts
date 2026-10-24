@@ -180,7 +180,7 @@ export class CollabMaterializerService implements OnModuleInit, OnModuleDestroy 
             }
             return null;
           })
-          .filter((item): item is { value: string; color?: string | null } => !!item)
+          .filter((item): item is NonNullable<typeof item> => !!item)
       : null;
     const choiceValues = choices ? choices.map((choice) => choice.value) : null;
     return { options: rawOptions, choices, choiceValues };

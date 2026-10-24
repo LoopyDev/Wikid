@@ -5,6 +5,7 @@ import {
   GetObjectCommand,
   HeadBucketCommand,
   ListObjectsV2Command,
+  ListObjectsV2CommandOutput,
   PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
@@ -168,7 +169,7 @@ export class UploadsService {
     const keys: string[] = [];
     let token: string | undefined = undefined;
     do {
-      const result = await this.client.send(
+      const result: ListObjectsV2CommandOutput = await this.client.send(
         new ListObjectsV2Command({ Bucket: this.bucket, ContinuationToken: token })
       );
       if (Array.isArray(result.Contents)) {

@@ -200,26 +200,30 @@ const normalizeRowData = (value: any) => {
 const applyRowUpdate = (document: Y.Doc, rowId: string, data: Record<string, any>, pageId?: string | null) => {
   const rowsMap = document.getMap('rows');
   const rowOrder = document.getArray('rowOrder');
-  let rowMap = rowsMap.get(rowId);
-  if (!(rowMap instanceof Y.Map)) {
-    const nextRowMap = new Y.Map();
-    if (rowMap && typeof rowMap === 'object' && !Array.isArray(rowMap)) {
-      Object.entries(rowMap).forEach(([key, value]) => {
-        nextRowMap.set(key, value);
+  const storedRow = rowsMap.get(rowId);
+  let rowMap: Y.Map<any>;
+  if (storedRow instanceof Y.Map) {
+    rowMap = storedRow;
+  } else {
+    rowMap = new Y.Map();
+    if (storedRow && typeof storedRow === 'object' && !Array.isArray(storedRow)) {
+      Object.entries(storedRow).forEach(([key, value]) => {
+        rowMap.set(key, value);
       });
     }
-    rowMap = nextRowMap;
     rowsMap.set(rowId, rowMap);
   }
-  let dataMap = rowMap.get('data');
-  if (!(dataMap instanceof Y.Map)) {
-    const nextDataMap = new Y.Map();
-    if (dataMap && typeof dataMap === 'object' && !Array.isArray(dataMap)) {
-      Object.entries(dataMap).forEach(([key, value]) => {
-        nextDataMap.set(key, value);
+  const storedData = rowMap.get('data');
+  let dataMap: Y.Map<any>;
+  if (storedData instanceof Y.Map) {
+    dataMap = storedData;
+  } else {
+    dataMap = new Y.Map();
+    if (storedData && typeof storedData === 'object' && !Array.isArray(storedData)) {
+      Object.entries(storedData).forEach(([key, value]) => {
+        dataMap.set(key, value);
       });
     }
-    dataMap = nextDataMap;
     rowMap.set('data', dataMap);
   }
   const nextData = normalizeRowData(data);
@@ -384,17 +388,17 @@ const server = Server.configure({
     }
     throw null;
   },
-  async onConnect({ connection, documentName, context }) {
+  async onConnect({ socketId, documentName, context }) {
     const doc = parseDocumentName(documentName);
     if (!doc) {
       throw new Error('Invalid document name');
     }
     const ctx = context as AuthContext | undefined;
     // Auth already verified in onAuthenticate; just log for observability.
-    console.log('collab connected', { connectionId: connection.id, documentName, userId: ctx?.userId, allowed: ctx?.workspaceIds });
+    console.log('collab connected', { connectionId: socketId, documentName, userId: ctx?.userId, allowed: ctx?.workspaceIds });
   },
-  async onDisconnect({ connection, documentName, clientsCount }) {
-    console.log('collab disconnected', connection?.id ?? 'unknown');
+  async onDisconnect({ socketId, documentName, clientsCount }) {
+    console.log('collab disconnected', socketId);
     if (clientsCount === 0) {
       await requestMaterialize(documentName);
     }

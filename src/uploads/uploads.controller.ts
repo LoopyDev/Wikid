@@ -2,6 +2,7 @@ import { BadRequestException, Body, Controller, Get, NotFoundException, Param, P
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Request, Response as ExpressResponse } from 'express';
 import { memoryStorage } from 'multer';
+import { Readable } from 'stream';
 import { UploadsService } from './uploads.service';
 import { PagesService } from '../pages/pages.service';
 import { assertSystemAdmin } from '../utils/assert-admin.util';
@@ -106,7 +107,7 @@ export class UploadsController {
     const key = `${pageId}/${filename}`;
     try {
       const result = await this.uploads.getObject(key);
-      const body = result.Body as unknown as NodeJS.ReadableStream;
+      const body = result.Body as Readable;
       if (result.ContentType) {
         res?.setHeader('Content-Type', result.ContentType);
       }

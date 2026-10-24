@@ -807,7 +807,7 @@ export class PagesService {
     if (forbiddenPrivate) {
       throw new Error('Cannot move private pages you do not own');
     }
-    const updateData: Prisma.PageUpdateInput = { visibility: target };
+    const updateData: Prisma.PageUncheckedUpdateManyInput = { visibility: target };
     if (target === PageVisibility.PRIVATE) {
       if (!user?.userId) {
         throw new Error('userId is required');
@@ -1148,9 +1148,10 @@ export class PagesService {
     const databasePage = await this.ensureWikiDatabase(page, user);
     await this.ensureWikiRowsForHome(wikiHomeId);
 
+    const { wikiConfig } = await this.prisma.page.findUniqueOrThrow({ where: { id: page.id }, select: { wikiConfig: true } });
     const existingConfig =
-      page.wikiConfig && typeof page.wikiConfig === 'object' && !Array.isArray(page.wikiConfig)
-        ? (page.wikiConfig as Record<string, any>)
+      wikiConfig && typeof wikiConfig === 'object' && !Array.isArray(wikiConfig)
+        ? (wikiConfig as Record<string, any>)
         : null;
     const nextConfig = existingConfig
       ? { ...existingConfig, databasePageId: databasePage.id }
@@ -1714,25 +1715,16 @@ export class PagesService {
     if (wikiHomeId) {
       await this.ensureWikiRowsForHome(wikiHomeId);
     }
-    let database = await this.prisma.database.findUnique({
-      where: { pageId },
-      include: {
-        fields: { orderBy: { position: 'asc' } },
-        rows: { orderBy: { position: 'asc' } },
-        forms: { orderBy: { position: 'asc' } },
-        views: { orderBy: { position: 'asc' } },
-      },
-    });
+    const include = {
+      fields: { orderBy: { position: 'asc' } },
+      rows: { orderBy: { position: 'asc' } },
+      forms: { orderBy: { position: 'asc' } },
+      views: { orderBy: { position: 'asc' } },
+    } satisfies Prisma.DatabaseInclude;
+    let database = await this.prisma.database.findUnique({ where: { pageId }, include });
     if (!database) {
-      database = await this.createDatabaseForPage(pageId, page.workspaceId);
-      database = await this.prisma.database.findUniqueOrThrow({
-        where: { pageId },
-        include: {
-          fields: { orderBy: { position: 'asc' } },
-          rows: { orderBy: { position: 'asc' } },
-          forms: { orderBy: { position: 'asc' } },
-        },
-      });
+      await this.createDatabaseForPage(pageId, page.workspaceId);
+      database = await this.prisma.database.findUniqueOrThrow({ where: { pageId }, include });
     }
     if (!wikiHomeId) {
       const { field, updated } = await this.ensureDatabaseTitleField(database.id);
@@ -1790,7 +1782,7 @@ export class PagesService {
             }
             return null;
           })
-          .filter(Boolean)
+          .filter((choice): choice is NonNullable<typeof choice> => !!choice)
       : null;
     const choiceValues = choices ? choices.map((choice) => choice.value) : null;
     return { ...(options as Record<string, any>), choices, choiceValues };
@@ -1895,7 +1887,7 @@ export class PagesService {
     const created = await this.createPage({
       workspaceId: database.workspaceId,
       title,
-      parentId: sourcePage?.id || null,
+      parentId: sourcePage?.id || undefined,
       kind: PageKind.DATABASE,
       visibility: sourcePage?.visibility || PageVisibility.PUBLIC,
       setupStatus: PageSetupStatus.COMPLETE,
@@ -1913,10 +1905,10 @@ export class PagesService {
   private async ensureRelationHistoryOptions(
     database: { pageId: string; workspaceId: string; complianceMode: boolean },
     fieldName: string,
-    options: Prisma.JsonValue,
+    options: Prisma.InputJsonValue,
     user?: { userId?: string; userName?: string }
   ) {
-    const relation = this.normalizeRelationOptions(options);
+    const relation = this.normalizeRelationOptions(options as Prisma.JsonValue);
     if (!relation?.history?.enabled) return options;
     if (relation.history.pageId && relation.history.pageId === database.pageId) {
       throw new Error('Relation history database must be different from the source database.');
@@ -2012,15 +2004,16 @@ export class PagesService {
         logFields = await this.resolveRelationHistoryFieldIds(logDb.id, database.pageId, field.relationPageId);
         logFieldCache.set(field.logPageId, logFields);
       }
-      if (!logFields.sourceFieldId || !logFields.targetFieldId) continue;
+      const { sourceFieldId, targetFieldId } = logFields;
+      if (!sourceFieldId || !targetFieldId) continue;
 
       const pushEntry = (action: string, entry: { id: string; label: string }) => {
         const data: Record<string, any> = {};
         if (logFields.titleFieldId) {
           data[logFields.titleFieldId] = `${action}: ${entry.label || entry.id}`;
         }
-        data[logFields.sourceFieldId] = { id: rowId, label: sourceLabel };
-        data[logFields.targetFieldId] = { id: entry.id, label: entry.label || entry.id };
+        data[sourceFieldId] = { id: rowId, label: sourceLabel };
+        data[targetFieldId] = { id: entry.id, label: entry.label || entry.id };
         if (logFields.actionFieldId) data[logFields.actionFieldId] = action;
         if (logFields.changedAtFieldId) data[logFields.changedAtFieldId] = now;
         if (logFields.changedByFieldId && changedBy) data[logFields.changedByFieldId] = changedBy;
@@ -3382,7 +3375,7 @@ export class PagesService {
             );
             complianceStatus = result?.status ?? null;
           } catch (err) {
-            transitionError = err?.message || 'Failed to transition governance status.';
+            transitionError = (err instanceof Error && err.message) || 'Failed to transition governance status.';
           }
         }
         const updatedRow = (updated as any)?.row ? (updated as any).row : updated;
@@ -3433,7 +3426,7 @@ export class PagesService {
     const type: DatabaseFieldType =
       payload.type && Object.values(DatabaseFieldType).includes(payload.type) ? payload.type : DatabaseFieldType.TEXT;
     const position = payload.position ?? (await this.nextDatabaseFieldPosition(database.id));
-    let options = await this.sanitizeDatabaseFieldOptions(database, type, payload.options);
+    let options: Prisma.InputJsonValue = await this.sanitizeDatabaseFieldOptions(database, type, payload.options);
     if (type === DatabaseFieldType.RELATION) {
       options = await this.ensureRelationHistoryOptions(database, name, options, user);
     }
@@ -3518,18 +3511,17 @@ export class PagesService {
       where: { databaseId: field.databaseId },
       select: { id: true, fields: true },
     });
-    const formUpdates = await Promise.all(
+    // Clean every form first, then apply the updates in one transaction
+    const cleanedForms = await Promise.all(
       forms.map(async (form) => {
         if (!Array.isArray(form.fields)) return null;
         const cleaned = await this.sanitizeDatabaseFormFields(field.databaseId, form.fields);
-        if (cleaned.length === form.fields.length) return null;
-        return this.prisma.databaseForm.update({
-          where: { id: form.id },
-          data: { fields: cleaned },
-        });
+        return cleaned.length === form.fields.length ? null : { id: form.id, fields: cleaned };
       })
     );
-    const toApply = formUpdates.filter(Boolean);
+    const toApply = cleanedForms
+      .filter((form): form is NonNullable<typeof form> => !!form)
+      .map((form) => this.prisma.databaseForm.update({ where: { id: form.id }, data: { fields: form.fields } }));
     if (toApply.length) {
       await this.prisma.$transaction(toApply);
     }

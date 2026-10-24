@@ -101,7 +101,7 @@ services:
       PRINT_API_URL: http://web/api
       DATABASE_URL: postgresql://postgres:postgres@db:5432/wikid-tiptap
       COMPLIANCE_DATABASE_URL: postgresql://postgres:postgres@compliance-db:5432/wikid-compliance
-      COLLAB_SERVER_URL: ws://collab:1234
+      COLLAB_SERVER_URL: http://collab:1234
       S3_ENDPOINT: http://minio:9000
       S3_REGION: ${S3_REGION:-us-east-1}
       S3_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}

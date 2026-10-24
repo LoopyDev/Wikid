@@ -164,26 +164,30 @@ export const updateCollabDatabaseRowState = (
   Y.applyUpdate(doc, new Uint8Array(state));
   const rowsMap = doc.getMap('rows');
   const rowOrder = doc.getArray('rowOrder');
-  let rowMap = rowsMap.get(row.id);
-  if (!(rowMap instanceof Y.Map)) {
-    const nextRowMap = new Y.Map();
-    if (rowMap && typeof rowMap === 'object' && !Array.isArray(rowMap)) {
-      Object.entries(rowMap).forEach(([key, value]) => {
-        nextRowMap.set(key, value);
+  const storedRow = rowsMap.get(row.id);
+  let rowMap: Y.Map<any>;
+  if (storedRow instanceof Y.Map) {
+    rowMap = storedRow;
+  } else {
+    rowMap = new Y.Map();
+    if (storedRow && typeof storedRow === 'object' && !Array.isArray(storedRow)) {
+      Object.entries(storedRow).forEach(([key, value]) => {
+        rowMap.set(key, value);
       });
     }
-    rowMap = nextRowMap;
     rowsMap.set(row.id, rowMap);
   }
-  let dataMap = rowMap.get('data');
-  if (!(dataMap instanceof Y.Map)) {
-    const nextDataMap = new Y.Map();
-    if (dataMap && typeof dataMap === 'object' && !Array.isArray(dataMap)) {
-      Object.entries(dataMap).forEach(([key, value]) => {
-        nextDataMap.set(key, value);
+  const storedData = rowMap.get('data');
+  let dataMap: Y.Map<any>;
+  if (storedData instanceof Y.Map) {
+    dataMap = storedData;
+  } else {
+    dataMap = new Y.Map();
+    if (storedData && typeof storedData === 'object' && !Array.isArray(storedData)) {
+      Object.entries(storedData).forEach(([key, value]) => {
+        dataMap.set(key, value);
       });
     }
-    dataMap = nextDataMap;
     rowMap.set('data', dataMap);
   }
   const nextData = normalizeRowData(row.data);

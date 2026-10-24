@@ -23,6 +23,7 @@ function makeHardBreak() {
 
 function makeBlock(...children) {
   return {
+    type: { name: 'paragraph' },
     content: { forEach: (fn) => children.forEach((child, i) => fn(child, i, i)) },
   };
 }

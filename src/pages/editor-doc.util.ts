@@ -66,7 +66,7 @@ const extractTiptapContent = (value: any): any[] => {
 const extractText = (node: any): string => {
   if (!node || typeof node !== 'object') return '';
   if (typeof node.text === 'string') {
-    const linkMark = Array.isArray(node.marks) ? node.marks.find((mark) => mark?.type === 'link') : null;
+    const linkMark = Array.isArray(node.marks) ? node.marks.find((mark: any) => mark?.type === 'link') : null;
     if (linkMark?.attrs?.href) {
       const href = safeString(linkMark.attrs.href).trim();
       if (href) return `[${node.text}](${href})`;
