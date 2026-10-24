@@ -1,4 +1,5 @@
-const iconModules = import.meta.glob('../icons/*.svg', { as: 'raw', eager: true });
+// Loaded from the bootstrap-icons package rather than a vendored copy
+const iconModules = import.meta.glob('/node_modules/bootstrap-icons/icons/*.svg', { as: 'raw', eager: true });
 
 const iconEntries = Object.entries(iconModules)
   .map(([path, svg]) => {
@@ -31,7 +32,8 @@ const buildIconToken = (id, color) => {
 const resolveIcon = (value, fallback = '📄') => {
   if (isIconToken(value)) {
     const parsed = parseIconToken(value);
-    const entry = parsed ? iconMap.get(parsed.id) : null;
+    // The old vendored set had duplicates like "pin copy"; map saved ones to the original icon
+    const entry = parsed ? iconMap.get(parsed.id) || iconMap.get(parsed.id.replace(/ copy( \d+)?$/, '')) : null;
     if (entry) {
       return { type: 'svg', ...entry, color: parsed?.color || '' };
     }

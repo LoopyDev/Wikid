@@ -135,7 +135,7 @@ Issues and pull requests are welcome. For larger changes, please open an issue f
 
 Wikid is licensed under the [GNU Affero General Public License v3.0](LICENSE). If you run a modified version as a network service, you must make your source changes available to its users.
 
-Icons are from [Bootstrap Icons](https://icons.getbootstrap.com/) (MIT). See [`web/src/icons/LICENSE`](web/src/icons/LICENSE).
+Icons are from [Bootstrap Icons](https://icons.getbootstrap.com/) (MIT). They're loaded from the `bootstrap-icons` npm package, which includes its license.
 
 ### Name
 
