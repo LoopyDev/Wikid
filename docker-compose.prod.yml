@@ -47,15 +47,7 @@ services:
     environment:
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in .env}
 
-  minio-init:
-    environment:
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in .env}
-
   compliance-minio:
-    environment:
-      MINIO_ROOT_PASSWORD: ${COMPLIANCE_MINIO_ROOT_PASSWORD:?Set COMPLIANCE_MINIO_ROOT_PASSWORD in .env}
-
-  compliance-minio-init:
     environment:
       MINIO_ROOT_PASSWORD: ${COMPLIANCE_MINIO_ROOT_PASSWORD:?Set COMPLIANCE_MINIO_ROOT_PASSWORD in .env}
 

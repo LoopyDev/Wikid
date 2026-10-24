@@ -27,7 +27,7 @@ COMPLIANCE_UPLOAD_MAX_BYTES=52428800
 ## 2) Start infra
 This needs `docker-compose.dev.yml` loaded (set `COMPOSE_FILE` in the root `.env`, as in `.env.example`) so the databases and MinIO are reachable on localhost.
 ```
-docker compose up -d db compliance-db minio compliance-minio minio-init compliance-minio-init
+docker compose up -d db compliance-db minio compliance-minio
 ```
 
 ## 3) Generate Prisma clients

@@ -29,8 +29,10 @@ services:
       timeout: 5s
       retries: 5
 
+  # MinIO no longer publishes images or maintains its community edition. Silo (pgsty/silo)
+  # is a maintained fork: same S3 API, MINIO_* settings and on-disk format.
   minio:
-    image: minio/minio:latest
+    image: pgsty/silo:RELEASE.2026-10-18T00-00-00Z
     restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:
@@ -38,9 +40,14 @@ services:
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
     volumes:
       - minio-data:/data
+    healthcheck:
+      test: ["CMD", "silo", "healthcheck", "ready"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   compliance-minio:
-    image: minio/minio:latest
+    image: pgsty/silo:RELEASE.2026-10-18T00-00-00Z
     restart: unless-stopped
     command: server /data --console-address ":9003"
     environment:
@@ -48,38 +55,11 @@ services:
       MINIO_ROOT_PASSWORD: ${COMPLIANCE_MINIO_ROOT_PASSWORD:-minioadmin}
     volumes:
       - compliance-minio-data:/data
-
-  minio-init:
-    image: minio/mc:latest
-    depends_on:
-      - minio
-    entrypoint: >
-      /bin/sh -c "
-      until /usr/bin/mc alias set local http://minio:9000 $$MINIO_ROOT_USER $$MINIO_ROOT_PASSWORD; do sleep 1; done;
-      /usr/bin/mc mb -p local/$$MINIO_BUCKET || true;
-      /usr/bin/mc anonymous set private local/$$MINIO_BUCKET;
-      exit 0;
-      "
-    environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
-      MINIO_BUCKET: ${S3_BUCKET:-wikid}
-
-  compliance-minio-init:
-    image: minio/mc:latest
-    depends_on:
-      - compliance-minio
-    entrypoint: >
-      /bin/sh -c "
-      until /usr/bin/mc alias set compliance http://compliance-minio:9000 $$MINIO_ROOT_USER $$MINIO_ROOT_PASSWORD; do sleep 1; done;
-      /usr/bin/mc mb -p compliance/$$MINIO_BUCKET || true;
-      /usr/bin/mc anonymous set private compliance/$$MINIO_BUCKET;
-      exit 0;
-      "
-    environment:
-      MINIO_ROOT_USER: ${COMPLIANCE_MINIO_ROOT_USER:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${COMPLIANCE_MINIO_ROOT_PASSWORD:-minioadmin}
-      MINIO_BUCKET: ${COMPLIANCE_S3_BUCKET:-wikid-compliance}
+    healthcheck:
+      test: ["CMD", "silo", "healthcheck", "ready"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   # --- App (docker compose up) ---
   api:
@@ -124,10 +104,10 @@ services:
         condition: service_healthy
       compliance-db:
         condition: service_healthy
-      minio-init:
-        condition: service_completed_successfully
-      compliance-minio-init:
-        condition: service_completed_successfully
+      minio:
+        condition: service_healthy
+      compliance-minio:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://localhost:3000/').then((r) => process.exit(r.status < 500 ? 0 : 1), () => process.exit(1))"]
       interval: 5s

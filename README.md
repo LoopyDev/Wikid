@@ -91,7 +91,7 @@ cp web/.env.example web/.env
 
 # 2. Start Postgres (x2) and MinIO (x2). COMPOSE_FILE in .env adds docker-compose.dev.yml,
 #    which publishes them on localhost (5435, 5436, 9000-9003)
-docker compose up -d db compliance-db minio compliance-minio minio-init compliance-minio-init
+docker compose up -d db compliance-db minio compliance-minio
 
 # 3. Install dependencies (all packages)
 npm install

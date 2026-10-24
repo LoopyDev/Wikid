@@ -36,6 +36,8 @@ export class ComplianceUploadsService {
           await this.client.send(new CreateBucketCommand({ Bucket: this.bucket }));
         } catch (createErr) {
           this.logger.error('Failed to create compliance bucket', createErr as Error);
+          // Let the next call retry instead of reusing this failure
+          this.bucketPromise = null;
           throw createErr;
         }
       }
