@@ -11,10 +11,10 @@ coverage/
 
 # Generated
 .prisma/
-/prisma/generated/
+/api/prisma/generated/
 
 # Local data
-/uploads/
+/api/uploads/
 collab/data/
 
 # Tooling / OS

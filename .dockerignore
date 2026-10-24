@@ -12,7 +12,7 @@
 .idea
 **/.DS_Store
 Docs
-prisma/generated
-prisma/ERD.svg
-uploads
+api/prisma/generated
+api/prisma/ERD.svg
+api/uploads
 collab/data

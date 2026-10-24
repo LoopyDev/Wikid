@@ -72,8 +72,8 @@ See [`ai-markdown.md`](./ai-markdown.md) for full details on the markdown utilit
 | `web/src/composables/useBlockSummarizer.js` | Stats watcher (cheap, no API); `summarize()` async function for on-request use |
 | `web/src/utils/aiMarkdown.js` | `nodeToInlineMarkdown`, `inlineMarkdownToHtml`, `markdownToInlineFragment` |
 | `web/src/components/TiptapEditor.vue` | `lastKnownCursorPos`, `detectTargetSection()`, `serializeBlocksForAi()`, `applyAiSuggestions()`, composable integration |
-| `src/ai/ai.service.ts` | `summarizeBlocks()` using Haiku; `generateSuggestions()` with inline markdown prompt |
-| `src/ai/ai.controller.ts` | `POST /ai/summarize-blocks` route |
+| `api/src/ai/ai.service.ts` | `summarizeBlocks()` using Haiku; `generateSuggestions()` with inline markdown prompt |
+| `api/src/ai/ai.controller.ts` | `POST /ai/summarize-blocks` route |
 | `web/src/api/client.js` | `summarizeBlocks()` API method |
 | `web/src/components/AiSidePanel.vue` | Calls `summarizeForAi()` before each edit request; stats bar display |
 | `web/src/App.vue` | Threads `summarizeForAi`, `summarizationPending`, `summarizationStats` to `AiSidePanel` |

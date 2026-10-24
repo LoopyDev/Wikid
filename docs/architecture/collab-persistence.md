@@ -89,7 +89,7 @@ Collab server:
 Run Prisma migrations after pulling the changes:
 
 ```
-npm run prisma:migrate
+npm run prisma:migrate -w api
 ```
 
 Install new server-side dependencies:
@@ -100,4 +100,4 @@ npm install
 
 ## Notes
 - The Yjs to ProseMirror conversion uses a server-side schema that mirrors the editor.
-- If you add new editor nodes/marks, update `src/collab/collab-doc.schema.ts`.
+- If you add new editor nodes/marks, update `api/src/collab/collab-doc.schema.ts`.

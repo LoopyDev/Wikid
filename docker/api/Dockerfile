@@ -9,12 +9,18 @@ ENV PUPPETEER_SKIP_DOWNLOAD=true \
     PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
 WORKDIR /app
+# npm workspaces: install only the API's dependencies from the shared lockfile
 COPY package.json package-lock.json ./
-RUN npm ci
+COPY api/package.json api/
+COPY collab/package.json collab/
+COPY web/package.json web/
+COPY mcp/package.json mcp/
+RUN npm ci -w api
 
-COPY tsconfig.json ./
-COPY prisma ./prisma
-COPY src ./src
+WORKDIR /app/api
+COPY api/tsconfig.json ./
+COPY api/prisma ./prisma
+COPY api/src ./src
 # Only the client generators; the ERD generator needs a browser and isn't needed at runtime
 RUN npx prisma generate --generator client \
   && npx prisma generate --schema prisma/compliance/schema.prisma

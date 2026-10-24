@@ -9,7 +9,7 @@
 - Bootstrap Icons + custom SVGs: Icon library for UI visuals.
 - emoji-picker-element: Emoji/icon picker UI.
 
-## Backend API (src/)
+## Backend API (api/src/)
 - NestJS: HTTP API and application layer.
 - Prisma: ORM and schema migrations for persistence.
 - JSON Web Tokens: Auth/session tokens for services.

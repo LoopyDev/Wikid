@@ -37,10 +37,13 @@ A self-hosted wiki and workspace with a block-based editor, structured databases
 
 | Part | Tech |
 | --- | --- |
-| API (`src/`) | NestJS, Prisma, PostgreSQL |
+| API (`api/`) | NestJS, Prisma, PostgreSQL |
 | Frontend (`web/`) | Vue 3, Pinia, Vite, Tiptap v3 |
 | Collab server (`collab/`) | Hocuspocus, Yjs |
+| MCP server (`mcp/`) | Model Context Protocol SDK |
 | Storage | S3-compatible (MinIO for local dev) |
+
+The repo is an npm workspace: one `npm install` at the root installs every package.
 
 See [`docs/architecture/overview.md`](docs/architecture/overview.md) for how the pieces fit together.
 
@@ -76,46 +79,49 @@ Requirements: Node.js 20+, Docker.
 
 ```bash
 # 1. Configure environment
-cp .env.example .env
+cp .env.example .env               # Docker Compose settings
+cp api/.env.example api/.env
 cp collab/.env.example collab/.env
 cp web/.env.example web/.env
-# Set SESSION_SECRET in .env, and set COLLAB_JWT_SECRET and COLLAB_API_SECRET
-# to the same values in .env and collab/.env. Generate each with:
+# Set SESSION_SECRET in api/.env, and set COLLAB_JWT_SECRET and COLLAB_API_SECRET
+# to the same values in api/.env and collab/.env. Generate each with:
 #   openssl rand -hex 32
 
 # 2. Start Postgres (x2) and MinIO (x2). COMPOSE_FILE in .env adds docker-compose.dev.yml,
 #    which publishes them on localhost (5435, 5436, 9000-9003)
 docker compose up -d db compliance-db minio compliance-minio minio-init compliance-minio-init
 
-# 3. Install dependencies
+# 3. Install dependencies (all packages)
 npm install
-(cd web && npm install)
-(cd collab && npm install)
 
 # 4. Set up the databases
-npm run prisma:generate
-npm run prisma:generate:compliance
-npm run prisma:migrate
-npm run prisma:migrate:compliance
-npm run prisma:seed
+npm run prisma:generate -w api
+npm run prisma:generate:compliance -w api
+npm run prisma:migrate -w api
+npm run prisma:migrate:compliance -w api
+npm run prisma:seed -w api
 
 # 5. Run everything (three terminals)
-npm run start:dev            # API on http://localhost:3000
-(cd collab && npm run dev)   # collab server on ws://localhost:1234
-(cd web && npm run dev)      # app on http://localhost:5173
+npm run dev:api      # API on http://localhost:3000
+npm run dev:collab   # collab server on ws://localhost:1234
+npm run dev:web      # app on http://localhost:5173
 ```
 
 Log in with one of the seeded demo accounts: `admin@wikid.local`, `alice@wikid.local`, or `bob@wikid.local`. They all use the password `wikid`.
 
-To enable the AI features, set `ANTHROPIC_API_KEY` in `.env`. Without it, the AI endpoints return 503 and the rest of the app works normally.
+To enable the AI features, set `ANTHROPIC_API_KEY` in `api/.env`. Without it, the AI endpoints return 503 and the rest of the app works normally.
 
 For the compliance database's optional immutability guards, see [`docs/compliance/setup.md`](docs/compliance/setup.md).
 
-### Tests
+### Checks
 
 ```bash
-cd web && npm test
+npm test             # web unit tests
+npm run typecheck    # API and collab server
+npm run build        # web production build
 ```
+
+CI runs these, plus a Docker image build, on every push to `main` and every pull request.
 
 ## Security
 

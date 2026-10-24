@@ -1,7 +1,7 @@
 # Compliance V1 - Step-by-step bring-up
 
 ## 1) Set environment variables
-Add these to `.env` (adjust as needed):
+Add these to `api/.env` (adjust as needed):
 
 ```
 DATABASE_URL=postgresql://postgres:postgres@localhost:5435/wikid-tiptap
@@ -25,33 +25,33 @@ COMPLIANCE_UPLOAD_MAX_BYTES=52428800
 ```
 
 ## 2) Start infra
-This needs `docker-compose.dev.yml` loaded (set `COMPOSE_FILE` as in `.env.example`) so the databases and MinIO are reachable on localhost.
+This needs `docker-compose.dev.yml` loaded (set `COMPOSE_FILE` in the root `.env`, as in `.env.example`) so the databases and MinIO are reachable on localhost.
 ```
 docker compose up -d db compliance-db minio compliance-minio minio-init compliance-minio-init
 ```
 
 ## 3) Generate Prisma clients
 ```
-npm run prisma:generate
-npm run prisma:generate:compliance
+npm run prisma:generate -w api
+npm run prisma:generate:compliance -w api
 ```
 
 ## 4) Run migrations
 ```
-npm run prisma:migrate
-npm run prisma:migrate:compliance
+npm run prisma:migrate -w api
+npm run prisma:migrate:compliance -w api
 ```
 
 ## 5) (Optional) Apply immutability guards in compliance DB
-Replace `APP_ROLE` in `prisma/compliance/immutability.sql` with the app role, then run:
+Replace `APP_ROLE` in `api/prisma/compliance/immutability.sql` with the app role, then run:
 ```
-sed "s/APP_ROLE/postgres/g" prisma/compliance/immutability.sql \
+sed "s/APP_ROLE/postgres/g" api/prisma/compliance/immutability.sql \
   | docker compose exec -T compliance-db psql -U postgres -d wikid-compliance
 ```
 
 ## 6) Start the API
 ```
-npm run start:dev
+npm run dev:api
 ```
 
 ## 7) Sanity-check endpoints

@@ -1,8 +1,8 @@
 # Wikid Collab (Hocuspocus)
 
 ### Install
+From the repo root (npm workspaces install every package):
 ```bash
-cd collab
 npm install
 ```
 

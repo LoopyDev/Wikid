@@ -6,7 +6,7 @@ generator erd {
   provider = "prisma-erd-generator"
   output   = "ERD.svg"
   template = "mermaid"
-  mmdcPath = "node_modules/.bin"
+  mmdcPath = "../node_modules/.bin"
 }
 
 datasource db {
