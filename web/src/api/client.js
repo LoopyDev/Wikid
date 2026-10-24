@@ -1,5 +1,6 @@
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 const API_STATUS_EVENT = 'wikid:api-status';
+export const AUTH_EXPIRED_EVENT = 'wikid:auth-expired';
 
 const notifyApiStatus = (status) => {
   if (typeof window === 'undefined' || typeof window.dispatchEvent !== 'function') return;
@@ -10,6 +11,18 @@ const notifyApiStatus = (status) => {
   }
 };
 
+const notifyAuthExpired = () => {
+  if (typeof window === 'undefined' || typeof window.dispatchEvent !== 'function') return;
+  window.dispatchEvent(new CustomEvent(AUTH_EXPIRED_EVENT));
+};
+
+// All API calls go through here so the session cookie is always sent
+async function apiFetch(path, options = {}) {
+  const res = await fetch(`${API_BASE}${path}`, { credentials: 'include', ...options });
+  if (res.status === 401 && path !== '/auth/login') notifyAuthExpired();
+  return res;
+}
+
 async function request(path, options = {}) {
   let res;
   try {
@@ -17,7 +30,7 @@ async function request(path, options = {}) {
     const headers = isFormData
       ? { ...(options.headers || {}) }
       : { 'Content-Type': 'application/json', ...(options.headers || {}) };
-    res = await fetch(`${API_BASE}${path}`, {
+    res = await apiFetch(path, {
       ...options,
       headers,
     });
@@ -245,6 +258,17 @@ export const api = {
       body: JSON.stringify(payload),
     });
   },
+  async logout() {
+    return request(`/auth/logout`, { method: 'POST' });
+  },
+  isApiUrl(url) {
+    return typeof url === 'string' && url.startsWith(API_BASE);
+  },
+  async fetchUpload(url) {
+    const res = await fetch(url, { credentials: 'include' });
+    if (!res.ok) throw new Error(await res.text() || res.statusText);
+    return res.arrayBuffer();
+  },
   async getUser(userId, { userId: requesterId, userName } = {}) {
     if (!userId) throw new Error('userId is required');
     return request(`/users/${userId}${buildQs({ userId: requesterId, userName })}`);
@@ -365,7 +389,7 @@ export const api = {
     });
   },
   async suggestAiEdits({ prompt, blocks }) {
-    const res = await fetch(`${API_BASE}/ai/suggest`, {
+    const res = await apiFetch('/ai/suggest', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ prompt, blocks }),
@@ -380,7 +404,7 @@ export const api = {
     return `${API_BASE}/pages/${pageId}/export/pdf${buildQs(params)}`;
   },
   async exportHtml({ rootPageId, workspaceId, mode, excludeIds } = {}) {
-    const res = await fetch(`${API_BASE}/export/html`, {
+    const res = await apiFetch('/export/html', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ rootPageId, workspaceId, mode, excludeIds }),
@@ -394,7 +418,7 @@ export const api = {
   },
   // AI generation — returns an EventSource-like async iterator via fetch SSE
   async *streamAiChat({ messages, workspaceId, pageContext, currentPageOnly } = {}) {
-    const res = await fetch(`${API_BASE}/ai/chat`, {
+    const res = await apiFetch('/ai/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ messages, workspaceId, pageContext, currentPageOnly }),
@@ -427,7 +451,7 @@ export const api = {
     }
   },
   async *streamAiGenerate({ prompt, context, mode } = {}) {
-    const res = await fetch(`${API_BASE}/ai/generate`, {
+    const res = await apiFetch('/ai/generate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ prompt, context, mode }),

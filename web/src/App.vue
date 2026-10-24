@@ -15,7 +15,7 @@ import PageProperties from './components/PageProperties.vue';
 import DatabaseFormPage from './components/DatabaseFormPage.vue';
 import AiSidePanel from './components/AiSidePanel.vue';
 import SecondaryPane from './components/SecondaryPane.vue';
-import { api } from './api/client';
+import { api, AUTH_EXPIRED_EVENT } from './api/client';
 import { editorDocToMarkdown, editorDocToMarkdownAsync, fallbackDoc } from './utils/editorDoc';
 import { SYSTEM_ADMIN_ID } from './constants/system-admin';
 
@@ -848,6 +848,7 @@ onMounted(() => {
   window.addEventListener('keydown', handleEmojiKeydown);
   window.addEventListener('hashchange', focusBlockFromHash);
   window.addEventListener('wikid:api-status', handleApiStatus);
+  window.addEventListener(AUTH_EXPIRED_EVENT, handleAuthExpired);
   window.addEventListener('wikid:page-title-updated', handleExternalTitleUpdated);
   window.addEventListener('offline', handleBrowserOffline);
   setTimeout(() => focusBlockFromHash(), 120);
@@ -929,6 +930,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleEmojiKeydown);
   window.removeEventListener('hashchange', focusBlockFromHash);
   window.removeEventListener('wikid:api-status', handleApiStatus);
+  window.removeEventListener(AUTH_EXPIRED_EVENT, handleAuthExpired);
   window.removeEventListener('wikid:page-title-updated', handleExternalTitleUpdated);
   window.removeEventListener('offline', handleBrowserOffline);
   stopResizing();
@@ -1396,6 +1398,10 @@ const toggleUserMenu = (event) => {
 const handleLogout = () => {
   showUserMenu.value = false;
   workspace.logout();
+};
+// Session cookie missing or expired: drop the cached user so the login screen shows
+const handleAuthExpired = () => {
+  if (workspace.activeUserId) workspace.logout();
 };
 const openAdminView = (view) => {
   closeMenu();

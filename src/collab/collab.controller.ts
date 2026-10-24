@@ -1,4 +1,5 @@
 import { BadRequestException, Controller, ForbiddenException, Get, Headers, NotFoundException, Post, Put, Query, Body } from '@nestjs/common';
+import { Public } from '../auth/public.decorator';
 import { CollabService } from './collab.service';
 import { assertSystemAdmin } from '../utils/assert-admin.util';
 
@@ -19,6 +20,7 @@ export class CollabController {
     }
   }
 
+  @Public()
   @Get('docs')
   async getDoc(@Query('documentName') documentName: string, @Headers('authorization') authHeader?: string) {
     this.assertSecret(authHeader);
@@ -32,6 +34,7 @@ export class CollabController {
     return { state: result.state.toString('base64') };
   }
 
+  @Public()
   @Put('docs')
   async putDoc(@Body('documentName') documentName: string, @Body('state') state: string, @Headers('authorization') authHeader?: string) {
     this.assertSecret(authHeader);
@@ -46,6 +49,7 @@ export class CollabController {
     return { ok: true };
   }
 
+  @Public()
   @Post('docs/materialize')
   async requestMaterialize(@Body('documentName') documentName: string, @Headers('authorization') authHeader?: string) {
     this.assertSecret(authHeader);

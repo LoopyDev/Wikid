@@ -330,6 +330,7 @@ export const useWorkspaceStore = defineStore('workspace', {
       }
     },
     logout() {
+      api.logout().catch(() => {});
       this.activeUserId = null;
       this.activeUserName = null;
       this.activeUserEmail = null;

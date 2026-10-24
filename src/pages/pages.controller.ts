@@ -1,7 +1,11 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query, StreamableFile } from '@nestjs/common';
+import { Body, Controller, Delete, ForbiddenException, Get, Param, Patch, Post, Put, Query, Res, StreamableFile } from '@nestjs/common';
+import { Response } from 'express';
 import { PagesService } from './pages.service';
 import { PdfService } from '../pdf/pdf.service';
 import { HtmlExportService } from '../export/html-export.service';
+import { AuthUser, CurrentUser } from '../auth/auth.guard';
+import { Public } from '../auth/public.decorator';
+import { SESSION_COOKIE, sessionCookieOptions, signSession } from '../auth/session.util';
 
 function pickDefined(source: Record<string, any>, keys: string[]): Record<string, any> {
   const result: Record<string, any> = {};
@@ -174,8 +178,8 @@ export class PagesController {
   }
 
   @Post('pages')
-  createPage(@Body() body: any) {
-    return this.pagesService.createPage(body);
+  createPage(@Body() body: any, @CurrentUser() user: AuthUser) {
+    return this.pagesService.createPage({ ...body, userId: user.id, userName: user.displayName });
   }
 
   @Get('pages/:id/database')
@@ -375,9 +379,29 @@ export class PagesController {
     return this.pagesService.destroyPages(ids, { userId, userName });
   }
 
+  @Public()
   @Post('auth/login')
-  login(@Body('email') email: string, @Body('password') password: string) {
-    return this.pagesService.loginWithCredentials(email, password);
+  async login(
+    @Body('email') email: string,
+    @Body('password') password: string,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const result = await this.pagesService.loginWithCredentials(email, password);
+    res.cookie(SESSION_COOKIE, signSession(result.user.id), sessionCookieOptions());
+    return result;
+  }
+
+  @Public()
+  @Post('auth/logout')
+  logout(@Res({ passthrough: true }) res: Response) {
+    const { maxAge: _maxAge, ...options } = sessionCookieOptions();
+    res.clearCookie(SESSION_COOKIE, options);
+    return { ok: true };
+  }
+
+  @Get('auth/me')
+  me(@CurrentUser() user: AuthUser) {
+    return { user };
   }
 
   @Get('users/:id')
@@ -404,7 +428,9 @@ export class PagesController {
     @Param('id') id: string,
     @Body('currentPassword') currentPassword: string,
     @Body('newPassword') newPassword: string,
+    @CurrentUser() user: AuthUser,
   ) {
+    if (id !== user.id) throw new ForbiddenException('You can only change your own password');
     return this.pagesService.changePassword(id, currentPassword, newPassword);
   }
 
@@ -462,8 +488,8 @@ export class PagesController {
 
   // Collab: issue JWT for Hocuspocus
   @Post('collab/token')
-  issueCollabToken(@Body('userId') userId?: string, @Body('userName') userName?: string, @Body('workspaceId') workspaceId?: string) {
-    return this.pagesService.issueCollabToken({ userId, userName, workspaceId });
+  issueCollabToken(@CurrentUser() user: AuthUser, @Body('workspaceId') workspaceId?: string) {
+    return this.pagesService.issueCollabToken({ userId: user.id, userName: user.displayName, workspaceId });
   }
 
   // Admin: list non-personal workspaces
@@ -473,8 +499,8 @@ export class PagesController {
   }
 
   @Post('workspaces')
-  createWorkspace(@Body('name') name?: string, @Body('userId') userId?: string, @Body('userName') userName?: string) {
-    return this.pagesService.createWorkspace({ name, userId, userName });
+  createWorkspace(@CurrentUser() user: AuthUser, @Body('name') name?: string) {
+    return this.pagesService.createWorkspace({ name, userId: user.id, userName: user.displayName });
   }
 
   @Patch('workspaces/:id')

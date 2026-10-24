@@ -18,7 +18,8 @@
   - `Embeds`: `GET|POST /embeds/link` fetches Open Graph/title/description/image metadata for link previews.
   - `Ai`: `POST /ai/generate` streams Claude responses over SSE (needs `ANTHROPIC_API_KEY`).
   - HTML export (`src/export/`) and PDF rendering via Puppeteer (`src/pdf/`).
-- Auth: email + password (`POST /auth/login`, scrypt hashes). The API does **not** yet enforce authentication; see the security note in the README.
+- Auth (`src/auth/`): `POST /auth/login` checks an email + password (scrypt hashes) and sets a signed `wikid_session` cookie (JWT, `SESSION_SECRET`). `SessionGuard` is registered globally and rejects requests without a valid session. It then overwrites the `userId` / `userName` / `adminId` request params with the session user, so the service-layer permission checks use the real identity. Routes marked `@Public()` skip the guard: login/logout, and the collab persistence endpoints, which check `COLLAB_API_SECRET` instead. In handlers, `@CurrentUser()` returns the session user.
+- PDF export: Puppeteer is given a session cookie for the requesting user so the print page can call the API.
 
 ## Collaboration
 - The `collab/` server runs Hocuspocus on `:1234`. Clients authenticate with a short-lived JWT signed with `COLLAB_JWT_SECRET`.

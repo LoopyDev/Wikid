@@ -1,11 +1,17 @@
-import { Body, Controller, HttpException, HttpStatus, Post, Res } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, HttpException, HttpStatus, Post, Res } from '@nestjs/common';
 import { Response } from 'express';
 import { AiService, AiMode, AiSuggestBlock } from './ai.service';
+import { AuthUser, CurrentUser } from '../auth/auth.guard';
+import { PrismaService } from '../prisma/prisma.service';
+import { SYSTEM_ADMIN_ID } from '../constants/system-admin.const';
 // AiSummarizeResult is returned implicitly — no explicit import needed for the route
 
 @Controller('ai')
 export class AiController {
-  constructor(private readonly aiService: AiService) {}
+  constructor(
+    private readonly aiService: AiService,
+    private readonly prisma: PrismaService,
+  ) {}
 
   @Post('generate')
   async generate(
@@ -63,6 +69,7 @@ export class AiController {
     @Body('workspaceId') workspaceId: string,
     @Body('pageContext') pageContext?: string,
     @Body('currentPageOnly') currentPageOnly?: boolean,
+    @CurrentUser() user?: AuthUser,
     @Res() res?: Response,
   ) {
     if (!messages?.length) {
@@ -70,6 +77,11 @@ export class AiController {
     }
     if (!workspaceId) {
       throw new HttpException('workspaceId is required', HttpStatus.BAD_REQUEST);
+    }
+    // The chat tools read any page in the workspace, so require membership
+    if (user?.id !== SYSTEM_ADMIN_ID) {
+      const member = await this.prisma.userWorkspace.findFirst({ where: { userId: user?.id, workspaceId } });
+      if (!member) throw new ForbiddenException('Workspace access required');
     }
     if (!process.env.ANTHROPIC_API_KEY) {
       throw new HttpException('AI is not configured on this server', HttpStatus.SERVICE_UNAVAILABLE);

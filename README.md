@@ -27,7 +27,7 @@ A self-hosted wiki and workspace with a block-based editor, structured databases
 **Collaboration and AI**
 - Real-time co-editing over Yjs and Hocuspocus, periodically written back to Postgres
 - Optional Claude-powered writing tools: generate with `/AI`, improve/summarise/shorten/expand a selection, change tone, or chat about the current page in a side panel
-- An MCP server (`mcp/`) so AI tools can read and create workspace pages
+- An MCP server (`mcp/`) so AI tools can read and create workspace pages (set `WIKID_API_URL`, `WIKID_EMAIL`, and `WIKID_PASSWORD`)
 
 **Administration**
 - Email + password login, self-service password change
@@ -53,7 +53,8 @@ Requirements: Node.js 20+, Docker.
 cp .env.example .env
 cp collab/.env.example collab/.env
 cp web/.env.example web/.env
-# Set COLLAB_JWT_SECRET and COLLAB_API_SECRET to the same random values in .env and collab/.env:
+# Set SESSION_SECRET in .env, and set COLLAB_JWT_SECRET and COLLAB_API_SECRET
+# to the same values in .env and collab/.env. Generate each with:
 #   openssl rand -hex 32
 
 # 2. Start Postgres (x2) and MinIO (x2)
@@ -91,13 +92,13 @@ cd web && npm test
 
 ## Security
 
-Wikid is not hardened yet. Before running it anywhere other than your own machine, be aware that:
+Wikid hasn't had a security review yet. How it works today:
 
-- **The API does not enforce authentication.** Login checks a password, but later requests identify the user by an ID the client sends, so anyone who can reach the API can act as any user, including the admin.
-- **The defaults are for local dev only:** `postgres`/`postgres` for the databases, `minioadmin`/`minioadmin` for MinIO, and `wikid` for the seeded accounts.
-- CORS is hard-coded to `localhost` in `src/main.ts`.
+- **Sessions:** logging in sets a signed, `HttpOnly`, `SameSite=Lax` session cookie (14 days). A global guard rejects any API request without a valid session, and every request acts as the logged-in user, whatever user ID the client sends.
+- **Frontend and API location:** the frontend and API must be on the same site (for example `wiki.example.com` and `api.wiki.example.com`) so the browser sends the cookie. Set `CORS_ORIGINS` to your frontend's URL and serve both over HTTPS in production.
+- **Defaults:** before deploying, change the dev-only defaults: `postgres`/`postgres` for the databases, `minioadmin`/`minioadmin` for MinIO, the seeded accounts' `wikid` password, and the `change-me` secrets.
 
-Adding a proper session or token guard to the API is the top priority on the roadmap. If you find a security issue, please open a private security advisory on GitHub instead of a public issue.
+If you find a security issue, please open a private security advisory on GitHub instead of a public issue.
 
 ## Contributing
 

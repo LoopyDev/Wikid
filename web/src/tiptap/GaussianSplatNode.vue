@@ -30,13 +30,6 @@ let splatMesh = null;
 let animationId = null;
 let resizeObserver = null;
 
-function buildAuthUrl(url) {
-  if (!url) return url;
-  const sep = url.includes('?') ? '&' : '?';
-  const user = workspace.activeUser;
-  return `${url}${sep}userId=${encodeURIComponent(user?.id || '')}&userName=${encodeURIComponent(user?.name || '')}`;
-}
-
 function frameSplat() {
   if (!splatMesh) return;
   let box;
@@ -115,11 +108,29 @@ function generatePreviewGif() {
   reader.readAsDataURL(blob);
 }
 
-function initScene() {
+let loadSeq = 0;
+
+async function initScene() {
   const el = containerRef.value;
   if (!el || !src.value) return;
 
   cleanup();
+  const seq = ++loadSeq;
+  const url = src.value;
+  let source = { url };
+  if (api.isApiUrl(url)) {
+    // API uploads need the session cookie, which Spark's own fetch doesn't send
+    loading.value = true;
+    try {
+      const bytes = await api.fetchUpload(url);
+      source = { fileBytes: new Uint8Array(bytes), fileName: url.split('?')[0].split('/').pop() };
+    } catch (err) {
+      console.warn('Failed to load splat', err);
+      loading.value = false;
+      return;
+    }
+    if (seq !== loadSeq) return;
+  }
 
   scene = new THREE.Scene();
   camera = new THREE.PerspectiveCamera(60, el.clientWidth / el.clientHeight, 0.1, 1000);
@@ -134,9 +145,8 @@ function initScene() {
   controls.enableDamping = true;
   controls.dampingFactor = 0.1;
 
-  const url = buildAuthUrl(src.value);
   splatMesh = new SplatMesh({
-    url,
+    ...source,
     onLoad: () => {
       loading.value = false;
       // Frame the camera on the splat's center so it isn't off-screen
@@ -170,6 +180,7 @@ function initScene() {
 }
 
 function cleanup() {
+  loadSeq++;
   if (animationId != null) {
     cancelAnimationFrame(animationId);
     animationId = null;

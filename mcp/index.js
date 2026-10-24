@@ -4,17 +4,38 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 
 const API_BASE = process.env.WIKID_API_URL || 'http://localhost:3000';
-const USER_ID = process.env.WIKID_USER_ID || '';
+const EMAIL = process.env.WIKID_EMAIL || '';
+const PASSWORD = process.env.WIKID_PASSWORD || '';
 
-if (!USER_ID) {
-  process.stderr.write('Warning: WIKID_USER_ID not set. API calls may fail.\n');
+if (!EMAIL || !PASSWORD) {
+  process.stderr.write('Warning: WIKID_EMAIL / WIKID_PASSWORD not set. API calls will fail.\n');
 }
 
-async function req(path, options = {}) {
-  const res = await fetch(`${API_BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
-    ...options,
+let USER_ID = '';
+let sessionCookie = '';
+
+async function login() {
+  const res = await fetch(`${API_BASE}/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: EMAIL, password: PASSWORD }),
   });
+  if (!res.ok) throw new Error(`Wikid login failed: ${(await res.text()) || res.statusText}`);
+  const setCookie = res.headers.get('set-cookie') || '';
+  sessionCookie = setCookie.split(';')[0];
+  USER_ID = (await res.json()).user.id;
+}
+
+async function req(path, options = {}, retried = false) {
+  if (!sessionCookie) await login();
+  const res = await fetch(`${API_BASE}${path}`, {
+    ...options,
+    headers: { 'Content-Type': 'application/json', Cookie: sessionCookie, ...(options.headers || {}) },
+  });
+  if (res.status === 401 && !retried) {
+    sessionCookie = '';
+    return req(path, options, true);
+  }
   if (!res.ok) {
     const text = await res.text();
     throw new Error(text || res.statusText);
