@@ -84,6 +84,12 @@ docker image prune -f            # remove old images
 
 New database migrations are applied automatically when the API starts.
 
+If the update changed `docker/caddy/Caddyfile`, restart Caddy too. The file is mounted into the container, so `up -d` doesn't pick up changes to it:
+
+```bash
+docker compose restart caddy
+```
+
 ## Backups
 
 `docker/backup.sh` dumps both databases and archives both MinIO stores into `./backups`, keeping 14 days:

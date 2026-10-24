@@ -9,7 +9,8 @@ const props = defineProps({
   selected: { type: Boolean, default: false },
 });
 
-const DRAWIO_URL = 'https://embed.diagrams.net/?embed=1&spin=1&modified=unsavedChanges&proto=json&dark=1';
+const DRAWIO_ORIGIN = 'https://embed.diagrams.net';
+const DRAWIO_URL = `${DRAWIO_ORIGIN}/?embed=1&spin=1&modified=unsavedChanges&proto=json&dark=1`;
 
 const isEditable = computed(() => props.editor?.isEditable ?? true);
 const xml = computed(() => props.node?.attrs?.xml || '');
@@ -32,7 +33,7 @@ const closeEditor = () => {
 };
 
 const postToFrame = (msg) => {
-  iframeRef.value?.contentWindow?.postMessage(JSON.stringify(msg), '*');
+  iframeRef.value?.contentWindow?.postMessage(JSON.stringify(msg), DRAWIO_ORIGIN);
 };
 
 const requestExport = (xmlToExport) => {
@@ -42,7 +43,8 @@ const requestExport = (xmlToExport) => {
 const handleMessage = (event) => {
   // Accept messages even when pendingClose — we still need the export response
   if (!isOpen.value && !pendingClose.value) return;
-  if (!event.origin.includes('diagrams.net') && !event.origin.includes('draw.io')) return;
+  // Only the editor frame itself; a substring check would also accept e.g. diagrams.net.example.com
+  if (event.origin !== DRAWIO_ORIGIN || event.source !== iframeRef.value?.contentWindow) return;
 
   let msg;
   try {

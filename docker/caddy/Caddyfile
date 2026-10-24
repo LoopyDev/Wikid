@@ -12,7 +12,12 @@
 {$WIKID_DOMAIN} {
 	import no_server_headers
 	encode zstd gzip
-	header Strict-Transport-Security "max-age=31536000"
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		# Don't let other sites put Wikid in a frame (clickjacking); Wikid never frames itself
+		X-Frame-Options "DENY"
+		Content-Security-Policy "frame-ancestors 'none'"
+	}
 	reverse_proxy web:80
 }
 
