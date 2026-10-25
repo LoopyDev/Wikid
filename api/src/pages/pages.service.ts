@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException, BadRequestException, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, BadRequestException, NotFoundException, ForbiddenException, ConflictException } from '@nestjs/common';
 import { randomUUID, randomBytes, scrypt, timingSafeEqual } from 'crypto';
 import { promisify } from 'util';
 import { Prisma, BlockType, WorkspaceRole, DatabaseFieldType, PageKind, PageVisibility, PageSetupStatus } from '@prisma/client';
@@ -237,7 +237,7 @@ export class PagesService {
     if (isUuid(key)) {
       const existingById = await this.prisma.workspace.findUnique({ where: { id: key } });
       if (!existingById) {
-        throw new Error('Workspace not found');
+        throw new NotFoundException('Workspace not found');
       }
       return existingById;
     }
@@ -248,13 +248,13 @@ export class PagesService {
       const rawId = key.replace('personal-', '').trim();
       const targetUserId = userId || rawId;
       if (!targetUserId || (userId && rawId && rawId !== userId)) {
-        throw new Error('Forbidden: personal workspace access denied');
+        throw new ForbiddenException('Forbidden: personal workspace access denied');
       }
       const personal = await this.prisma.workspace.findFirst({ where: { personalOwnerId: targetUserId } });
-      if (!personal) throw new Error('Workspace not found');
+      if (!personal) throw new NotFoundException('Workspace not found');
       return personal;
     }
-    throw new Error('Workspace key not supported');
+    throw new BadRequestException('Workspace key not supported');
   }
 
   private async ensureGlobalWorkspace() {
@@ -324,7 +324,7 @@ export class PagesService {
     }
     const member = await this.getMembership(userId, workspaceId);
     if (!member) {
-      throw new Error('Forbidden: workspace access required');
+      throw new ForbiddenException('Forbidden: workspace access required');
     }
     return member;
   }
@@ -346,7 +346,7 @@ export class PagesService {
     }
     const membership = await this.requireMembership(userId, workspaceId);
     if (!allowed.includes(membership.role)) {
-      throw new Error('Forbidden: insufficient workspace role');
+      throw new ForbiddenException('Forbidden: insufficient workspace role');
     }
     return membership;
   }
@@ -356,7 +356,7 @@ export class PagesService {
       where: { workspaceId, role: WorkspaceRole.OWNER },
     });
     if (ownerCount <= 1) {
-      throw new Error('Workspace must have at least one owner');
+      throw new BadRequestException('Workspace must have at least one owner');
     }
   }
 
@@ -367,7 +367,7 @@ export class PagesService {
   ) {
     const userId = user?.userId;
     if (!userId) {
-      throw new Error('userId is required');
+      throw new BadRequestException('userId is required');
     }
     const isAdmin = this.isSystemAdmin(userId);
     const page = await this.prisma.page.findUniqueOrThrow({
@@ -386,19 +386,19 @@ export class PagesService {
       },
     });
     if (page.isDeleted && !options.allowDeleted) {
-      throw new Error('Page is in the bin');
+      throw new NotFoundException('Page is in the bin');
     }
     const membership = await this.requireMembership(userId, page.workspaceId);
     if (page.visibility === PageVisibility.PRIVATE && !isAdmin) {
       if (membership.role === WorkspaceRole.VIEWER) {
-        throw new Error('Forbidden: private page access denied');
+        throw new ForbiddenException('Forbidden: private page access denied');
       }
       if (!page.authorId || page.authorId !== userId) {
-        throw new Error('Forbidden: private page access denied');
+        throw new ForbiddenException('Forbidden: private page access denied');
       }
     }
     if (options.requireWrite && !this.canEdit(membership.role)) {
-      throw new Error('Forbidden: editor access required');
+      throw new ForbiddenException('Forbidden: editor access required');
     }
     return { page, membership };
   }
@@ -456,7 +456,7 @@ export class PagesService {
   async listPages(params: { workspaceId?: string; userId?: string; userName?: string; includeDeleted?: boolean; state?: string }) {
     const { workspaceId, userId, userName, includeDeleted, state } = params;
     if (!userId) {
-      throw new Error('userId is required');
+      throw new BadRequestException('userId is required');
     }
     const targetKey = workspaceId || `personal-${userId}`;
     const workspace = await this.resolveWorkspaceByKeyOrId(targetKey, userId, userName);
@@ -514,7 +514,7 @@ export class PagesService {
     const lock = this.claimLock(id, user?.userId, user?.userName);
     const now = Date.now();
     if (lock.userId !== (user?.userId || 'unknown') && lock.expires > now) {
-      throw new Error(`Page is currently being edited by ${lock.userName}`);
+      throw new ConflictException(`Page is currently being edited by ${lock.userName}`);
     }
     // refresh lock to extend editing session
     this.claimLock(id, user?.userId, user?.userName);
@@ -577,15 +577,15 @@ export class PagesService {
   async createWorkspace(payload: { name?: string; userId?: string; userName?: string }) {
     const name = typeof payload.name === 'string' ? payload.name.trim() : '';
     if (!name) {
-      throw new Error('name is required');
+      throw new BadRequestException('name is required');
     }
     if (!payload.userId) {
-      throw new Error('userId is required');
+      throw new BadRequestException('userId is required');
     }
     const user = await this.ensureUser(payload.userId, payload.userName);
     const existing = await this.prisma.workspace.findFirst({ where: { name } });
     if (existing) {
-      throw new Error('Workspace name already exists');
+      throw new ConflictException('Workspace name already exists');
     }
     const workspace = await this.prisma.workspace.create({ data: { name } });
     await this.ensureMembership(user.id, workspace.id, WorkspaceRole.OWNER);
@@ -645,7 +645,7 @@ export class PagesService {
     if (adminId) {
       this.ensureAdmin(adminId);
     } else if (!userId) {
-      throw new Error('userId is required');
+      throw new BadRequestException('userId is required');
     } else {
       await this.requireMembership(userId, workspaceId);
     }
@@ -665,7 +665,7 @@ export class PagesService {
     if (adminId) {
       this.ensureAdmin(adminId);
     } else if (!userId) {
-      throw new Error('userId is required');
+      throw new BadRequestException('userId is required');
     } else {
       await this.requireWorkspaceRole(userId, workspaceId, [WorkspaceRole.OWNER]);
     }
@@ -673,10 +673,10 @@ export class PagesService {
     const user = await this.findUserForMembership(payload);
     const workspace = await this.prisma.workspace.findUnique({ where: { id: workspaceId }, select: { personalOwnerId: true } });
     if (!workspace) {
-      throw new Error('Workspace not found');
+      throw new NotFoundException('Workspace not found');
     }
     if (workspace.personalOwnerId && workspace.personalOwnerId === user.id && role !== WorkspaceRole.OWNER) {
-      throw new Error('Personal workspace owners must remain owners');
+      throw new BadRequestException('Personal workspace owners must remain owners');
     }
     const membership = await this.prisma.userWorkspace.upsert({
       where: { userId_workspaceId: { userId: user.id, workspaceId } },
@@ -715,23 +715,23 @@ export class PagesService {
     if (adminId) {
       this.ensureAdmin(adminId);
     } else if (!userId) {
-      throw new Error('userId is required');
+      throw new BadRequestException('userId is required');
     } else {
       await this.requireWorkspaceRole(userId, workspaceId, [WorkspaceRole.OWNER]);
     }
     const nextRole: WorkspaceRole = role && Object.values(WorkspaceRole).includes(role) ? role : WorkspaceRole.EDITOR;
     const workspace = await this.prisma.workspace.findUnique({ where: { id: workspaceId }, select: { personalOwnerId: true } });
     if (!workspace) {
-      throw new Error('Workspace not found');
+      throw new NotFoundException('Workspace not found');
     }
     if (workspace.personalOwnerId && workspace.personalOwnerId === memberId && nextRole !== WorkspaceRole.OWNER) {
-      throw new Error('Personal workspace owners must remain owners');
+      throw new BadRequestException('Personal workspace owners must remain owners');
     }
     const membership = await this.prisma.userWorkspace.findFirst({
       where: { userId: memberId, workspaceId },
       select: { id: true, role: true },
     });
-    if (!membership) throw new Error('Membership not found');
+    if (!membership) throw new NotFoundException('Membership not found');
     if (membership.role === WorkspaceRole.OWNER && nextRole !== WorkspaceRole.OWNER) {
       await this.ensureNotLastOwner(workspaceId);
     }
@@ -745,16 +745,16 @@ export class PagesService {
     if (adminId) {
       this.ensureAdmin(adminId);
     } else if (!userId) {
-      throw new Error('userId is required');
+      throw new BadRequestException('userId is required');
     } else {
       await this.requireWorkspaceRole(userId, workspaceId, [WorkspaceRole.OWNER]);
     }
     const workspace = await this.prisma.workspace.findUnique({ where: { id: workspaceId }, select: { personalOwnerId: true } });
     if (!workspace) {
-      throw new Error('Workspace not found');
+      throw new NotFoundException('Workspace not found');
     }
     if (workspace.personalOwnerId && workspace.personalOwnerId === memberId) {
-      throw new Error('Personal workspace owners must remain owners');
+      throw new BadRequestException('Personal workspace owners must remain owners');
     }
     const membership = await this.prisma.userWorkspace.findFirst({
       where: { userId: memberId, workspaceId },
@@ -810,7 +810,7 @@ export class PagesService {
     const target =
       visibility && Object.values(PageVisibility).includes(visibility) ? (visibility as PageVisibility) : null;
     if (!target) {
-      throw new Error('visibility is required');
+      throw new BadRequestException('visibility is required');
     }
     const { page } = await this.requirePageAccess(id, user, { requireWrite: true });
     const descendantIds = await this.collectDescendantIds(id);
@@ -824,12 +824,12 @@ export class PagesService {
       select: { id: true },
     });
     if (forbiddenPrivate) {
-      throw new Error('Cannot move private pages you do not own');
+      throw new ForbiddenException('Cannot move private pages you do not own');
     }
     const updateData: Prisma.PageUncheckedUpdateManyInput = { visibility: target };
     if (target === PageVisibility.PRIVATE) {
       if (!user?.userId) {
-        throw new Error('userId is required');
+        throw new BadRequestException('userId is required');
       }
       updateData.authorId = user.userId;
     }
@@ -898,19 +898,19 @@ export class PagesService {
       throw new Error('COLLAB_JWT_SECRET is not configured on the API');
     }
     if (!userId) {
-      throw new Error('userId is required');
+      throw new BadRequestException('userId is required');
     }
     const user = await this.ensureUser(userId, userName);
     const memberships = await this.getWorkspaceMemberships(user.id);
     const editable = memberships.filter((m) => m.role !== WorkspaceRole.VIEWER).map((m) => m.workspaceId);
     if (!editable.length) {
-      throw new Error('No workspace access for user');
+      throw new ForbiddenException('No workspace access for user');
     }
 
     let allowedWorkspaces = editable;
     if (workspaceId) {
       if (!editable.includes(workspaceId)) {
-        throw new Error('User does not have edit access to requested workspace');
+        throw new ForbiddenException('User does not have edit access to requested workspace');
       }
       allowedWorkspaces = [workspaceId];
     }
@@ -957,7 +957,7 @@ export class PagesService {
 
   async updateBlock(id: string, data: Partial<Prisma.BlockUpdateInput>, user?: { userId?: string; userName?: string }) {
     const block = await this.prisma.block.findUnique({ where: { id }, select: { pageId: true } });
-    if (!block) throw new Error('Block not found');
+    if (!block) throw new NotFoundException('Block not found');
     await this.requirePageAccess(block.pageId, user, { requireWrite: true });
     return this.prisma.block.update({
       where: { id },
@@ -982,15 +982,15 @@ export class PagesService {
     };
   }) {
     if (!body.workspaceId) {
-      throw new Error('workspaceId is required');
+      throw new BadRequestException('workspaceId is required');
     }
     if (!body.userId) {
-      throw new Error('userId is required');
+      throw new BadRequestException('userId is required');
     }
     const workspace = await this.resolveWorkspaceByKeyOrId(body.workspaceId, body.userId, body.userName);
     const membership = await this.requireMembership(body.userId, workspace.id);
     if (!this.canEdit(membership.role)) {
-      throw new Error('Forbidden: editor access required');
+      throw new ForbiddenException('Forbidden: editor access required');
     }
     const parentId = body.parentId ?? null;
     const position = await this.nextPosition(workspace.id, parentId);
@@ -1002,13 +1002,13 @@ export class PagesService {
     if (parentId) {
       const parent = await this.requirePageAccess(parentId, { userId: body.userId, userName: body.userName }, { requireWrite: true });
       if (parent.page.workspaceId !== workspace.id) {
-        throw new Error('parent does not exist in workspace');
+        throw new BadRequestException('parent does not exist in workspace');
       }
       visibility = parent.page.visibility;
       wikiHomeId = parent.page.wikiHomeId ?? null;
     }
     if (visibility === PageVisibility.PRIVATE && !body.userId) {
-      throw new Error('Private pages require an author');
+      throw new BadRequestException('Private pages require an author');
     }
     const page = await this.prisma.page.create({
       data: {
@@ -1065,12 +1065,12 @@ export class PagesService {
     const setupConfig = this.resolveDatabaseSetupConfig(payload.database);
 
     if (!nextKind && !nextStatus && nextComplianceMode === undefined) {
-      throw new Error('kind, setupStatus, or complianceMode is required');
+      throw new BadRequestException('kind, setupStatus, or complianceMode is required');
     }
 
     if (page.setupStatus === PageSetupStatus.COMPLETE) {
       if ((nextStatus && nextStatus !== PageSetupStatus.COMPLETE) || (nextKind && nextKind !== page.kind)) {
-        throw new Error('Setup already completed');
+        throw new ConflictException('Setup already completed');
       }
     }
 
@@ -1084,7 +1084,7 @@ export class PagesService {
 
     if (nextKind && nextKind !== page.kind) {
       if (page.setupStatus !== PageSetupStatus.PENDING) {
-        throw new Error('Page type can only be changed while setup is pending');
+        throw new ConflictException('Page type can only be changed while setup is pending');
       }
       if (nextKind === PageKind.DATABASE) {
         const existing = await this.prisma.database.findUnique({ where: { pageId: page.id }, select: { id: true } });
@@ -1155,7 +1155,7 @@ export class PagesService {
   async convertPageToWiki(pageId: string, user?: { userId?: string; userName?: string }) {
     const { page } = await this.requirePageAccess(pageId, user, { requireWrite: true });
     if (page.kind !== PageKind.DOC) {
-      throw new Error('Only document pages can be wiki homes');
+      throw new BadRequestException('Only document pages can be wiki homes');
     }
     const wikiHomeId = page.id;
     const descendantIds = await this.collectDescendantIds(page.id);
@@ -1728,7 +1728,7 @@ export class PagesService {
   ) {
     const { page } = await this.requirePageAccess(pageId, user, { requireWrite: options.requireWrite });
     if (page.kind !== PageKind.DATABASE) {
-      throw new Error('Page is not a database');
+      throw new BadRequestException('Page is not a database');
     }
     const wikiHomeId = await this.resolveWikiHomeIdForDatabasePage(page);
     if (wikiHomeId) {
@@ -1930,7 +1930,7 @@ export class PagesService {
     const relation = this.normalizeRelationOptions(options as Prisma.JsonValue);
     if (!relation?.history?.enabled) return options;
     if (relation.history.pageId && relation.history.pageId === database.pageId) {
-      throw new Error('Relation history database must be different from the source database.');
+      throw new BadRequestException('Relation history database must be different from the source database.');
     }
     if (relation.history.pageId) return options;
     const logPageId = await this.ensureRelationHistoryDatabase(database, relation, fieldName, user);
@@ -2094,20 +2094,20 @@ export class PagesService {
     }
     const relation = this.normalizeRelationOptions(options);
     if (!relation) {
-      throw new Error('Relation target is required.');
+      throw new BadRequestException('Relation target is required.');
     }
     const targetDatabase = await this.prisma.database.findUnique({
       where: { pageId: relation.pageId },
       select: { id: true, workspaceId: true, complianceMode: true },
     });
     if (!targetDatabase) {
-      throw new Error('Relation target not found.');
+      throw new NotFoundException('Relation target not found.');
     }
     if (targetDatabase.workspaceId !== database.workspaceId) {
-      throw new Error('Relation target must be in the same workspace.');
+      throw new BadRequestException('Relation target must be in the same workspace.');
     }
     if (database.complianceMode && !targetDatabase.complianceMode) {
-      throw new Error('Relation target must be a compliant database.');
+      throw new BadRequestException('Relation target must be a compliant database.');
     }
     let history: { enabled: boolean; pageId?: string | null } | null = relation.history || null;
     if (history?.pageId) {
@@ -2116,13 +2116,13 @@ export class PagesService {
         select: { workspaceId: true, complianceMode: true },
       });
       if (!historyDatabase) {
-        throw new Error('Relation history database not found.');
+        throw new NotFoundException('Relation history database not found.');
       }
       if (historyDatabase.workspaceId !== database.workspaceId) {
-        throw new Error('Relation history database must be in the same workspace.');
+        throw new BadRequestException('Relation history database must be in the same workspace.');
       }
       if (database.complianceMode && !historyDatabase.complianceMode) {
-        throw new Error('Relation history database must be compliant.');
+        throw new BadRequestException('Relation history database must be compliant.');
       }
     }
     const historyConfig = history?.enabled
@@ -2685,21 +2685,21 @@ export class PagesService {
   async getDatabaseRowBacklinks(rowId: string, user?: { userId?: string; userName?: string }) {
     const targetId = typeof rowId === 'string' ? rowId.trim() : '';
     if (!targetId || !isUuid(targetId)) {
-      throw new Error('Row not found');
+      throw new NotFoundException('Row not found');
     }
     const row = await this.prisma.databaseRow.findUnique({
       where: { id: targetId },
       select: { id: true, databaseId: true },
     });
     if (!row) {
-      throw new Error('Row not found');
+      throw new NotFoundException('Row not found');
     }
     const database = await this.prisma.database.findUnique({
       where: { id: row.databaseId },
       select: { id: true, pageId: true, workspaceId: true },
     });
     if (!database) {
-      throw new Error('Database not found');
+      throw new NotFoundException('Database not found');
     }
     const { membership } = await this.requirePageAccess(database.pageId, user);
     const userId = user?.userId || '';
@@ -2891,12 +2891,12 @@ export class PagesService {
       where: { id },
       select: { id: true, databaseId: true, fields: true },
     });
-    if (!form) throw new Error('Form not found');
+    if (!form) throw new NotFoundException('Form not found');
     const database = await this.prisma.database.findUnique({
       where: { id: form.databaseId },
       select: { pageId: true, complianceMode: true },
     });
-    if (!database) throw new Error('Database not found');
+    if (!database) throw new NotFoundException('Database not found');
     await this.requirePageAccess(database.pageId, user, { requireWrite: true });
     const updateData: Prisma.DatabaseFormUpdateInput = {};
     if (typeof payload.name === 'string') {
@@ -2933,12 +2933,12 @@ export class PagesService {
       where: { id },
       select: { id: true, databaseId: true },
     });
-    if (!form) throw new Error('Form not found');
+    if (!form) throw new NotFoundException('Form not found');
     const database = await this.prisma.database.findUnique({
       where: { id: form.databaseId },
       select: { pageId: true },
     });
-    if (!database) throw new Error('Database not found');
+    if (!database) throw new NotFoundException('Database not found');
     await this.requirePageAccess(database.pageId, user, { requireWrite: true });
     return this.prisma.databaseForm.delete({ where: { id: form.id } });
   }
@@ -3060,12 +3060,12 @@ export class PagesService {
       where: { id },
       select: { id: true, databaseId: true },
     });
-    if (!view) throw new Error('View not found');
+    if (!view) throw new NotFoundException('View not found');
     const database = await this.prisma.database.findUnique({
       where: { id: view.databaseId },
       select: { pageId: true },
     });
-    if (!database) throw new Error('Database not found');
+    if (!database) throw new NotFoundException('Database not found');
     await this.requirePageAccess(database.pageId, user, { requireWrite: true });
     const updateData: Prisma.DatabaseViewUpdateInput = {};
     if (typeof payload.name === 'string') {
@@ -3094,12 +3094,12 @@ export class PagesService {
       where: { id },
       select: { id: true, databaseId: true },
     });
-    if (!view) throw new Error('View not found');
+    if (!view) throw new NotFoundException('View not found');
     const database = await this.prisma.database.findUnique({
       where: { id: view.databaseId },
       select: { pageId: true },
     });
-    if (!database) throw new Error('Database not found');
+    if (!database) throw new NotFoundException('Database not found');
     await this.requirePageAccess(database.pageId, user, { requireWrite: true });
     return this.prisma.databaseView.delete({ where: { id: view.id } });
   }
@@ -3109,12 +3109,12 @@ export class PagesService {
       where: { id },
       select: { id: true, name: true, icon: true, fields: true, databaseId: true },
     });
-    if (!form) throw new Error('Form not found');
+    if (!form) throw new NotFoundException('Form not found');
     const database = await this.prisma.database.findUnique({
       where: { id: form.databaseId },
       select: { id: true, pageId: true, complianceMode: true, fields: { orderBy: { position: 'asc' } } },
     });
-    if (!database) throw new Error('Database not found');
+    if (!database) throw new NotFoundException('Database not found');
     await this.requirePageAccess(database.pageId, user);
     const storage = this.normalizeDatabaseFormStorage(form.fields ?? []);
     const fields = await this.sanitizeDatabaseFormFields(form.databaseId, storage.fields);
@@ -3145,12 +3145,12 @@ export class PagesService {
       where: { id },
       select: { id: true, fields: true, databaseId: true },
     });
-    if (!form) throw new Error('Form not found');
+    if (!form) throw new NotFoundException('Form not found');
     const database = await this.prisma.database.findUnique({
       where: { id: form.databaseId },
       select: { id: true, pageId: true, workspaceId: true, complianceMode: true },
     });
-    if (!database) throw new Error('Database not found');
+    if (!database) throw new NotFoundException('Database not found');
     await this.requirePageAccess(database.pageId, user, { requireWrite: true });
     const storage = this.normalizeDatabaseFormStorage(form.fields ?? []);
     const allowedFields = await this.sanitizeDatabaseFormFields(form.databaseId, storage.fields);
@@ -3275,12 +3275,12 @@ export class PagesService {
     let existingData: Record<string, any> | null = null;
     if (isUpdateMode) {
       const rowId = typeof payload?.rowId === 'string' ? payload.rowId.trim() : '';
-      if (!rowId) throw new Error('rowId is required');
+      if (!rowId) throw new BadRequestException('rowId is required');
       existingRow = await this.prisma.databaseRow.findUnique({
         where: { id: rowId },
         select: { id: true, databaseId: true, data: true },
       });
-      if (!existingRow || existingRow.databaseId !== form.databaseId) throw new Error('Row not found');
+      if (!existingRow || existingRow.databaseId !== form.databaseId) throw new NotFoundException('Row not found');
       existingData =
         existingRow.data && typeof existingRow.data === 'object' && !Array.isArray(existingRow.data)
           ? { ...(existingRow.data as Record<string, any>) }
@@ -3350,7 +3350,7 @@ export class PagesService {
       })
       .filter(Boolean) as string[];
     if (missingRequired.length) {
-      throw new Error(`Missing required fields: ${missingRequired.join(', ')}`);
+      throw new BadRequestException(`Missing required fields: ${missingRequired.join(', ')}`);
     }
     const assetTagFieldIds = this.getAssetTagFieldIds(databaseFields);
     const rowIdForCreate = !isUpdateMode && assetTagFieldIds.length ? randomUUID() : null;
@@ -3364,7 +3364,7 @@ export class PagesService {
       }
       if (isUpdateMode) {
         const row = existingRow;
-        if (!row) throw new Error('Row not found');
+        if (!row) throw new NotFoundException('Row not found');
         const existing = existingData || {};
         const recordId =
           typeof existing[this.COMPLIANCE_RECORD_KEY] === 'string' ? (existing[this.COMPLIANCE_RECORD_KEY] as string) : '';
@@ -3373,7 +3373,7 @@ export class PagesService {
         }
         const reason = typeof payload?.reason === 'string' ? payload.reason.trim() : '';
         if (!reason) {
-          throw new Error('Reason is required for compliance amendments.');
+          throw new BadRequestException('Reason is required for compliance amendments.');
         }
         const dataForAmend = assetTagFieldIds.length
           ? this.applyAssetTagValuesFromExisting(sanitized, assetTagFieldIds, existing, row.id)
@@ -3430,7 +3430,7 @@ export class PagesService {
     }
     if (isUpdateMode) {
       const row = existingRow;
-      if (!row) throw new Error('Row not found');
+      if (!row) throw new NotFoundException('Row not found');
       const existing = existingData || {};
       const mergedData = { ...existing, ...sanitized };
       return this.updateDatabaseRow(row.id, { data: mergedData }, user);
@@ -3472,12 +3472,12 @@ export class PagesService {
       where: { id },
       select: { databaseId: true, name: true, type: true, options: true },
     });
-    if (!field) throw new Error('Field not found');
+    if (!field) throw new NotFoundException('Field not found');
     const database = await this.prisma.database.findUnique({
       where: { id: field.databaseId },
       select: { pageId: true, workspaceId: true, complianceMode: true },
     });
-    if (!database) throw new Error('Database not found');
+    if (!database) throw new NotFoundException('Database not found');
     await this.requirePageAccess(database.pageId, user, { requireWrite: true });
     const updateData: Prisma.DatabaseFieldUpdateInput = {};
     if (typeof data.name === 'string') updateData.name = data.name.trim();
@@ -3488,7 +3488,7 @@ export class PagesService {
     }
     if (nextType === DatabaseFieldType.RELATION) {
       if (data.options === undefined && field.type !== DatabaseFieldType.RELATION) {
-        throw new Error('Relation target is required.');
+        throw new BadRequestException('Relation target is required.');
       }
       const nextOptions = data.options !== undefined ? data.options : field.options ?? {};
       const sanitizedOptions = await this.sanitizeDatabaseFieldOptions(
@@ -3513,9 +3513,9 @@ export class PagesService {
 
   async deleteDatabaseField(id: string, user?: { userId?: string; userName?: string }) {
     const field = await this.prisma.databaseField.findUnique({ where: { id }, select: { id: true, databaseId: true } });
-    if (!field) throw new Error('Field not found');
+    if (!field) throw new NotFoundException('Field not found');
     const database = await this.prisma.database.findUnique({ where: { id: field.databaseId }, select: { pageId: true } });
-    if (!database) throw new Error('Database not found');
+    if (!database) throw new NotFoundException('Database not found');
     await this.requirePageAccess(database.pageId, user, { requireWrite: true });
     const rows = await this.prisma.databaseRow.findMany({ where: { databaseId: field.databaseId }, select: { id: true, data: true } });
     const updates = rows.map((row) => {
@@ -3676,12 +3676,12 @@ export class PagesService {
       where: { id },
       select: { id: true, databaseId: true, pageId: true, data: true },
     });
-    if (!row) throw new Error('Row not found');
+    if (!row) throw new NotFoundException('Row not found');
     const database = await this.prisma.database.findUnique({
       where: { id: row.databaseId },
       select: { id: true, pageId: true, workspaceId: true, complianceMode: true },
     });
-    if (!database) throw new Error('Database not found');
+    if (!database) throw new NotFoundException('Database not found');
     await this.requirePageAccess(database.pageId, user, { requireWrite: true });
     const databasePage = await this.prisma.page.findUnique({
       where: { id: database.pageId },
@@ -3778,7 +3778,7 @@ export class PagesService {
     });
     if (!row) {
       const pageId = isUuid(payload.pageId) ? payload.pageId : null;
-      if (!pageId) throw new Error('Row not found');
+      if (!pageId) throw new NotFoundException('Row not found');
       const database = await this.getDatabaseForPage(pageId, user, { requireWrite: true });
       const position = payload.position ?? (await this.nextDatabaseRowPosition(database.id));
       const data = payload.data ? await this.sanitizeDatabaseRowData(database.id, payload.data) : {};
@@ -3796,7 +3796,7 @@ export class PagesService {
       where: { id: row.databaseId },
       select: { pageId: true },
     });
-    if (!database) throw new Error('Database not found');
+    if (!database) throw new NotFoundException('Database not found');
     await this.requirePageAccess(database.pageId, user, { requireWrite: true });
     if (row.pageId) {
       const page = await this.prisma.page.findUnique({ where: { id: row.pageId } });
@@ -3818,7 +3818,7 @@ export class PagesService {
       where: { id: database.pageId },
       select: { id: true, workspaceId: true, visibility: true, wikiHomeId: true },
     });
-    if (!databasePage) throw new Error('Database page not found');
+    if (!databasePage) throw new NotFoundException('Database page not found');
     const titleFieldId = await this.resolveDatabaseTitleFieldId(row.databaseId);
     const fallbackTitle =
       titleFieldId && row.data && typeof row.data === 'object' && !Array.isArray(row.data)
@@ -3845,12 +3845,12 @@ export class PagesService {
 
   async deleteDatabaseRow(id: string, user?: { userId?: string; userName?: string }) {
     const row = await this.prisma.databaseRow.findUnique({ where: { id }, select: { databaseId: true } });
-    if (!row) throw new Error('Row not found');
+    if (!row) throw new NotFoundException('Row not found');
     const database = await this.prisma.database.findUnique({
       where: { id: row.databaseId },
       select: { pageId: true, workspaceId: true, complianceMode: true },
     });
-    if (!database) throw new Error('Database not found');
+    if (!database) throw new NotFoundException('Database not found');
     await this.requirePageAccess(database.pageId, user, { requireWrite: true });
     const deleted = await this.prisma.databaseRow.delete({ where: { id } });
     if (!database.complianceMode) {
@@ -3894,15 +3894,15 @@ export class PagesService {
     user?: { userId?: string; userName?: string }
   ) {
     if (!user?.userId) {
-      throw new Error('userId is required');
+      throw new BadRequestException('userId is required');
     }
     if (user.userId !== id) {
-      throw new Error('Forbidden: user access required');
+      throw new ForbiddenException('Forbidden: user access required');
     }
     const nextPrefs = this.sanitizeUserPreferences(payload);
     const existing = await this.prisma.user.findUnique({ where: { id }, select: { preferences: true } });
     if (!existing) {
-      throw new Error('User not found');
+      throw new NotFoundException('User not found');
     }
     const current =
       existing.preferences && typeof existing.preferences === 'object' && !Array.isArray(existing.preferences)
@@ -3944,7 +3944,7 @@ export class PagesService {
       select: { id: true },
     });
     if (forbiddenPrivate) {
-      throw new Error('Cannot delete private pages you do not own');
+      throw new ForbiddenException('Cannot delete private pages you do not own');
     }
     const deletedAt = new Date();
     await this.prisma.block.deleteMany({ where: { pageId: { in: idsToDelete } } });
@@ -3990,7 +3990,7 @@ export class PagesService {
     const parentId = isUuid(rawParentId || undefined) ? rawParentId : null;
     const { orderedIds } = payload;
     if (!Array.isArray(orderedIds) || !orderedIds.length) {
-      throw new Error('orderedIds required');
+      throw new BadRequestException('orderedIds required');
     }
 
     await this.requirePageAccess(orderedIds[0], user, { requireWrite: true });
@@ -3999,17 +3999,17 @@ export class PagesService {
       select: { workspaceId: true, isDeleted: true },
     });
     if (!anchor) {
-      throw new Error('first orderedId not found');
+      throw new BadRequestException('first orderedId not found');
     }
     if (anchor.isDeleted) {
-      throw new Error('cannot reorder deleted pages');
+      throw new BadRequestException('cannot reorder deleted pages');
     }
 
     const workspaceId = anchor.workspaceId;
     if (parentId) {
       const parent = await this.prisma.page.findUnique({ where: { id: parentId }, select: { workspaceId: true, isDeleted: true } });
       if (!parent || parent.isDeleted || parent.workspaceId !== workspaceId) {
-        throw new Error('parent does not exist in workspace');
+        throw new BadRequestException('parent does not exist in workspace');
       }
     }
 
@@ -4024,7 +4024,7 @@ export class PagesService {
     // Allow incoming pages from other parents, but ensure all target siblings are represented
     const uniqueOrdered = Array.from(new Set(orderedIds));
     if (uniqueOrdered.length !== orderedIds.length) {
-      throw new Error('orderedIds must be unique');
+      throw new BadRequestException('orderedIds must be unique');
     }
 
     const orderedPages = await this.prisma.page.findMany({
@@ -4032,13 +4032,13 @@ export class PagesService {
       select: { id: true, position: true, workspaceId: true, visibility: true, authorId: true, wikiHomeId: true },
     });
     if (orderedPages.length !== uniqueOrdered.length) {
-      throw new Error('orderedIds must all exist and be active in the workspace');
+      throw new BadRequestException('orderedIds must all exist and be active in the workspace');
     }
     const forbiddenPrivate = orderedPages.find(
       (page) => page.visibility === PageVisibility.PRIVATE && page.authorId !== user?.userId
     );
     if (forbiddenPrivate) {
-      throw new Error('Cannot reorder private pages you do not own');
+      throw new ForbiddenException('Cannot reorder private pages you do not own');
     }
 
     // If the client omitted some existing siblings (stale state), keep them in their current order after the provided IDs.
@@ -4119,10 +4119,10 @@ export class PagesService {
   async resetAllWorkspaces(adminId?: string, confirm?: string) {
     this.ensureAdmin(adminId);
     if (!confirm || typeof confirm !== 'string') {
-      throw new Error('confirm is required');
+      throw new BadRequestException('confirm is required');
     }
     if (confirm.trim() !== this.RESET_WORKSPACES_CONFIRM_TEXT) {
-      throw new Error(`confirm must match "${this.RESET_WORKSPACES_CONFIRM_TEXT}"`);
+      throw new BadRequestException(`confirm must match "${this.RESET_WORKSPACES_CONFIRM_TEXT}"`);
     }
 
     const users = await this.prisma.user.findMany({ select: { id: true, displayName: true } });

@@ -3,11 +3,13 @@ import 'dotenv/config';
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
+import { PrismaNotFoundFilter } from './utils/prisma-not-found.filter';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, { bodyParser: false });
   // Don't advertise the framework (X-Powered-By: Express)
   app.disable('x-powered-by');
+  app.useGlobalFilters(new PrismaNotFoundFilter(app.getHttpAdapter()));
 
   app.useBodyParser('json', { limit: '10mb' });
   app.useBodyParser('urlencoded', { extended: true, limit: '10mb' });
