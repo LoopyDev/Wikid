@@ -1,4 +1,4 @@
-FROM node:20-bookworm-slim
+FROM node:24-bookworm-slim
 
 # openssl for the Prisma engines; chromium and fonts for PDF export
 RUN apt-get update \

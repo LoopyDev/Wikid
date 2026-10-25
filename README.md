@@ -77,7 +77,7 @@ To run it on a server with HTTPS, your own admin login and backups, see [`docs/d
 
 ## Development setup
 
-Requirements: Node.js 20+, Docker.
+Requirements: Node.js 22 or newer (24 recommended), Docker.
 
 ```bash
 # 1. Configure environment

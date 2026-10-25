@@ -1,4 +1,4 @@
-FROM node:20-bookworm-slim AS build
+FROM node:24-bookworm-slim AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY api/package.json api/
@@ -10,7 +10,7 @@ COPY collab/tsconfig.json collab/
 COPY collab/src collab/src
 RUN npm run build -w collab
 
-FROM node:20-bookworm-slim
+FROM node:24-bookworm-slim
 WORKDIR /app
 ENV NODE_ENV=production
 COPY package.json package-lock.json ./
