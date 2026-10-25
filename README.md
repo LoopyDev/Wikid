@@ -137,11 +137,15 @@ If you find a security issue, please open a private security advisory on GitHub 
 
 ## Contributing
 
-Issues and pull requests are welcome. For larger changes, please open an issue first so we can talk through the approach. Architecture and feature docs live in [`docs/`](docs/).
+Issues and pull requests are welcome. For larger changes, please open an issue first so we can talk through the approach. Contributions need a quick sign-off on the contributor agreement; see [`CONTRIBUTING.md`](CONTRIBUTING.md). Architecture and feature docs live in [`docs/`](docs/).
 
 ## License
 
-Wikid is licensed under the [GNU Affero General Public License v3.0](LICENSE). If you run a modified version as a network service, you must make your source changes available to its users.
+Wikid is licensed under the [GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0-only).
+
+In plain words: you can use, self-host, modify and share Wikid, including inside a company. If you run a modified version as a network service, you must make your source changes available to its users under the same license.
+
+The [`LICENSE`](LICENSE) file is the binding text; this summary is just a guide.
 
 Icons are from [Bootstrap Icons](https://icons.getbootstrap.com/) (MIT). They're loaded from the `bootstrap-icons` npm package, which includes its license.
 
