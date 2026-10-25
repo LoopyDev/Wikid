@@ -1530,6 +1530,10 @@ const syncedMirrorKey = new PluginKey('synced-mirror');
 const columnCleanupKey = new PluginKey('column-cleanup');
 const columnInputGuardKey = new PluginKey('column-input-guard');
 const ORIGIN_META_KEY = 'wikidOrigin';
+// Changes from other collaborators arrive as one transaction that replaces the whole
+// document; y-prosemirror restores the local selection itself. Selection "repair"
+// plugins must leave these alone, or they move the cursor using stale positions.
+const isRemoteCollabChange = (tr) => !!tr.getMeta(ySyncPluginKey)?.isChangeOrigin;
 
 const columnDebugEnabled = () =>
   typeof window !== 'undefined' && window.localStorage?.getItem('wikid:debug-columns') === '1';
@@ -2054,6 +2058,18 @@ const hasWorkspaceSyncedReference = (blockId) => {
   return false;
 };
 
+// Synced-map entries record which page wrote them. A page's own edits already reach
+// everyone on that page through the page's collab doc, so applying them again from the
+// map made every collaborator rewrite the same blocks at once (duplicated lines, lost
+// keystrokes). Pages only take map updates written from a different page.
+const SYNCED_PAYLOAD_FROM = '_fromPage';
+const withSyncedOrigin = (payload, pageId) => (payload && pageId ? { ...payload, [SYNCED_PAYLOAD_FROM]: pageId } : payload);
+const syncedPayloadContent = (payload) => {
+  if (!payload || typeof payload !== 'object') return payload;
+  const { [SYNCED_PAYLOAD_FROM]: _fromPage, ...content } = payload;
+  return content;
+};
+
 const serializeSyncedNode = (node) => {
   if (!node?.toJSON) return null;
   const json = node.toJSON();
@@ -2341,6 +2357,7 @@ const ColumnInputGuardExtension = Extension.create({
           }
 
           if (!hasDocChange) return null;
+          if (transactions.some(isRemoteCollabChange)) return null;
           if (!oldColumn) return null;
 
           const mapping = new Mapping();
@@ -2482,6 +2499,7 @@ const InputSelectionGuardExtension = Extension.create({
         appendTransaction(transactions, oldState, newState) {
           const hasDocChange = transactions.some((tr) => tr.docChanged);
           if (!hasDocChange) return null;
+          if (transactions.some(isRemoteCollabChange)) return null;
           const debug = selectionDebugEnabled();
           const oldBlock = findBlockAtSelection(oldState);
           const newBlock = findBlockAtSelection(newState);
@@ -2535,6 +2553,8 @@ const InputSelectionGuardExtension = Extension.create({
               metaJson: JSON.stringify(summarizeSteps(transactions)),
             });
           }
+          // A new block (Enter, pasted blocks) moves the cursor on purpose
+          if (hasBlockInsertion) return null;
           if (!(oldState.selection instanceof TextSelection) || !oldState.selection.empty) {
             if (debug && selectionShifted) {
               logSelectionDebug('guard-skip', { reason: 'non-text-selection' });
@@ -2914,7 +2934,7 @@ bindSyncedLocksMap(collabDoc.value);
 const createNodeFromSyncedPayload = (payload) => {
   if (!editor.value?.schema || !payload) return null;
   try {
-    return editor.value.schema.nodeFromJSON(payload);
+    return editor.value.schema.nodeFromJSON(syncedPayloadContent(payload));
   } catch {
     return null;
   }
@@ -2948,6 +2968,9 @@ const applyExternalSyncedUpdates = () => {
     if (isReference && localSourceKeys.has(key)) return;
     const payload = map.get(key);
     if (!payload) return;
+    const writtenFrom = payload[SYNCED_PAYLOAD_FROM];
+    if (writtenFrom === props.pageId) return;
+    if (!isReference && !writtenFrom) return;
     const sourceNode = createNodeFromSyncedPayload(payload);
     if (!sourceNode) return;
     const nextAttrs = { ...sourceNode.attrs, id: blockId };
@@ -3021,8 +3044,8 @@ const updateSyncedWorkspaceSourcesFromDoc = () => {
     const payload = serializeSyncedNode(node);
     if (!payload) return;
     const existing = map.get(key);
-    if (existing && JSON.stringify(existing) === JSON.stringify(payload)) return;
-    updates.push({ key, payload });
+    if (existing && JSON.stringify(syncedPayloadContent(existing)) === JSON.stringify(payload)) return;
+    updates.push({ key, payload: withSyncedOrigin(payload, props.pageId) });
   });
   if (!updates.length) return;
   doc.transact(() => {
@@ -4717,9 +4740,9 @@ const insertSyncedBlockFromUrl = async (url) => {
     const payload = serializeSyncedNode(sourceNode);
     if (payload) {
       const existing = syncedWorkspaceMap.value.get(workspaceKey);
-      if (!existing || JSON.stringify(existing) !== JSON.stringify(payload)) {
+      if (!existing || JSON.stringify(syncedPayloadContent(existing)) !== JSON.stringify(payload)) {
         syncedWorkspaceDoc.value.transact(() => {
-          syncedWorkspaceMap.value.set(workspaceKey, payload);
+          syncedWorkspaceMap.value.set(workspaceKey, withSyncedOrigin(payload, targetPageId));
         }, 'synced-source-update');
       }
     }
