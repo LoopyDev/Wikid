@@ -2625,7 +2625,10 @@ export class PagesService {
   }
 
   async getDatabase(pageId: string, user?: { userId?: string; userName?: string }) {
-    const database = await this.getDatabaseForPage(pageId, user);
+    // Include the database page's current title: inline views only store a copy from when
+    // they were inserted, so exports would otherwise show a stale name
+    const page = await this.prisma.page.findUnique({ where: { id: pageId }, select: { title: true } });
+    const database = { ...(await this.getDatabaseForPage(pageId, user)), title: page?.title ?? '' };
     if (!database.complianceMode || !database.rows?.length) {
       return database;
     }

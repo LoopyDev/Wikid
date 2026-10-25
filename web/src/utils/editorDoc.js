@@ -208,7 +208,8 @@ const renderChecklistItem = (item) => `- [${item.checked ? 'x' : ' '}] ${item.te
  * @returns {string}
  */
 export const renderDatabaseAsMarkdownTable = (db, fallbackTitle) => {
-  const title = fallbackTitle || db?.title || 'Database';
+  // Prefer the database page's current title over the copy stored in the view block
+  const title = db?.title || fallbackTitle || 'Database';
   const fields = db?.fields ?? [];
   const rows = db?.rows ?? [];
   if (!fields.length) return `[Database: ${title}]`;
