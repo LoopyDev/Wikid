@@ -5664,6 +5664,16 @@ const handleOutsideClick = (event) => {
 
 const handleGlobalDragStart = (event) => {
   if (!editor.value?.view?.dom?.contains?.(event.target)) return;
+  // A cancelled drag never gets a dragend, so make sure it leaves nothing behind.
+  // Tiptap cancels drags that start inside a node view (e.g. orbiting the splat viewer),
+  // but ProseMirror still records them as a pending move, and Tiptap's window dragstart
+  // listener remembers this editor as a drag source; the next drop from the block handle
+  // (which sits outside the editor) then made Tiptap delete the dropped block.
+  if (event.defaultPrevented) {
+    event.stopPropagation();
+    editor.value.view.dragging = null;
+    return;
+  }
   hideAwarenessCursor();
 };
 
