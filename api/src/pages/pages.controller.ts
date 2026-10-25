@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, ForbiddenException, Get, Param, Patch, Post, Put, Query, Res, StreamableFile } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, ForbiddenException, Get, Param, Patch, Post, Put, Query, Res, StreamableFile } from '@nestjs/common';
 import { Response } from 'express';
 import { PagesService } from './pages.service';
 import { PdfService } from '../pdf/pdf.service';
@@ -57,16 +57,30 @@ export class PagesController {
 
   @Post('export/html')
   async exportHtml(
+    @CurrentUser() user: AuthUser,
     @Body('rootPageId') rootPageId?: string,
     @Body('workspaceId') workspaceId?: string,
     @Body('mode') mode?: string,
     @Body('excludeIds') excludeIds?: string[],
   ): Promise<StreamableFile> {
+    const actor = { userId: user.id, userName: user.displayName };
+    const exportWorkspace = !!workspaceId && !rootPageId;
+    let sourceWorkspaceId: string;
+    if (exportWorkspace) {
+      await this.pagesService.ensureWorkspaceReadAccess(workspaceId!, actor);
+      sourceWorkspaceId = workspaceId!;
+    } else {
+      if (!rootPageId) throw new BadRequestException('rootPageId or workspaceId is required');
+      const { page } = await this.pagesService.ensurePageReadAccess(rootPageId, actor);
+      sourceWorkspaceId = page.workspaceId;
+    }
+    // Leave out pages this user can't open, such as other people's private pages.
+    const hidden = await this.pagesService.listHiddenPageIds(sourceWorkspaceId, user.id);
     const exportMode = mode === 'pages' ? 'pages' : 'scroll';
     const excluded = Array.isArray(excludeIds) ? excludeIds.filter((id) => typeof id === 'string') : [];
-    const opts = { mode: exportMode as 'scroll' | 'pages', excludeIds: excluded };
-    const result = workspaceId && !rootPageId
-      ? await this.htmlExportService.exportWorkspace(workspaceId, opts)
+    const opts = { mode: exportMode as 'scroll' | 'pages', excludeIds: [...excluded, ...hidden] };
+    const result = exportWorkspace
+      ? await this.htmlExportService.exportWorkspace(sourceWorkspaceId, opts)
       : await this.htmlExportService.exportPageTree(rootPageId!, opts);
     return new StreamableFile(Buffer.from(result.html, 'utf-8'), {
       type: 'text/html; charset=utf-8',

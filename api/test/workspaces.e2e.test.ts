@@ -66,13 +66,15 @@ describe('workspaces', () => {
     expect((await alice.delete(`/workspaces/${id}`)).status).toBe(404);
   });
 
-  // Known bug: deleting a workspace leaves its database views behind, and they
-  // still point at the database, so the delete fails with 500.
-  it.fails('deletes a workspace whose database has views', async () => {
+  it('deletes a workspace whose database has views, forms and row pages', async () => {
     const id = await createWorkspace(alice);
     const db = await createPage(alice, id, { kind: 'DATABASE' });
+    const titleField = (await alice.get(`/pages/${db.id}/database`)).body.fields[0].id;
     expect((await alice.post(`/pages/${db.id}/database/views`, { name: 'Board', type: 'BOARD' })).status).toBe(201);
+    expect((await alice.post(`/pages/${db.id}/database/forms`, { name: 'Form' })).status).toBe(201);
+    expect((await alice.post(`/pages/${db.id}/database/rows`, { data: { [titleField]: 'Row with a page' } })).status).toBe(201);
     expect((await alice.delete(`/workspaces/${id}`)).status).toBe(200);
+    expect((await alice.get(`/pages/${db.id}`)).status).toBe(404);
   });
 });
 

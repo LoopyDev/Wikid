@@ -4,6 +4,7 @@ import { promisify } from 'util';
 import { Prisma, BlockType, WorkspaceRole, DatabaseFieldType, PageKind, PageVisibility, PageSetupStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { normalizeEditorContent } from './editor-doc.util';
+import { deleteDatabasesWithContents } from '../utils/delete-databases.util';
 import { isUuid } from '../utils/uuid.util';
 import { TRUE_STRINGS, FALSE_STRINGS } from '../utils/boolean-strings.const';
 import { INVENTORY_TEMPLATE_FIELDS, MAINTENANCE_TEMPLATE_FIELDS, ASSIGNMENTS_TEMPLATE_FIELDS } from '../constants/database-templates.const';
@@ -411,6 +412,28 @@ export class PagesService {
     return this.requirePageAccess(pageId, user, { requireWrite: true });
   }
 
+  async ensureWorkspaceReadAccess(workspaceId: string, user?: { userId?: string; userName?: string }) {
+    if (!user?.userId) throw new BadRequestException('userId is required');
+    if (!isUuid(workspaceId)) throw new NotFoundException('Workspace not found');
+    return this.requireMembership(user.userId, workspaceId);
+  }
+
+  // Pages in a workspace that this user can't open: other people's private pages, and all
+  // private pages for viewers. Mirrors the visibility rules in listPages and requirePageAccess.
+  async listHiddenPageIds(workspaceId: string, userId: string) {
+    if (this.isSystemAdmin(userId)) return [];
+    const membership = await this.requireMembership(userId, workspaceId);
+    const hidden = await this.prisma.page.findMany({
+      where: {
+        workspaceId,
+        visibility: PageVisibility.PRIVATE,
+        ...(membership.role === WorkspaceRole.VIEWER ? {} : { NOT: { authorId: userId } }),
+      },
+      select: { id: true },
+    });
+    return hidden.map((page) => page.id);
+  }
+
   private cleanupLocks() {
     const now = Date.now();
     for (const [pageId, lock] of this.locks.entries()) {
@@ -621,24 +644,34 @@ export class PagesService {
         throw new ForbiddenException('Only workspace owners can delete this workspace');
       }
     }
-    await this.prisma.$transaction(async (tx) => {
-      const dbIds = (await tx.database.findMany({ where: { workspaceId }, select: { id: true } })).map((d) => d.id);
-      const pageIds = (await tx.page.findMany({ where: { workspaceId }, select: { id: true } })).map((p) => p.id);
-      if (dbIds.length) {
-        await tx.databaseRow.deleteMany({ where: { databaseId: { in: dbIds } } });
-        await tx.databaseForm.deleteMany({ where: { databaseId: { in: dbIds } } });
-        await tx.databaseField.deleteMany({ where: { databaseId: { in: dbIds } } });
-        await tx.database.deleteMany({ where: { workspaceId } });
-      }
-      if (pageIds.length) {
-        await tx.block.deleteMany({ where: { pageId: { in: pageIds } } });
-        await tx.page.deleteMany({ where: { workspaceId } });
-      }
-      await tx.collabDoc.deleteMany({ where: { documentName: { startsWith: `ws:${workspaceId}:` } } });
-      await tx.userWorkspace.deleteMany({ where: { workspaceId } });
-      await tx.workspace.delete({ where: { id: workspaceId } });
-    });
+    await this.prisma.$transaction((tx) => this.removeWorkspace(tx, workspaceId));
     return { ok: true };
+  }
+
+  // Deletes a workspace and everything in it. Callers check permissions.
+  private async removeWorkspace(tx: Prisma.TransactionClient, workspaceId: string) {
+    const pageIds = (await tx.page.findMany({ where: { workspaceId }, select: { id: true } })).map((p) => p.id);
+    await this.removePages(tx, pageIds);
+    await tx.collabDoc.deleteMany({ where: { documentName: { startsWith: `ws:${workspaceId}:` } } });
+    await tx.userWorkspace.deleteMany({ where: { workspaceId } });
+    await tx.workspace.delete({ where: { id: workspaceId } });
+  }
+
+  // Deletes pages for good, with their blocks, databases and live-editing documents.
+  // Pass whole subtrees: a page whose children survive can't be deleted. Callers check permissions.
+  private async removePages(tx: Prisma.TransactionClient, ids: string[]) {
+    if (!ids.length) return { count: 0 };
+    const pages = await tx.page.findMany({ where: { id: { in: ids } }, select: { id: true, workspaceId: true } });
+    const docNames = pages.flatMap((page) => [`ws:${page.workspaceId}:${page.id}`, `ws:${page.workspaceId}:db:${page.id}`]);
+    if (docNames.length) {
+      await tx.collabDoc.deleteMany({ where: { documentName: { in: docNames } } });
+    }
+    const databases = await tx.database.findMany({ where: { pageId: { in: ids } }, select: { id: true } });
+    await deleteDatabasesWithContents(tx, databases.map((db) => db.id));
+    // Rows elsewhere (row pages, wiki rows) that open one of these pages lose the link.
+    await tx.databaseRow.updateMany({ where: { pageId: { in: ids } }, data: { pageId: null } });
+    await tx.block.deleteMany({ where: { pageId: { in: ids } } });
+    return tx.page.deleteMany({ where: { id: { in: ids } } });
   }
 
   async listWorkspaceMembers(userId: string | undefined, workspaceId: string, adminId?: string) {
@@ -1103,9 +1136,7 @@ export class PagesService {
       } else if (page.kind === PageKind.DATABASE && nextKind === PageKind.DOC) {
         const database = await this.prisma.database.findUnique({ where: { pageId: page.id }, select: { id: true } });
         if (database) {
-          await this.prisma.databaseRow.deleteMany({ where: { databaseId: database.id } });
-          await this.prisma.databaseField.deleteMany({ where: { databaseId: database.id } });
-          await this.prisma.database.deleteMany({ where: { id: database.id } });
+          await this.prisma.$transaction((tx) => deleteDatabasesWithContents(tx, [database.id]));
         }
       }
     }
@@ -3909,10 +3940,11 @@ export class PagesService {
         ? (existing.preferences as Record<string, any>)
         : {};
     const merged = { ...current, ...nextPrefs };
-    return this.prisma.user.update({
+    const updated = await this.prisma.user.update({
       where: { id },
       data: { preferences: merged },
     });
+    return this.stripPassword(updated);
   }
 
   private async collectDescendantIds(rootId: string): Promise<string[]> {
@@ -3957,22 +3989,7 @@ export class PagesService {
   async destroyPages(ids: string[], user?: { userId?: string; userName?: string }) {
     if (!ids?.length) return { count: 0 };
     await Promise.all(ids.map((pageId) => this.requirePageAccess(pageId, user, { requireWrite: true, allowDeleted: true })));
-    const pages = await this.prisma.page.findMany({ where: { id: { in: ids } }, select: { id: true, workspaceId: true } });
-    const docNames = pages.flatMap((page) => [`ws:${page.workspaceId}:${page.id}`, `ws:${page.workspaceId}:db:${page.id}`]);
-    if (docNames.length) {
-      await this.prisma.collabDoc.deleteMany({ where: { documentName: { in: docNames } } });
-    }
-    const databases = await this.prisma.database.findMany({ where: { pageId: { in: ids } }, select: { id: true } });
-    const databaseIds = databases.map((db) => db.id);
-    if (databaseIds.length) {
-      await this.prisma.databaseForm.deleteMany({ where: { databaseId: { in: databaseIds } } });
-      await this.prisma.databaseRow.deleteMany({ where: { databaseId: { in: databaseIds } } });
-      await this.prisma.databaseField.deleteMany({ where: { databaseId: { in: databaseIds } } });
-      await this.prisma.database.deleteMany({ where: { id: { in: databaseIds } } });
-    }
-    await this.prisma.block.deleteMany({ where: { pageId: { in: ids } } });
-    const result = await this.prisma.page.deleteMany({ where: { id: { in: ids } } });
-    return result;
+    return this.prisma.$transaction((tx) => this.removePages(tx, ids));
   }
 
   async restorePage(id: string, user?: { userId?: string; userName?: string }) {
@@ -4129,9 +4146,7 @@ export class PagesService {
     this.locks.clear();
 
     const deleted = await this.prisma.$transaction(async (tx) => {
-      const databaseRows = await tx.databaseRow.deleteMany();
-      const databaseFields = await tx.databaseField.deleteMany();
-      const databases = await tx.database.deleteMany();
+      const databases = await deleteDatabasesWithContents(tx);
       const childBlocks = await tx.block.deleteMany({ where: { parentId: { not: null } } });
       const rootBlocks = await tx.block.deleteMany({ where: { parentId: null } });
       const childPages = await tx.page.deleteMany({ where: { parentId: { not: null } } });
@@ -4140,9 +4155,9 @@ export class PagesService {
       const memberships = await tx.userWorkspace.deleteMany();
       const workspaces = await tx.workspace.deleteMany();
       return {
-        databaseRows: databaseRows.count,
-        databaseFields: databaseFields.count,
-        databases: databases.count,
+        databaseRows: databases.rows,
+        databaseFields: databases.fields,
+        databases: databases.databases,
         blocks: childBlocks.count + rootBlocks.count,
         pages: childPages.count + rootPages.count,
         collabDocs: collabDocs.count,
@@ -4234,7 +4249,44 @@ export class PagesService {
     if (userId === SYSTEM_ADMIN_ID) throw new BadRequestException('Cannot delete the system admin');
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new NotFoundException('User not found');
-    await this.prisma.user.delete({ where: { id: userId } });
+
+    // Don't leave a shared workspace without an owner.
+    const ownedShared = await this.prisma.userWorkspace.findMany({
+      where: { userId, role: WorkspaceRole.OWNER, workspace: { personalOwnerId: null } },
+      select: { workspaceId: true, workspace: { select: { name: true } } },
+    });
+    const soleOwnerOf: string[] = [];
+    for (const membership of ownedShared) {
+      const owners = await this.prisma.userWorkspace.count({
+        where: { workspaceId: membership.workspaceId, role: WorkspaceRole.OWNER },
+      });
+      if (owners <= 1) soleOwnerOf.push(membership.workspace.name);
+    }
+    if (soleOwnerOf.length) {
+      throw new ConflictException(
+        `${user.displayName} is the only owner of ${soleOwnerOf.join(', ')}. Make someone else an owner first.`
+      );
+    }
+
+    // Their personal workspace goes, and so do their private pages elsewhere, which nobody
+    // else could open. Their public pages stay, without an author.
+    const personal = await this.prisma.workspace.findFirst({ where: { personalOwnerId: userId }, select: { id: true } });
+    const privatePages = await this.prisma.page.findMany({
+      where: { authorId: userId, visibility: PageVisibility.PRIVATE, ...(personal ? { NOT: { workspaceId: personal.id } } : {}) },
+      select: { id: true },
+    });
+    const privateIds = new Set<string>();
+    for (const page of privatePages) {
+      privateIds.add(page.id);
+      for (const id of await this.collectDescendantIds(page.id)) privateIds.add(id);
+    }
+    await this.prisma.$transaction(async (tx) => {
+      if (personal) await this.removeWorkspace(tx, personal.id);
+      await this.removePages(tx, [...privateIds]);
+      await tx.page.updateMany({ where: { authorId: userId }, data: { authorId: null } });
+      await tx.userWorkspace.deleteMany({ where: { userId } });
+      await tx.user.delete({ where: { id: userId } });
+    });
     return { ok: true };
   }
 
@@ -4247,7 +4299,8 @@ export class PagesService {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user || !user.passwordHash) throw new NotFoundException('User not found');
     const valid = await verifyPassword(currentPassword, user.passwordHash);
-    if (!valid) throw new UnauthorizedException('Current password is incorrect');
+    // Not 401: the web app treats 401 as an expired session and logs the user out.
+    if (!valid) throw new BadRequestException('Current password is incorrect');
     const passwordHash = await hashPassword(newPassword);
     await this.prisma.user.update({ where: { id: userId }, data: { passwordHash } });
     return { ok: true };

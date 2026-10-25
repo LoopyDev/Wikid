@@ -88,13 +88,28 @@ describe('HTML export', () => {
     expect(Buffer.from(whole.bytes).toString('utf8')).toContain('Export child');
   });
 
-  // Known bug: the export doesn't check access, so anyone logged in can export any
-  // workspace or page tree by its id.
-  it.fails("refuses to export a workspace the user isn't a member of", async () => {
+  it("refuses to export a workspace or page the user can't open", async () => {
     const ws = await createWorkspace(alice);
-    await createPage(alice, ws, { title: 'Not for Bob' });
-    const res = await bob.download('/export/html', { method: 'POST', body: { workspaceId: ws } });
-    expect(res.status).toBe(403);
+    const page = await createPage(alice, ws, { title: 'Not for Bob' });
+    expect((await bob.download('/export/html', { method: 'POST', body: { workspaceId: ws } })).status).toBe(403);
+    expect((await bob.download('/export/html', { method: 'POST', body: { rootPageId: page.id } })).status).toBe(403);
+    expect((await alice.download('/export/html', { method: 'POST', body: {} })).status).toBe(400);
+  });
+
+  it("leaves out pages the user can't open", async () => {
+    // bob is a viewer of workspaceId: he sees public pages only.
+    const visible = await createPage(alice, workspaceId, { title: 'Visible to members' });
+    const secret = await createPage(alice, workspaceId, { title: 'Alice only', visibility: 'PRIVATE' });
+    await createPage(alice, workspaceId, { parentId: secret.id, title: 'Alice only child' });
+
+    const asBob = Buffer.from((await bob.download('/export/html', { method: 'POST', body: { workspaceId } })).bytes).toString('utf8');
+    expect(asBob).toContain('Visible to members');
+    expect(asBob).not.toContain('Alice only');
+    expect((await bob.download('/export/html', { method: 'POST', body: { rootPageId: secret.id } })).status).toBe(403);
+
+    const asAlice = Buffer.from((await alice.download('/export/html', { method: 'POST', body: { workspaceId } })).bytes).toString('utf8');
+    expect(asAlice).toContain('Alice only child');
+    expect(asAlice).toContain(visible.title);
   });
 });
 

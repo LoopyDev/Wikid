@@ -186,13 +186,23 @@ describe('bin, restore and permanent delete', () => {
     expect((await alice.get(`/pages/${db.id}/database`)).status).toBe(404);
   });
 
-  // Known bug: permanent delete leaves the database's views behind, and they still
-  // point at the database, so the delete fails with 500.
-  it.fails('deletes a database page with views permanently', async () => {
+  it('deletes a database page with views and forms permanently', async () => {
     const db = await createPage(alice, workspaceId, { kind: 'DATABASE' });
     expect((await alice.post(`/pages/${db.id}/database/views`, { name: 'Board', type: 'BOARD' })).status).toBe(201);
+    expect((await alice.post(`/pages/${db.id}/database/forms`, { name: 'Form' })).status).toBe(201);
     await alice.delete(`/pages/${db.id}`);
     expect((await alice.delete('/pages', { ids: [db.id] })).status).toBe(200);
+    expect((await alice.get(`/pages/${db.id}`)).status).toBe(404);
+  });
+
+  it('deletes a row page permanently and unlinks its row', async () => {
+    const db = await createPage(alice, workspaceId, { kind: 'DATABASE' });
+    const titleField = (await alice.get(`/pages/${db.id}/database`)).body.fields[0].id;
+    const row = (await alice.post(`/pages/${db.id}/database/rows`, { data: { [titleField]: 'Has a page' } })).body;
+    await alice.delete(`/pages/${row.pageId}`);
+    expect((await alice.delete('/pages', { ids: [row.pageId] })).status).toBe(200);
+    const after = (await alice.get(`/pages/${db.id}/database`)).body.rows.find((r: any) => r.id === row.id);
+    expect(after.pageId).toBeNull();
   });
 
   it("doesn't let others bin private pages they don't own", async () => {
@@ -258,6 +268,17 @@ describe('page setup', () => {
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ kind: 'DATABASE', setupStatus: 'COMPLETE', databaseComplianceMode: false });
     expect((await alice.get(`/pages/${page.id}/database`)).status).toBe(200);
+  });
+
+  it('turns a pending database with views and forms back into a document', async () => {
+    const page = await createPage(alice, workspaceId, { setupStatus: 'PENDING' });
+    await alice.patch(`/pages/${page.id}/setup`, { kind: 'DATABASE' });
+    expect((await alice.post(`/pages/${page.id}/database/views`, { name: 'Board', type: 'BOARD' })).status).toBe(201);
+    expect((await alice.post(`/pages/${page.id}/database/forms`, { name: 'Form' })).status).toBe(201);
+    const res = await alice.patch(`/pages/${page.id}/setup`, { kind: 'DOC' });
+    expect(res.status).toBe(200);
+    expect(res.body.kind).toBe('DOC');
+    expect((await alice.get(`/pages/${page.id}/database`)).status).toBe(400);
   });
 
   it('refuses to change the type after setup', async () => {

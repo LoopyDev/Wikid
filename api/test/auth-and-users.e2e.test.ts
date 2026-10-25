@@ -82,8 +82,7 @@ describe('user profile and preferences', () => {
     expect((await alice.patch(`/users/${USERS.bob.id}/preferences`, { preferences: {} })).status).toBe(403);
   });
 
-  // Known bug: the response is the full user record, including the password hash.
-  it.fails('does not return the password hash when saving preferences', async () => {
+  it('does not return the password hash when saving preferences', async () => {
     const alice = await loginAs(USERS.alice.email);
     const res = await alice.patch(`/users/${USERS.alice.id}/preferences`, { preferences: { sidebarHidden: false } });
     expect(res.status).toBe(200);
@@ -137,13 +136,54 @@ describe('admin user management and passwords', () => {
     expect((await admin.delete(`/admin/users/${MISSING_ID}?adminId=x`)).status).toBe(404);
   });
 
-  // Known bug: deleting a user fails with 500 because their workspace memberships
-  // (every user has a personal workspace) still point at them.
-  it.fails('deletes a user', async () => {
+  it('deletes a user with their personal workspace and private pages, keeping their public pages', async () => {
     const admin = await loginAs(USERS.admin.email);
     const { id: userId, email } = await createTempUser(admin, 'pass');
-    expect((await admin.delete(`/admin/users/${userId}?adminId=x`)).status).toBe(200);
+    const user = await loginAs(email, 'pass');
+
+    // A shared workspace owned by alice, where the user writes a public and a private page.
+    const alice = await loginAs(USERS.alice.email);
+    const shared = (await alice.post('/workspaces', { name: unique('Shared') })).body.workspace.id;
+    expect((await alice.post(`/workspaces/${shared}/members`, { email, role: 'EDITOR' })).status).toBe(201);
+    const publicPage = (await user.post('/pages', { workspaceId: shared, title: 'Public notes' })).body;
+    const privatePage = (await user.post('/pages', { workspaceId: shared, title: 'Private notes', visibility: 'PRIVATE' })).body;
+    const privateChild = (await user.post('/pages', { workspaceId: shared, parentId: privatePage.id })).body;
+    // A workspace they co-own with alice, and their personal workspace with a database that has a view.
+    const own = (await user.post('/workspaces', { name: unique('Own') })).body.workspace.id;
+    expect((await user.post(`/workspaces/${own}/members`, { email: USERS.alice.email, role: 'OWNER' })).status).toBe(201);
+    const personal = (await user.get('/workspaces')).body.find((m: any) => m.workspaceId !== shared && m.workspaceId !== own);
+    const personalPage = (await user.post('/pages', { workspaceId: personal.workspaceId, kind: 'DATABASE' })).body;
+    expect((await user.post(`/pages/${personalPage.id}/database/views`, { name: 'Board', type: 'BOARD' })).status).toBe(201);
+    // Alice isn't a member there: she gets 403 while the page exists, 404 once it's gone.
+    expect((await alice.get(`/pages/${personalPage.id}`)).status).toBe(403);
+
+    const deleted = await admin.delete(`/admin/users/${userId}?adminId=x`);
+    expect(deleted.status).toBe(200);
+    expect(deleted.body).toEqual({ ok: true });
     expect((await new Session().login(email, 'pass')).status).toBe(401);
+
+    const kept = await alice.get(`/pages/${publicPage.id}`);
+    expect(kept.status).toBe(200);
+    expect(kept.body.authorId).toBeNull();
+    expect((await alice.get(`/pages/${privatePage.id}`)).status).toBe(404);
+    expect((await alice.get(`/pages/${privateChild.id}`)).status).toBe(404);
+    const members = (await alice.get(`/workspaces/${shared}/members`)).body.map((m: any) => m.userId);
+    expect(members).not.toContain(userId);
+    // The co-owned workspace stays with alice; the personal workspace is gone.
+    expect((await alice.get(`/workspaces/${own}/members`)).body.map((m: any) => m.userId)).toEqual([USERS.alice.id]);
+    expect((await alice.get(`/pages/${personalPage.id}`)).status).toBe(404);
+  });
+
+  it("refuses to delete the only owner of a shared workspace", async () => {
+    const admin = await loginAs(USERS.admin.email);
+    const { id: userId, email } = await createTempUser(admin, 'pass');
+    const user = await loginAs(email, 'pass');
+    const name = unique('Sole');
+    await user.post('/workspaces', { name });
+    const res = await admin.delete(`/admin/users/${userId}?adminId=x`);
+    expect(res.status).toBe(409);
+    expect(res.body.message).toBe(`Temp User is the only owner of ${name}. Make someone else an owner first.`);
+    expect((await new Session().login(email, 'pass')).status).toBe(201);
   });
 
   it('lets users change their own password only', async () => {
@@ -158,14 +198,13 @@ describe('admin user management and passwords', () => {
     expect((await new Session().login(email, 'new-pass')).status).toBe(201);
   });
 
-  // Known bug: a wrong current password answers 401, which the web app treats as
-  // "session expired" and logs the user out.
-  it.fails('rejects a wrong current password without signalling a logged-out session', async () => {
+  it('rejects a wrong current password without signalling a logged-out session', async () => {
     const admin = await loginAs(USERS.admin.email);
     const { id: userId, email } = await createTempUser(admin, 'old-pass');
     const user = await loginAs(email, 'old-pass');
     const res = await user.put(`/users/${userId}/password`, { currentPassword: 'wrong', newPassword: 'x' });
+    expect(res.status).toBe(400);
     expect(res.body.message).toBe('Current password is incorrect');
-    expect(res.status).not.toBe(401);
+    expect((await user.get('/auth/me')).status).toBe(200);
   });
 });

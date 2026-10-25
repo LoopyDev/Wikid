@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { extractPageIdFromDocName } from '../utils/collab-doc-name.util';
+import { deleteDatabasesWithContents } from '../utils/delete-databases.util';
 
 @Injectable()
 export class CollabService {
@@ -64,18 +65,16 @@ export class CollabService {
 
   async purgeAllDocs() {
     return this.prisma.$transaction(async (tx) => {
-      const databaseRows = await tx.databaseRow.deleteMany();
-      const databaseFields = await tx.databaseField.deleteMany();
-      const databases = await tx.database.deleteMany();
+      const databases = await deleteDatabasesWithContents(tx);
       const childBlocks = await tx.block.deleteMany({ where: { parentId: { not: null } } });
       const rootBlocks = await tx.block.deleteMany({ where: { parentId: null } });
       const childPages = await tx.page.deleteMany({ where: { parentId: { not: null } } });
       const rootPages = await tx.page.deleteMany({ where: { parentId: null } });
       const collabDocs = await tx.collabDoc.deleteMany();
       return {
-        databaseRows: databaseRows.count,
-        databaseFields: databaseFields.count,
-        databases: databases.count,
+        databaseRows: databases.rows,
+        databaseFields: databases.fields,
+        databases: databases.databases,
         blocks: childBlocks.count + rootBlocks.count,
         pages: childPages.count + rootPages.count,
         collabDocs: collabDocs.count,

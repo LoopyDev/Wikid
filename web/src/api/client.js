@@ -16,6 +16,18 @@ const notifyAuthExpired = () => {
   window.dispatchEvent(new CustomEvent(AUTH_EXPIRED_EVENT));
 };
 
+// The readable message from an error response: the API's JSON `message`, or the raw text
+function errorMessageFrom(raw, res) {
+  let message = raw;
+  try {
+    const body = JSON.parse(raw);
+    if (body?.message) message = Array.isArray(body.message) ? body.message.join(', ') : body.message;
+  } catch {
+    // not JSON; use the text as is
+  }
+  return message || res.statusText;
+}
+
 // All API calls go through here so the session cookie is always sent
 async function apiFetch(path, options = {}) {
   const res = await fetch(`${API_BASE}${path}`, { credentials: 'include', ...options });
@@ -40,16 +52,7 @@ async function request(path, options = {}) {
   }
   notifyApiStatus('online');
   const raw = await res.text(); // read once
-  if (!res.ok) {
-    let message = raw;
-    try {
-      const body = JSON.parse(raw);
-      if (body?.message) message = Array.isArray(body.message) ? body.message.join(', ') : body.message;
-    } catch {
-      // not JSON; use the text as is
-    }
-    throw new Error(message || res.statusText);
-  }
+  if (!res.ok) throw new Error(errorMessageFrom(raw, res));
   try {
     return JSON.parse(raw);
   } catch (err) {
@@ -273,7 +276,7 @@ export const api = {
   },
   async fetchUpload(url) {
     const res = await fetch(url, { credentials: 'include' });
-    if (!res.ok) throw new Error(await res.text() || res.statusText);
+    if (!res.ok) throw new Error(errorMessageFrom(await res.text(), res));
     return res.arrayBuffer();
   },
   async getUser(userId, { userId: requesterId, userName } = {}) {
@@ -402,8 +405,7 @@ export const api = {
       body: JSON.stringify({ prompt, blocks }),
     });
     if (!res.ok) {
-      const text = await res.text();
-      throw new Error(text || res.statusText);
+      throw new Error(errorMessageFrom(await res.text(), res));
     }
     return res.json();
   },
@@ -416,7 +418,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ rootPageId, workspaceId, mode, excludeIds }),
     });
-    if (!res.ok) throw new Error(await res.text() || res.statusText);
+    if (!res.ok) throw new Error(errorMessageFrom(await res.text(), res));
     const blob = await res.blob();
     const disposition = res.headers.get('content-disposition') || '';
     const match = disposition.match(/filename="?([^"]+)"?/);
@@ -431,8 +433,7 @@ export const api = {
       body: JSON.stringify({ messages, workspaceId, pageContext, currentPageOnly }),
     });
     if (!res.ok) {
-      const text = await res.text();
-      throw new Error(text || res.statusText);
+      throw new Error(errorMessageFrom(await res.text(), res));
     }
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
@@ -464,8 +465,7 @@ export const api = {
       body: JSON.stringify({ prompt, context, mode }),
     });
     if (!res.ok) {
-      const text = await res.text();
-      throw new Error(text || res.statusText);
+      throw new Error(errorMessageFrom(await res.text(), res));
     }
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
