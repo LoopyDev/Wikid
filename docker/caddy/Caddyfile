@@ -16,7 +16,11 @@
 		Strict-Transport-Security "max-age=31536000"
 		# Don't let other sites put Wikid in a frame (clickjacking); Wikid never frames itself
 		X-Frame-Options "DENY"
-		Content-Security-Policy "frame-ancestors 'none'"
+		# What the page may load. Scripts only from Wikid itself (plus WebAssembly
+		# and blob: workers for the Gaussian splat viewer). Inline styles are
+		# needed by the editor and emoji picker. Images may come from any HTTPS
+		# site (link previews, pasted image URLs). draw.io is the only frame.
+		Content-Security-Policy "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' wss://{$WIKID_DOMAIN} data: blob:; worker-src 'self' blob:; media-src 'self' data: blob:; frame-src https://embed.diagrams.net; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
 	}
 	reverse_proxy web:80
 }
