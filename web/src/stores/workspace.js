@@ -264,6 +264,19 @@ export const useWorkspaceStore = defineStore('workspace', {
         this.doc = fallbackDoc;
       }
     },
+    // Loads a workspace's page list for the sidebar, without changing which page is open.
+    async loadPageList(workspaceId) {
+      if (!workspaceId || !this.activeUser || !this.hasApi) return;
+      const pages = await api.listPages({
+        workspaceId,
+        userId: this.activeUser.id,
+        userName: this.activeUser.name,
+      });
+      // Ignore the answer if the user has moved to another workspace meanwhile
+      if (workspaceId !== this.activeWorkspaceId) return;
+      this.pages = Array.isArray(pages) ? pages : [];
+      this.binPages = [];
+    },
     async loadPageDoc(pageId) {
       if (!pageId || !this.hasApi || !this.activeUser || this.deletingCascade) return;
       this.loadingDoc = true;
@@ -280,6 +293,8 @@ export const useWorkspaceStore = defineStore('workspace', {
           this.activeWorkspaceId = page.workspaceId;
           this.activeWorkspaceRole = entry?.role || this.activeWorkspaceRole;
           this.saveLastWorkspaceId(page.workspaceId);
+          // The page list still belongs to the previous workspace (e.g. after opening a link)
+          await this.loadPageList(page.workspaceId);
         }
         this.upsertPage(page);
         if (this.docRevision === docRevisionAtStart) {
@@ -993,11 +1008,23 @@ export const useWorkspaceStore = defineStore('workspace', {
       if (!pageId) return;
       try {
         await api.restorePage(pageId, { userId: this.activeUser?.id, userName: this.activeUser?.name });
-        const restored = this.binPages.find((p) => p.id === pageId);
-        this.binPages = this.binPages.filter((p) => p.id !== pageId);
-        if (restored) {
-          this.pages = [restored, ...this.pages];
+        // The server restores the page with its sub-pages
+        const restoredIds = new Set([pageId]);
+        let added = true;
+        while (added) {
+          added = false;
+          for (const p of this.binPages) {
+            if (!restoredIds.has(p.id) && restoredIds.has(p.parentId)) {
+              restoredIds.add(p.id);
+              added = true;
+            }
+          }
         }
+        const restored = this.binPages
+          .filter((p) => restoredIds.has(p.id))
+          .map((p) => ({ ...p, isDeleted: false, deletedAt: null }));
+        this.binPages = this.binPages.filter((p) => !restoredIds.has(p.id));
+        this.pages = [...restored, ...this.pages.filter((p) => !restoredIds.has(p.id))];
       } catch (err) {
         console.warn('Restore page failed', err);
         this.error = err?.message || 'Failed to restore page';
