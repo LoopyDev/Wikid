@@ -16,6 +16,12 @@
 		Strict-Transport-Security "max-age=31536000"
 		# Don't let other sites put Wikid in a frame (clickjacking); Wikid never frames itself
 		X-Frame-Options "DENY"
+		# Use the declared Content-Type; don't let browsers guess (e.g. treat an upload as a script)
+		X-Content-Type-Options "nosniff"
+		# Links to other sites only reveal the origin, not the full page address
+		Referrer-Policy "strict-origin-when-cross-origin"
+		# Turn off device features Wikid never uses (clipboard and fullscreen stay available)
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(), gyroscope=(), magnetometer=()"
 		# What the page may load. Scripts only from Wikid itself (plus WebAssembly
 		# and blob: workers for the Gaussian splat viewer). Inline styles are
 		# needed by the editor and emoji picker. Images may come from any HTTPS
