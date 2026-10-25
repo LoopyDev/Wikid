@@ -12,6 +12,7 @@ Thanks for helping out. Issues and pull requests are welcome. For larger changes
   npm run typecheck
   npm run build
   npm run test:api   # needs a running stack, see api/test/README.md
+  npm run test:e2e   # browser tests, needs a running stack, see e2e/README.md
   ```
 
   CI runs the same checks, plus a Docker image build.

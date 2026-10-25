@@ -13,9 +13,10 @@
     "dev:api": "npm run start:dev -w api",
     "dev:collab": "npm run dev -w collab",
     "dev:web": "npm run dev -w web",
-    "typecheck": "npm run typecheck -w api -w collab",
+    "typecheck": "npm run typecheck -w api -w collab && tsc -p e2e",
     "test": "npm test -w web",
     "test:api": "npm run test:e2e -w api",
+    "test:e2e": "playwright test -c e2e",
     "build": "npm run build -w web"
   },
   "overrides": {
@@ -44,5 +45,8 @@
     "@tiptap/extensions": "3.20.0",
     "@tiptap/pm": "3.20.0",
     "@tiptap/y-tiptap": "3.0.2"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.1"
   }
 }
