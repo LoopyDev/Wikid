@@ -218,6 +218,9 @@ button {
   grid-column: 1;
   grid-row: 1;
   min-width: var(--sidebar-width);
+  /* Scroll when there are more pages than fit; the app shell clips anything taller */
+  min-height: 0;
+  overflow-y: auto;
   user-select: none;
   -webkit-user-select: none;
   position: relative;
@@ -925,6 +928,11 @@ button {
   margin-top: auto;
   padding-top: 12px;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
+  /* Keep the bin reachable while the page list scrolls */
+  position: sticky;
+  bottom: -6px;
+  padding-bottom: 6px;
+  background: var(--sidebar-bg);
 }
 
 .bin-btn {
