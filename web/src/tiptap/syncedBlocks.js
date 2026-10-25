@@ -122,3 +122,73 @@ export const createSyncedMirrorExtension = ({ isSyncedLocked }) => Extension.cre
     ];
   },
 });
+
+export const findBlockById = (doc, blockId) => {
+  let result = null;
+  doc.descendants((node, pos) => {
+    if (node.isBlock && node.attrs?.id === blockId && !result) {
+      result = { node, pos };
+      return false;
+    }
+    return undefined;
+  });
+  return result;
+};
+
+export const createSyncedNodeFromSource = (sourceNode, sourceId) => {
+  if (!sourceNode) return null;
+  const nextAttrs = { ...sourceNode.attrs, id: null, [SYNCED_FROM_ATTR]: sourceId };
+  return sourceNode.type.create(nextAttrs, sourceNode.content, sourceNode.marks);
+};
+
+export const selectionSyncedReferenceId = (state) => {
+  const { $from, $to } = state.selection;
+  const findSyncedId = ($pos) => {
+    for (let depth = $pos.depth; depth >= 0; depth -= 1) {
+      const node = $pos.node(depth);
+      if (node?.isBlock && node.attrs?.[SYNCED_FROM_ATTR]) {
+        return node.attrs[SYNCED_FROM_ATTR];
+      }
+    }
+    return null;
+  };
+  const fromId = findSyncedId($from);
+  const toId = findSyncedId($to);
+  if (fromId && toId && fromId === toId) return fromId;
+  return fromId || toId || null;
+};
+
+export const sourceKey = (pageId, blockId) => {
+  if (!blockId) return null;
+  return pageId ? `${pageId}:${blockId}` : blockId;
+};
+
+// Synced-map entries record which page wrote them. A page's own edits already reach
+// everyone on that page through the page's collab doc, so applying them again from the
+// map made every collaborator rewrite the same blocks at once (duplicated lines, lost
+// keystrokes). Pages only take map updates written from a different page.
+export const SYNCED_PAYLOAD_FROM = '_fromPage';
+
+export const withSyncedOrigin = (payload, pageId) => (payload && pageId ? { ...payload, [SYNCED_PAYLOAD_FROM]: pageId } : payload);
+
+export const syncedPayloadContent = (payload) => {
+  if (!payload || typeof payload !== 'object') return payload;
+  const { [SYNCED_PAYLOAD_FROM]: _fromPage, ...content } = payload;
+  return content;
+};
+
+export const serializeSyncedNode = (node) => {
+  if (!node?.toJSON) return null;
+  const json = node.toJSON();
+  if (json && typeof json === 'object') {
+    const attrs = { ...(json.attrs || {}) };
+    delete attrs.id;
+    delete attrs[SYNCED_FROM_ATTR];
+    if (Object.keys(attrs).length) {
+      json.attrs = attrs;
+    } else {
+      delete json.attrs;
+    }
+  }
+  return json;
+};

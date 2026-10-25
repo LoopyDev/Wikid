@@ -61,7 +61,16 @@ import { createBulletDepthPlugin } from '../tiptap/bulletDepth';
 import { ColumnCleanupExtension, ColumnInputGuardExtension, columnCleanupKey } from '../tiptap/columnGuards';
 import { ORIGIN_META_KEY, SYNCED_FROM_ATTR, findColumnAncestor, isEmptyParagraph } from '../tiptap/editorShared';
 import { createInputSelectionGuardExtension } from '../tiptap/inputSelectionGuard';
-import { createSyncedMirrorExtension, resolveWorkspaceSyncedKey, workspaceSyncedKey } from '../tiptap/syncedBlocks';
+import { createColumnsPayload, createDatabaseViewConfig, createToggleHeadingPayload, getColumnOnlyBlock } from '../tiptap/blockPayloads';
+import { codeBlockLanguages, dividerAlignOptions, dividerSizeOptions, highlightOptions, textColorOptions } from '../tiptap/editorMenuOptions';
+import { INDENT_EXCLUDED_ANCESTORS, applyCodeBlockIndentation, collectIndentTargets, findIndentTarget, hasAncestorOfType } from '../tiptap/indentation';
+import { SYNCED_PAYLOAD_FROM, createSyncedMirrorExtension, createSyncedNodeFromSource, findBlockById, resolveWorkspaceSyncedKey, selectionSyncedReferenceId, serializeSyncedNode, sourceKey, syncedPayloadContent, withSyncedOrigin, workspaceSyncedKey } from '../tiptap/syncedBlocks';
+import { AI_SERIALIZABLE_TYPES, SMALL_PAGE_THRESHOLD, detectTargetSection } from '../utils/aiContext';
+import { blockDebugEnabled, describeUndoOrigin, describeUndoStacks, logBlockDebug, logDuplicateBlockDetails, logSetup, logUndoDebug, summarizeBlockStats, undoDebugEnabled } from '../utils/editorDebug';
+import { normalizeLinkHref, parseBlockUrl } from '../utils/editorLinks';
+import { markdownToHtml, shouldHandleMarkdownPaste } from '../utils/markdownPaste';
+import { positionBubbleMenu, rectFromClientRects } from '../utils/menuPosition';
+import { buildPageLinkFieldsFromCollab, buildPageLinkRowsFromCollab, getPageLinkFieldSource, isPageLinkCollabEmpty, pageLinkBuiltinAttributes, parsePageLinkAttribute, resolvePageLinkRow } from '../utils/pageLinkAttributes';
 
 const props = defineProps({
   doc: {
@@ -157,45 +166,11 @@ const listWorkspacePages = () => {
   });
 };
 
-const pageLinkBuiltinAttributes = [
-  { id: 'builtin:createdAt', label: 'Created' },
-  { id: 'builtin:updatedAt', label: 'Last modified' },
-  { id: 'builtin:kind', label: 'Page type' },
-  { id: 'builtin:visibility', label: 'Visibility' },
-];
 
-const parsePageLinkAttribute = (value) => {
-  if (typeof value !== 'string') return { kind: '', key: '' };
-  const trimmed = value.trim();
-  if (!trimmed) return { kind: '', key: '' };
-  if (trimmed.startsWith('builtin:')) return { kind: 'builtin', key: trimmed.slice(8) };
-  if (trimmed.startsWith('field:')) return { kind: 'field', key: trimmed.slice(6) };
-  return { kind: '', key: '' };
-};
 
-const normalizePageLinkFieldOptions = (field) => {
-  const options = field?.options && typeof field.options === 'object' && !Array.isArray(field.options) ? field.options : {};
-  const rawChoices = Array.isArray(options.choices) ? options.choices : [];
-  const choices = rawChoices
-    .map((choice) => {
-      if (typeof choice === 'string') {
-        const value = choice.trim();
-        return value ? { value, color: null } : null;
-      }
-      if (choice && typeof choice === 'object') {
-        const value = typeof choice.value === 'string' ? choice.value.trim() : '';
-        if (!value) return null;
-        const label = typeof choice.label === 'string' ? choice.label.trim() : '';
-        const color = typeof choice.color === 'string' && choice.color.trim() ? choice.color.trim() : null;
-        return { value, label: label || null, color };
-      }
-      return null;
-    })
-    .filter(Boolean);
-  return { ...options, choices };
-};
 
-const getPageLinkFieldSource = (field) => normalizePageLinkFieldOptions(field).source || null;
+
+
 
 const resolvePageLinkDatabasePageId = (page) => {
   if (!page) return null;
@@ -212,107 +187,20 @@ const resolvePageLinkDatabasePageId = (page) => {
   return null;
 };
 
-const resolvePageLinkRow = (rows, pageId) => {
-  if (!Array.isArray(rows) || !pageId) return null;
-  return rows.find((row) => row?.pageId === pageId || row?.data?.__pageId === pageId) || null;
-};
-
 const pageLinkDatabaseCache = reactive({});
 const pageLinkDatabaseLoading = reactive({});
 const pageLinkDatabaseErrors = reactive({});
 const pageLinkCollabState = new Map();
 
-const pageLinkToPlainValue = (value) => {
-  if (value instanceof Y.Map) {
-    const obj = {};
-    value.forEach((item, key) => {
-      obj[key] = pageLinkToPlainValue(item);
-    });
-    return obj;
-  }
-  if (value instanceof Y.Array) {
-    return value.toArray().map((item) => pageLinkToPlainValue(item));
-  }
-  return value;
-};
 
-const pageLinkGetEntryValue = (entry, key) => {
-  if (!entry) return undefined;
-  if (entry instanceof Y.Map) return entry.get(key);
-  return entry[key];
-};
 
-const readPageLinkCollabOrder = (order) => {
-  if (!order) return [];
-  const raw = typeof order.toArray === 'function' ? order.toArray() : [];
-  return raw.map((id) => String(id)).filter(Boolean);
-};
 
-const buildPageLinkFieldsFromCollab = (fieldsMap, fieldOrder) => {
-  if (!fieldsMap) return [];
-  const order = readPageLinkCollabOrder(fieldOrder);
-  const seen = new Set();
-  const result = [];
-  const pushField = (id) => {
-    if (!id || seen.has(id)) return;
-    const entry = fieldsMap.get(id);
-    if (!entry) return;
-    const name = String(pageLinkGetEntryValue(entry, 'name') ?? '');
-    const type = String(pageLinkGetEntryValue(entry, 'type') || 'TEXT');
-    const rawOptions = pageLinkToPlainValue(pageLinkGetEntryValue(entry, 'options'));
-    const options =
-      rawOptions && typeof rawOptions === 'object' && !Array.isArray(rawOptions) ? rawOptions : {};
-    result.push({ id, name, type, options: normalizePageLinkFieldOptions({ options }) });
-    seen.add(id);
-  };
-  order.forEach((id) => pushField(id));
-  fieldsMap.forEach((_, id) => {
-    if (!seen.has(id)) pushField(String(id));
-  });
-  return result;
-};
 
-const buildPageLinkRowsFromCollab = (rowsMap, rowOrder) => {
-  if (!rowsMap) return [];
-  const order = readPageLinkCollabOrder(rowOrder);
-  const seen = new Set();
-  const result = [];
-  const pushRow = (id) => {
-    if (!id || seen.has(id)) return;
-    const entry = rowsMap.get(id);
-    if (!entry) return;
-    const rawData = pageLinkGetEntryValue(entry, 'data');
-    const rawPageId = pageLinkGetEntryValue(entry, 'pageId');
-    let data = {};
-    if (rawData instanceof Y.Map) {
-      rawData.forEach((value, key) => {
-        data[key] = pageLinkToPlainValue(value);
-      });
-    } else {
-      const plain = pageLinkToPlainValue(rawData);
-      if (plain && typeof plain === 'object' && !Array.isArray(plain)) {
-        data = { ...plain };
-      }
-    }
-    const pageId = typeof rawPageId === 'string' ? rawPageId : null;
-    result.push({ id, data, pageId });
-    seen.add(id);
-  };
-  order.forEach((id) => pushRow(id));
-  rowsMap.forEach((_, id) => {
-    if (!seen.has(id)) pushRow(String(id));
-  });
-  return result;
-};
 
-const isPageLinkCollabEmpty = (state) => {
-  if (!state) return true;
-  const hasFields = state.fieldsMap && state.fieldsMap.size > 0;
-  const hasRows = state.rowsMap && state.rowsMap.size > 0;
-  const hasFieldOrder = state.fieldOrder && state.fieldOrder.length > 0;
-  const hasRowOrder = state.rowOrder && state.rowOrder.length > 0;
-  return !hasFields && !hasRows && !hasFieldOrder && !hasRowOrder;
-};
+
+
+
+
 
 const applyPageLinkCollabSnapshot = (databasePageId, state) => {
   if (!databasePageId || !state) return;
@@ -528,60 +416,8 @@ const createDatabasePage = async (options = {}) => {
   }
 };
 
-const textColorOptions = [
-  { name: 'Gray', value: 'var(--text-color-gray)' },
-  { name: 'Brown', value: 'var(--text-color-brown)' },
-  { name: 'Orange', value: 'var(--text-color-orange)' },
-  { name: 'Yellow', value: 'var(--text-color-yellow)' },
-  { name: 'Green', value: 'var(--text-color-green)' },
-  { name: 'Blue', value: 'var(--text-color-blue)' },
-  { name: 'Purple', value: 'var(--text-color-purple)' },
-  { name: 'Pink', value: 'var(--text-color-pink)' },
-  { name: 'Red', value: 'var(--text-color-red)' },
-];
-const highlightOptions = [
-  { name: 'Gray', value: 'var(--highlight-color-gray)' },
-  { name: 'Brown', value: 'var(--highlight-color-brown)' },
-  { name: 'Orange', value: 'var(--highlight-color-orange)' },
-  { name: 'Yellow', value: 'var(--highlight-color-yellow)' },
-  { name: 'Green', value: 'var(--highlight-color-green)' },
-  { name: 'Blue', value: 'var(--highlight-color-blue)' },
-  { name: 'Purple', value: 'var(--highlight-color-purple)' },
-  { name: 'Pink', value: 'var(--highlight-color-pink)' },
-  { name: 'Red', value: 'var(--highlight-color-red)' },
-];
-const dividerSizeOptions = [
-  { name: 'Small', value: 'small' },
-  { name: 'Medium', value: 'medium' },
-  { name: 'Large', value: 'large' },
-];
-const dividerAlignOptions = [
-  { name: 'Top', value: 'top' },
-  { name: 'Middle', value: 'middle' },
-  { name: 'Bottom', value: 'bottom' },
-];
-const codeBlockLanguages = ['', 'javascript', 'typescript', 'json', 'html', 'css', 'bash', 'markdown', 'python', 'js', 'ts', 'lua'];
 const lowlight = createLowlight(all);
-const createDatabaseViewConfig = () => ({ type: 'table', filters: [], sorts: [], columns: null });
-const createColumnsPayload = (count) => {
-  const safeCount = Math.max(2, Math.min(4, Number(count) || 2));
-  const baseWidth = Math.round((100 / safeCount) * 10) / 10;
-  const widths = Array.from({ length: safeCount }, (_, idx) => {
-    if (idx === safeCount - 1) {
-      const used = baseWidth * (safeCount - 1);
-      return Math.round((100 - used) * 10) / 10;
-    }
-    return baseWidth;
-  });
-  return {
-    type: 'columns',
-    content: widths.map((width) => ({
-      type: 'column',
-      attrs: { width },
-      content: [{ type: 'paragraph', content: [] }],
-    })),
-  };
-};
+
 const insertColumns = (editor, range, count) => {
   const payload = createColumnsPayload(count);
   editor
@@ -599,15 +435,6 @@ const insertColumns = (editor, range, count) => {
     .run();
 };
 
-const createToggleHeadingPayload = (level) => ({
-  type: 'toggleHeading',
-  attrs: { collapsed: false },
-  content: [
-    { type: 'heading', attrs: { level }, content: [] },
-    { type: 'paragraph', content: [] },
-  ],
-});
-
 const insertToggleHeading = (editor, range, level) => {
   const payload = createToggleHeadingPayload(level);
   editor
@@ -624,180 +451,21 @@ const insertToggleHeading = (editor, range, level) => {
     .run();
 };
 
-const getColumnOnlyBlock = (columnNode, columnPos) => {
-  if (!columnNode || columnNode.type?.name !== 'column') return null;
-  if (columnNode.childCount !== 1) return null;
-  const onlyChild = columnNode.child(0);
-  return {
-    node: onlyChild,
-    pos: columnPos + 1,
-    isEmpty: isEmptyParagraph(onlyChild),
-  };
-};
 
-const normalizeLinkHref = (raw) => {
-  if (typeof raw !== 'string') return '';
-  const trimmed = raw.trim();
-  if (!trimmed) return '';
-  const lower = trimmed.toLowerCase();
-  const hasScheme = /^[a-z][a-z0-9+.-]*:/.test(lower);
-  if (hasScheme) return trimmed;
-  if (trimmed.startsWith('#') || trimmed.startsWith('/') || trimmed.startsWith('./') || trimmed.startsWith('../')) {
-    return trimmed;
-  }
-  return `https://${trimmed}`;
-};
 
-const INDENTABLE_TYPES = new Set(['paragraph', 'heading']);
-const INDENT_EXCLUDED_ANCESTORS = new Set(['listItem', 'taskItem', 'tableCell', 'tableHeader']);
-const CODE_INDENT_UNIT = '  ';
 
-const hasAncestorOfType = ($pos, typeSet) => {
-  if (!$pos) return false;
-  for (let depth = $pos.depth; depth > 0; depth -= 1) {
-    if (typeSet.has($pos.node(depth)?.type?.name)) return true;
-  }
-  return false;
-};
 
-const findAncestorNodeByType = ($pos, typeName) => {
-  if (!$pos || !typeName) return null;
-  for (let depth = $pos.depth; depth > 0; depth -= 1) {
-    const node = $pos.node(depth);
-    if (node?.type?.name === typeName) {
-      return { node, pos: $pos.before(depth) };
-    }
-  }
-  return null;
-};
 
-const findIndentTarget = ($pos) => {
-  if (!$pos) return null;
-  for (let depth = $pos.depth; depth > 0; depth -= 1) {
-    const node = $pos.node(depth);
-    if (INDENTABLE_TYPES.has(node.type?.name)) {
-      return { node, pos: $pos.before(depth), $posAt: $pos };
-    }
-  }
-  return null;
-};
 
-const collectIndentTargets = (state) => {
-  const targets = [];
-  const seen = new Set();
-  const { selection } = state;
-  if (selection.empty) {
-    const $from = selection.$from;
-    if (hasAncestorOfType($from, INDENT_EXCLUDED_ANCESTORS)) return targets;
-    const found = findIndentTarget($from);
-    if (found) {
-      targets.push(found);
-    }
-    return targets;
-  }
-  const { from, to } = selection;
-  state.doc.nodesBetween(from, to, (node, pos) => {
-    if (!node.isBlock) return;
-    if (!INDENTABLE_TYPES.has(node.type?.name)) return;
-    if (seen.has(pos)) return;
-    const $pos = state.doc.resolve(pos);
-    if (hasAncestorOfType($pos, INDENT_EXCLUDED_ANCESTORS)) return;
-    targets.push({ node, pos, $posAt: $pos });
-    seen.add(pos);
-    return false;
-  });
-  return targets;
-};
 
-const lineIndexAtOffset = (text, offset) => {
-  const safeOffset = Math.max(0, Math.min(offset, text.length));
-  const head = text.slice(0, safeOffset);
-  return Math.max(0, head.split('\n').length - 1);
-};
 
-const applyCodeBlockIndentation = (state, dispatch, outdent = false) => {
-  const { selection } = state;
-  if (!(selection instanceof TextSelection)) return false;
-  const fromCode = findAncestorNodeByType(selection.$from, 'codeBlock');
-  const toCode = findAncestorNodeByType(selection.$to, 'codeBlock');
-  if (!fromCode || !toCode || fromCode.pos !== toCode.pos) return false;
 
-  const codeNode = fromCode.node;
-  if (!codeNode) return false;
-  const startPos = fromCode.pos + 1;
-  const text = codeNode?.textContent || '';
-  const fromOffset = Math.max(0, selection.from - startPos);
-  const toOffset = Math.max(0, selection.to - startPos);
-  const effectiveEndOffset = toOffset > fromOffset && text[toOffset - 1] === '\n'
-    ? toOffset - 1
-    : toOffset;
 
-  const lines = text.split('\n');
-  const lineStarts = [];
-  let running = 0;
-  for (let i = 0; i < lines.length; i += 1) {
-    lineStarts.push(running);
-    running += lines[i].length + 1;
-  }
 
-  const startLine = lineIndexAtOffset(text, fromOffset);
-  const endLine = lineIndexAtOffset(text, effectiveEndOffset);
-  if (startLine >= lines.length || endLine >= lines.length) return false;
 
-  const changes = [];
-  for (let i = startLine; i <= endLine; i += 1) {
-    if (!outdent) {
-      lines[i] = `${CODE_INDENT_UNIT}${lines[i]}`;
-      changes.push({ offset: lineStarts[i], delta: CODE_INDENT_UNIT.length });
-      continue;
-    }
-    let removed = 0;
-    if (lines[i].startsWith('\t')) {
-      removed = 1;
-    } else if (lines[i].startsWith(CODE_INDENT_UNIT)) {
-      removed = CODE_INDENT_UNIT.length;
-    } else if (lines[i].startsWith(' ')) {
-      removed = 1;
-    }
-    if (removed > 0) {
-      lines[i] = lines[i].slice(removed);
-      changes.push({ offset: lineStarts[i], delta: -removed });
-    }
-  }
 
-  const nextText = lines.join('\n');
-  if (nextText === text) return true;
 
-  const adjustOffset = (offset) => {
-    let next = offset;
-    changes.forEach(({ offset: lineStart, delta }) => {
-      if (delta > 0) {
-        if (offset >= lineStart) next += delta;
-      } else if (offset > lineStart) {
-        next += delta;
-      }
-    });
-    return Math.max(0, Math.min(nextText.length, next));
-  };
 
-  const nextFromOffset = adjustOffset(fromOffset);
-  const nextToOffset = adjustOffset(toOffset);
-  let tr = state.tr;
-  const contentStart = startPos;
-  const contentEnd = startPos + codeNode.content.size;
-  if (nextText.length) {
-    tr = tr.replaceWith(contentStart, contentEnd, state.schema.text(nextText));
-  } else if (contentEnd > contentStart) {
-    tr = tr.delete(contentStart, contentEnd);
-  }
-  if (selection.from === selection.to) {
-    tr.setSelection(TextSelection.create(tr.doc, startPos + nextFromOffset));
-  } else {
-    tr.setSelection(TextSelection.create(tr.doc, startPos + nextFromOffset, startPos + nextToOffset));
-  }
-  dispatch(tr);
-  return true;
-};
 
 const getComputedStyleText = (element) => {
   const style = getComputedStyle(element);
@@ -892,72 +560,11 @@ lowlight.register('markdown', markdown);
 lowlight.register('python', python);
 lowlight.register('lua', lua);
 
-// ── AI Suggestion API (exposed to parent via defineExpose) ───────────────────
-const AI_SERIALIZABLE_TYPES = new Set([
-  'paragraph', 'heading', 'blockquote', 'codeBlock',
-  'bulletList', 'orderedList', 'taskList', 'callout',
-]);
 
-const SMALL_PAGE_THRESHOLD = 15;
 
 // Track last known cursor position so serializeBlocksForAi can detect the
 // target section even after the editor loses focus (e.g. user clicked AI panel)
 const lastKnownCursorPos = ref(null);
-
-// Returns a Set of block indices (into the top-level doc children array) that
-// belong to the heading section the cursor is in. Falls back to a 15-block
-// window if there are no headings. Returns null for small pages (send all).
-function detectTargetSection(cursorPos, doc) {
-  const blocks = [];
-  doc.forEach((node, offset, index) => {
-    if (!AI_SERIALIZABLE_TYPES.has(node.type.name)) return;
-    blocks.push({ index, node, offset, end: offset + node.nodeSize });
-  });
-
-  if (blocks.length <= SMALL_PAGE_THRESHOLD) {
-    return new Set(blocks.map((b) => b.index));
-  }
-
-  // Find which block the cursor sits in
-  let cursorBlockIdx = blocks.findIndex((b) => cursorPos >= b.offset && cursorPos <= b.end);
-  if (cursorBlockIdx === -1) {
-    // Cursor between serializable blocks — pick the closest block above
-    for (let i = blocks.length - 1; i >= 0; i--) {
-      if (blocks[i].end <= cursorPos) { cursorBlockIdx = i; break; }
-    }
-  }
-  if (cursorBlockIdx === -1) cursorBlockIdx = 0;
-
-  // Walk upward to find the nearest heading that opens this section
-  let sectionStart = 0;
-  let anchorLevel = null;
-  for (let i = cursorBlockIdx; i >= 0; i--) {
-    if (blocks[i].node.type.name === 'heading') {
-      anchorLevel = blocks[i].node.attrs.level;
-      sectionStart = i;
-      break;
-    }
-  }
-
-  // No heading found — use a 15-block window centred on the cursor
-  if (anchorLevel === null) {
-    const half = 7;
-    const from = Math.max(0, cursorBlockIdx - half);
-    const to = Math.min(blocks.length - 1, cursorBlockIdx + half);
-    return new Set(blocks.slice(from, to + 1).map((b) => b.index));
-  }
-
-  // Walk forward to find where this section ends (next heading at same/higher level)
-  let sectionEnd = blocks.length - 1;
-  for (let i = sectionStart + 1; i < blocks.length; i++) {
-    if (blocks[i].node.type.name === 'heading' && blocks[i].node.attrs.level <= anchorLevel) {
-      sectionEnd = i - 1;
-      break;
-    }
-  }
-
-  return new Set(blocks.slice(sectionStart, sectionEnd + 1).map((b) => b.index));
-}
 
 const serializeBlocksForAi = async () => {
   if (!editor.value) return [];
@@ -1483,35 +1090,8 @@ const slashItems = [
 
 
 
-
-
-
-
-
-
-const undoDebugEnabled = () =>
-  typeof window !== 'undefined' && window.localStorage?.getItem('wikid:debug-undo') === '1';
-
-const logUndoDebug = (...args) => {
-  if (undoDebugEnabled()) {
-    console.log('[undo-debug]', ...args);
-  }
-};
-
 const undoOriginObserver = ref(null);
 let editor = null;
-
-const describeUndoOrigin = (origin, undoManager) => {
-  if (origin === ySyncPluginKey) return 'ySyncPluginKey';
-  if (origin === undoManager) return 'undoManager';
-  if (origin === null || origin === undefined) return 'null';
-  if (typeof origin === 'string') return origin;
-  if (typeof origin === 'number' || typeof origin === 'boolean') return String(origin);
-  if (origin && typeof origin === 'object') {
-    return origin.constructor?.name || 'object';
-  }
-  return typeof origin;
-};
 
 const unbindUndoOriginObserver = () => {
   if (collabDoc.value && undoOriginObserver.value) {
@@ -1552,15 +1132,6 @@ const bindUndoOriginObserver = () => {
   undoOriginObserver.value = handler;
 };
 
-const describeUndoStacks = (state) => {
-  const undoState = state ? yUndoPluginKey.getState(state) : null;
-  const undoManager = undoState?.undoManager || null;
-  return {
-    undo: undoManager?.undoStack?.length ?? null,
-    redo: undoManager?.redoStack?.length ?? null,
-  };
-};
-
 const lastTextInputAt = ref(0);
 const lastTextInputInfo = ref(null);
 
@@ -1576,247 +1147,11 @@ const lastTextInputInfo = ref(null);
 
 
 
-const parseBlockUrl = (text) => {
-  if (typeof text !== 'string') return null;
-  const anchorMatch = text.match(/#(block-[A-Za-z0-9_-]+)/);
-  if (!anchorMatch) return null;
-  const blockId = anchorMatch[1].replace(/^block-block-/, 'block-');
-  let pageId = null;
-  let workspaceId = null;
-  try {
-    const base = typeof window !== 'undefined' ? window.location.href : 'http://localhost';
-    const url = new URL(text, base);
-    const parts = url.pathname.split('/').filter(Boolean);
-    const docIdx = parts.indexOf('doc');
-    if (docIdx >= 0 && parts[docIdx + 1]) {
-      pageId = parts[docIdx + 1];
-    }
-    const wsIdx = parts.indexOf('ws');
-    if (wsIdx >= 0 && parts[wsIdx + 1]) {
-      workspaceId = decodeURIComponent(parts[wsIdx + 1]);
-    }
-  } catch {
-    // ignore parse failures; keep hash-only behaviour
-  }
-  return { blockId, pageId, workspaceId };
-};
 
-const escapeHtml = (text) =>
-  String(text || '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
 
-const formatInlineMarkdown = (text) => {
-  if (!text) return '';
-  const tokens = [];
-  let out = escapeHtml(text);
-  out = out.replace(/`([^`]+)`/g, (_match, code) => {
-    const token = `%%CODE_${tokens.length}%%`;
-    tokens.push(`<code>${code}</code>`);
-    return token;
-  });
-  out = out.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_match, label, url) => `<a href="${url}">${label}</a>`);
-  out = out.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-  out = out.replace(/__([^_]+)__/g, '<strong>$1</strong>');
-  out = out.replace(/\*([^*]+)\*/g, '<em>$1</em>');
-  out = out.replace(/_([^_]+)_/g, '<em>$1</em>');
-  out = out.replace(/~~([^~]+)~~/g, '<del>$1</del>');
-  tokens.forEach((html, index) => {
-    out = out.replace(`%%CODE_${index}%%`, html);
-  });
-  return out;
-};
 
-const looksLikeMarkdown = (text) => {
-  if (typeof text !== 'string') return false;
-  const trimmed = text.trim();
-  if (!trimmed) return false;
-  const lines = trimmed.split(/\r?\n/);
-  let hits = 0;
-  for (let i = 0; i < Math.min(lines.length, 60); i += 1) {
-    const line = lines[i].trim();
-    if (!line) continue;
-    if (/^```/.test(line)) hits += 3;
-    else if (/^#{1,6}\s*\S/.test(line)) hits += 2;
-    else if (/^>\s+/.test(line)) hits += 1;
-    else if (/^[-*+]\s+\S/.test(line)) hits += 1;
-    else if (/^\d+[.)]\s*\S/.test(line)) hits += 1;
-    else if (/^(-{3,}|\*{3,}|_{3,})$/.test(line)) hits += 1;
-    if (hits >= 2) return true;
-  }
-  if (lines.length > 1 && /\[[^\]]+\]\([^)]+\)/.test(trimmed)) return true;
-  return hits > 0 && lines.length > 1;
-};
 
-const stripHtmlToText = (html) =>
-  String(html || '')
-    .replace(/<[^>]*>/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
 
-const htmlHasRichFormatting = (html) =>
-  /<(h[1-6]|ul|ol|li|blockquote|pre|code|table|thead|tbody|tr|td|th|hr)\b/i.test(String(html || ''));
-
-const shouldHandleMarkdownPaste = (text, html, state) => {
-  if (!looksLikeMarkdown(text)) return false;
-  if (htmlHasRichFormatting(html)) return false;
-  const parentType = state?.selection?.$from?.parent?.type?.name;
-  if (parentType === 'codeBlock') return false;
-  return true;
-};
-
-function markdownToHtml(input, depth = 0) {
-  if (typeof input !== 'string' || !input.trim()) return '';
-  if (depth > 2) return `<p>${formatInlineMarkdown(input.trim())}</p>`;
-  const lines = input.replace(/\r\n?/g, '\n').split('\n');
-  const chunks = [];
-  let paragraph = [];
-  let list = null;
-  let listPendingBlank = false;
-  let blockquote = [];
-  let inCode = false;
-  let codeLang = '';
-  let codeLines = [];
-
-  const flushParagraph = () => {
-    if (!paragraph.length) return;
-    chunks.push(`<p>${formatInlineMarkdown(paragraph.join(' '))}</p>`);
-    paragraph = [];
-  };
-  const flushList = () => {
-    if (!list) return;
-    const items = list.items.map((item) => `<li>${formatInlineMarkdown(item)}</li>`).join('');
-    chunks.push(`<${list.type}>${items}</${list.type}>`);
-    list = null;
-  };
-  const flushBlockquote = () => {
-    if (!blockquote.length) return;
-    const inner = markdownToHtml(blockquote.join('\n'), depth + 1);
-    chunks.push(`<blockquote>${inner}</blockquote>`);
-    blockquote = [];
-  };
-  const flushCode = () => {
-    if (!inCode) return;
-    const lang = codeLang ? ` class="language-${escapeHtml(codeLang)}"` : '';
-    const code = escapeHtml(codeLines.join('\n'));
-    chunks.push(`<pre><code${lang}>${code}</code></pre>`);
-    inCode = false;
-    codeLang = '';
-    codeLines = [];
-  };
-
-  lines.forEach((line) => {
-    const trimmed = line.trim();
-    if (inCode) {
-      if (/^```/.test(trimmed)) {
-        flushCode();
-      } else {
-        codeLines.push(line);
-      }
-      return;
-    }
-
-    if (/^```/.test(trimmed)) {
-      flushParagraph();
-      flushList();
-      flushBlockquote();
-      inCode = true;
-      codeLang = trimmed.slice(3).trim();
-      codeLines = [];
-      return;
-    }
-
-    if (!trimmed) {
-      flushParagraph();
-      flushBlockquote();
-      if (list) {
-        listPendingBlank = true;
-      } else {
-        flushList();
-      }
-      return;
-    }
-
-    if (trimmed.startsWith('>')) {
-      flushParagraph();
-      flushList();
-      blockquote.push(trimmed.replace(/^>\s?/, ''));
-      return;
-    }
-
-    if (blockquote.length) {
-      flushBlockquote();
-    }
-
-    const headingMatch = trimmed.match(/^(#{1,6})\s*(.+)$/);
-    if (headingMatch) {
-      flushParagraph();
-      flushList();
-      const level = headingMatch[1].length;
-      chunks.push(`<h${level}>${formatInlineMarkdown(headingMatch[2])}</h${level}>`);
-      return;
-    }
-
-    if (/^(-{3,}|\*{3,}|_{3,})$/.test(trimmed)) {
-      flushParagraph();
-      flushList();
-      chunks.push('<hr />');
-      return;
-    }
-
-    const taskMatch = trimmed.match(/^[-*+]\s+\[( |x|X)\]\s+(.*)$/);
-    const bulletMatch = trimmed.match(/^[-*+]\s+(.+)$/);
-    const orderedMatch = trimmed.match(/^\d+[.)]\s*(.+)$/);
-    const listMatch = taskMatch || bulletMatch || orderedMatch;
-    if (listMatch) {
-      const nextType = orderedMatch ? 'ol' : 'ul';
-      const content = listMatch[listMatch.length - 1];
-      flushParagraph();
-      if (!list || list.type !== nextType) {
-        flushList();
-        list = { type: nextType, items: [] };
-      }
-      listPendingBlank = false;
-      list.items.push(content);
-      return;
-    }
-
-    if (listPendingBlank) {
-      flushList();
-      listPendingBlank = false;
-    } else if (list) {
-      flushList();
-    }
-    paragraph.push(trimmed);
-  });
-
-  if (inCode) flushCode();
-  flushBlockquote();
-  flushList();
-  flushParagraph();
-  return chunks.join('');
-}
-
-const findBlockById = (doc, blockId) => {
-  let result = null;
-  doc.descendants((node, pos) => {
-    if (node.isBlock && node.attrs?.id === blockId && !result) {
-      result = { node, pos };
-      return false;
-    }
-    return undefined;
-  });
-  return result;
-};
-
-const createSyncedNodeFromSource = (sourceNode, sourceId) => {
-  if (!sourceNode) return null;
-  const nextAttrs = { ...sourceNode.attrs, id: null, [SYNCED_FROM_ATTR]: sourceId };
-  return sourceNode.type.create(nextAttrs, sourceNode.content, sourceNode.marks);
-};
 
 const fetchBlockFromPage = async (pageId, blockId) => {
   if (!pageId || !blockId) return null;
@@ -1834,36 +1169,12 @@ const fetchBlockFromPage = async (pageId, blockId) => {
   }
 };
 
-const selectionSyncedReferenceId = (state) => {
-  const { $from, $to } = state.selection;
-  const findSyncedId = ($pos) => {
-    for (let depth = $pos.depth; depth >= 0; depth -= 1) {
-      const node = $pos.node(depth);
-      if (node?.isBlock && node.attrs?.[SYNCED_FROM_ATTR]) {
-        return node.attrs[SYNCED_FROM_ATTR];
-      }
-    }
-    return null;
-  };
-  const fromId = findSyncedId($from);
-  const toId = findSyncedId($to);
-  if (fromId && toId && fromId === toId) return fromId;
-  return fromId || toId || null;
-};
-
 const isSyncedLocked = (sourceId) => {
   if (!sourceId) return false;
   const resolved = syncedWorkspaceLocksMap.value ? resolveWorkspaceSyncedKey(sourceId, props.pageId) : sourceId;
   if (resolved && unlockedSyncedSources.value.has(resolved)) return false;
   return !unlockedSyncedSources.value.has(sourceId);
 };
-
-const sourceKey = (pageId, blockId) => {
-  if (!blockId) return null;
-  return pageId ? `${pageId}:${blockId}` : blockId;
-};
-
-
 
 const hasWorkspaceSyncedReference = (blockId) => {
   if (!blockId || !props.pageId) return false;
@@ -1877,42 +1188,6 @@ const hasWorkspaceSyncedReference = (blockId) => {
   }
   return false;
 };
-
-// Synced-map entries record which page wrote them. A page's own edits already reach
-// everyone on that page through the page's collab doc, so applying them again from the
-// map made every collaborator rewrite the same blocks at once (duplicated lines, lost
-// keystrokes). Pages only take map updates written from a different page.
-const SYNCED_PAYLOAD_FROM = '_fromPage';
-const withSyncedOrigin = (payload, pageId) => (payload && pageId ? { ...payload, [SYNCED_PAYLOAD_FROM]: pageId } : payload);
-const syncedPayloadContent = (payload) => {
-  if (!payload || typeof payload !== 'object') return payload;
-  const { [SYNCED_PAYLOAD_FROM]: _fromPage, ...content } = payload;
-  return content;
-};
-
-const serializeSyncedNode = (node) => {
-  if (!node?.toJSON) return null;
-  const json = node.toJSON();
-  if (json && typeof json === 'object') {
-    const attrs = { ...(json.attrs || {}) };
-    delete attrs.id;
-    delete attrs[SYNCED_FROM_ATTR];
-    if (Object.keys(attrs).length) {
-      json.attrs = attrs;
-    } else {
-      delete json.attrs;
-    }
-  }
-  return json;
-};
-
-
-
-
-
-
-
-
 
 
 
@@ -2639,55 +1914,15 @@ const seedCollabDocFromProps = (target = editor.value, options = {}) => {
   }
 };
 
-const setupDebugEnabled = () =>
-  typeof window !== 'undefined' && window.localStorage?.getItem('wikid:debug-setup') === '1';
 
-const logSetup = (...args) => {
-  if (setupDebugEnabled()) {
-    console.log('[setup-collab]', ...args);
-  }
-};
 
-const blockDebugEnabled = () =>
-  typeof window !== 'undefined' && window.localStorage?.getItem('wikid:debug-blocks') === '1';
 
-const logBlockDebug = (...args) => {
-  if (blockDebugEnabled()) {
-    console.log('[block-debug]', ...args);
-  }
-};
 
-const collectDuplicateBlockDetails = (pmDoc) => {
-  if (!pmDoc?.descendants) return [];
-  const occurrences = new Map();
-  pmDoc.descendants((node, pos) => {
-    if (!node.isBlock) return;
-    const id = node.attrs?.id;
-    if (typeof id !== 'string' || !id) return;
-    const list = occurrences.get(id) || [];
-    list.push({
-      pos,
-      type: node.type?.name || 'unknown',
-      syncedFrom: node.attrs?.[SYNCED_FROM_ATTR] || null,
-      text: node.textContent ? node.textContent.trim().slice(0, 80) : '',
-    });
-    occurrences.set(id, list);
-  });
-  const duplicates = [];
-  occurrences.forEach((entries, id) => {
-    if (entries.length > 1) {
-      duplicates.push({ id, entries });
-    }
-  });
-  return duplicates;
-};
 
-const logDuplicateBlockDetails = (label, pmDoc) => {
-  if (!blockDebugEnabled()) return;
-  const duplicates = collectDuplicateBlockDetails(pmDoc);
-  if (!duplicates.length) return;
-  logBlockDebug(label, duplicates.slice(0, 4));
-};
+
+
+
+
 
 const dedupeBlockIds = (reason) => {
   if (!editor.value || props.readonly) return false;
@@ -2738,56 +1973,7 @@ const dedupeBlockIds = (reason) => {
   return false;
 };
 
-const extractTextFromNode = (node) => {
-  if (!node || typeof node !== 'object') return '';
-  if (node.type === 'text') return typeof node.text === 'string' ? node.text : '';
-  if (Array.isArray(node.content)) return node.content.map(extractTextFromNode).join('');
-  return '';
-};
 
-const summarizeBlockStats = (doc) => {
-  const seenIds = new Set();
-  const duplicateIds = new Set();
-  const duplicateParagraphs = new Set();
-  let blocks = 0;
-  let paragraphs = 0;
-  let lastParagraphText = null;
-
-  const walk = (node) => {
-    if (!node || typeof node !== 'object') return;
-    if (node.type) {
-      blocks += 1;
-      const id = node.attrs?.id;
-      if (typeof id === 'string' && id) {
-        if (seenIds.has(id)) duplicateIds.add(id);
-        seenIds.add(id);
-      }
-      if (node.type === 'paragraph') {
-        paragraphs += 1;
-        const text = extractTextFromNode(node).trim();
-        if (text) {
-          if (text === lastParagraphText) {
-            duplicateParagraphs.add(text);
-          }
-          lastParagraphText = text;
-        } else {
-          lastParagraphText = null;
-        }
-      }
-    }
-    if (Array.isArray(node.content)) {
-      node.content.forEach(walk);
-    }
-  };
-
-  walk(doc);
-  return {
-    blocks,
-    paragraphs,
-    duplicateIds: Array.from(duplicateIds).slice(0, 6),
-    duplicateParagraphs: Array.from(duplicateParagraphs).slice(0, 6),
-  };
-};
 
 const lastBlockSummary = ref(null);
 
@@ -3572,34 +2758,6 @@ const handleHighlightColor = computed(() => {
   return mixed ? '' : color;
 });
 const tuneHighlightColor = computed(() => handleHighlightColor.value || currentHighlightColor.value || '');
-
-const rectFromClientRects = (rects) => {
-  const filtered = rects.filter((rect) => rect.width > 0 && rect.height > 0);
-  if (!filtered.length) return null;
-  let top = filtered[0].top;
-  let left = filtered[0].left;
-  let right = filtered[0].right;
-  let bottom = filtered[0].bottom;
-  filtered.slice(1).forEach((rect) => {
-    top = Math.min(top, rect.top);
-    left = Math.min(left, rect.left);
-    right = Math.max(right, rect.right);
-    bottom = Math.max(bottom, rect.bottom);
-  });
-  const width = Math.max(0, right - left);
-  const height = Math.max(0, bottom - top);
-  return {
-    width,
-    height,
-    top,
-    right,
-    bottom,
-    left,
-    x: left,
-    y: top,
-    toJSON: () => ({}),
-  };
-};
 
 const getSelectionBoundingRect = () => {
   if (typeof window === 'undefined') return null;
@@ -4986,35 +4144,6 @@ const toggleCodeLangMenu = (event) => {
 
 const closeCodeLangMenu = () => {
   codeLangMenuOpen.value = false;
-};
-
-const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
-const positionBubbleMenu = (buttonRef, menuRef, posRef) => {
-  if (typeof window === 'undefined') return;
-  const buttonEl = buttonRef.value;
-  if (!buttonEl?.getBoundingClientRect) return;
-  const buttonRect = buttonEl.getBoundingClientRect();
-  const bubbleRect = buttonEl.closest?.('.bubble-menu')?.getBoundingClientRect?.() || buttonRect;
-  const menuRect = menuRef.value?.getBoundingClientRect?.();
-  const menuHeight = menuRect?.height || 240;
-  const menuWidth = menuRect?.width || 220;
-  const gap = 6;
-  const margin = 8;
-  const viewportHeight = window.innerHeight || 0;
-  const viewportWidth = window.innerWidth || 0;
-  let top = buttonRect.bottom + gap;
-  let left = buttonRect.left;
-  const shouldSide = top + menuHeight > viewportHeight - margin;
-  if (shouldSide) {
-    top = bubbleRect.top;
-    left = bubbleRect.right + gap;
-    if (left + menuWidth > viewportWidth - margin) {
-      left = bubbleRect.left - menuWidth - gap;
-    }
-  }
-  top = clamp(top, margin, Math.max(margin, viewportHeight - menuHeight - margin));
-  left = clamp(left, margin, Math.max(margin, viewportWidth - menuWidth - margin));
-  posRef.value = { top, left };
 };
 
 const updateBubbleColorMenuPos = () => {
