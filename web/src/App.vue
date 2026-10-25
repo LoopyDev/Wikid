@@ -371,8 +371,7 @@ const logSetup = (...args) => {
     console.log('[setup-flow]', ...args);
   }
 };
-const inviteUserId = ref('');
-const inviteName = ref('');
+const inviteEmail = ref('');
 const inviteRole = ref('EDITOR');
 const memberActionLoading = ref({});
 const collabStatusLabel = ref('');
@@ -1805,10 +1804,9 @@ const handleDeleteWorkspace = async () => {
 };
 const inviteMember = async () => {
   if (!activeWorkspaceId.value || !activeUser.value || !isWorkspaceOwner.value) return;
-  const name = inviteName.value.trim();
-  const userId = inviteUserId.value.trim();
-  if (!name && !userId) {
-    membersError.value = 'Provide a user name or user ID.';
+  const email = inviteEmail.value.trim();
+  if (!email) {
+    membersError.value = 'Enter the email address of the person to add.';
     return;
   }
   memberActionLoading.value = { ...memberActionLoading.value, invite: true };
@@ -1816,11 +1814,10 @@ const inviteMember = async () => {
   try {
     await api.addWorkspaceMember(
       activeWorkspaceId.value,
-      { userId: userId || undefined, name: name || undefined, role: inviteRole.value },
+      { email, role: inviteRole.value },
       { userId: activeUser.value.id }
     );
-    inviteName.value = '';
-    inviteUserId.value = '';
+    inviteEmail.value = '';
     await loadMembers();
   } catch (err) {
     membersError.value = err?.message || 'Failed to invite member';
@@ -4087,8 +4084,7 @@ const DeleteTreeBranch = defineComponent({
               <div v-if="isWorkspaceOwner" class="members-invite">
                 <h4>Invite member</h4>
                 <div class="members-invite-row">
-                  <input v-model="inviteName" class="members-input" type="text" placeholder="Name (optional)" />
-                  <input v-model="inviteUserId" class="members-input" type="text" placeholder="User ID (optional)" />
+                  <input v-model="inviteEmail" class="members-input" type="email" placeholder="Email address" autocomplete="off" @keydown.enter="inviteMember" />
                   <select v-model="inviteRole" class="members-role-select">
                     <option value="OWNER">Owner</option>
                     <option value="EDITOR">Editor</option>

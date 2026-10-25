@@ -41,7 +41,14 @@ async function request(path, options = {}) {
   notifyApiStatus('online');
   const raw = await res.text(); // read once
   if (!res.ok) {
-    throw new Error(raw || res.statusText);
+    let message = raw;
+    try {
+      const body = JSON.parse(raw);
+      if (body?.message) message = Array.isArray(body.message) ? body.message.join(', ') : body.message;
+    } catch {
+      // not JSON; use the text as is
+    }
+    throw new Error(message || res.statusText);
   }
   try {
     return JSON.parse(raw);

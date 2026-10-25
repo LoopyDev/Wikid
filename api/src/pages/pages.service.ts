@@ -437,10 +437,10 @@ export class PagesService {
     return next;
   }
 
+  // Admin-only actions check identity only. isSystemAdmin() also covers the dev-only
+  // permission bypass, so it's false in production and locked the admin out of these.
   private ensureAdmin(adminId?: string) {
-    if (!this.isSystemAdmin(adminId)) {
-      throw new Error('Forbidden: admin access required');
-    }
+    assertSystemAdmin(adminId);
   }
 
   private async nextPosition(workspaceId: string, parentId: string | null) {
@@ -659,7 +659,7 @@ export class PagesService {
   async addWorkspaceMember(
     userId: string | undefined,
     workspaceId: string,
-    payload: { userId?: string; name?: string; role?: WorkspaceRole },
+    payload: { email?: string; userId?: string; role?: WorkspaceRole },
     adminId?: string
   ) {
     if (adminId) {
@@ -670,7 +670,7 @@ export class PagesService {
       await this.requireWorkspaceRole(userId, workspaceId, [WorkspaceRole.OWNER]);
     }
     const role: WorkspaceRole = payload.role && Object.values(WorkspaceRole).includes(payload.role) ? payload.role : WorkspaceRole.EDITOR;
-    const user = await this.ensureUser(payload.userId, payload.name);
+    const user = await this.findUserForMembership(payload);
     const workspace = await this.prisma.workspace.findUnique({ where: { id: workspaceId }, select: { personalOwnerId: true } });
     if (!workspace) {
       throw new Error('Workspace not found');
@@ -684,6 +684,25 @@ export class PagesService {
       create: { userId: user.id, workspaceId, role },
     });
     return membership;
+  }
+
+  // Members are existing accounts, found by email (or exact user ID). Never create a user
+  // here: that used to turn a name or mistyped ID into an account nobody could log in to.
+  private async findUserForMembership(payload: { email?: string; userId?: string }) {
+    const email = payload.email?.trim().toLowerCase();
+    if (email) {
+      const user = await this.prisma.user.findUnique({ where: { email } });
+      if (!user) {
+        throw new NotFoundException(`No user with the email ${email}. Create their account first (Admin → Users).`);
+      }
+      return user;
+    }
+    if (payload.userId && isUuid(payload.userId)) {
+      const user = await this.prisma.user.findUnique({ where: { id: payload.userId } });
+      if (!user) throw new NotFoundException('User not found');
+      return user;
+    }
+    throw new BadRequestException('Enter the email address of the person to add');
   }
 
   async updateWorkspaceMemberRole(

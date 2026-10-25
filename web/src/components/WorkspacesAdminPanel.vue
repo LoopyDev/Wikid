@@ -50,7 +50,7 @@ const setExpanded = (workspaceId, value) => {
 };
 
 const draftFor = (workspaceId) =>
-  assignDrafts.value[workspaceId] || { userId: '', name: '', role: 'EDITOR', saving: false, error: '' };
+  assignDrafts.value[workspaceId] || { email: '', role: 'EDITOR', saving: false, error: '' };
 
 const updateDraft = (workspaceId, patch) => {
   const current = draftFor(workspaceId);
@@ -102,24 +102,19 @@ const toggleWorkspace = (workspaceId) => {
 
 const assignMember = async (workspaceId) => {
   const draft = draftFor(workspaceId);
-  const userId = draft.userId.trim();
-  const name = draft.name.trim();
-  if (!userId && !name) {
-    updateDraft(workspaceId, { error: 'Enter a user ID or name.' });
+  const email = (draft.email || '').trim();
+  if (!email) {
+    updateDraft(workspaceId, { error: 'Enter the email address of the person to add.' });
     return;
   }
   updateDraft(workspaceId, { saving: true, error: '' });
   try {
     await api.addWorkspaceMember(
       workspaceId,
-      {
-        ...(userId ? { userId } : {}),
-        ...(name ? { name } : {}),
-        role: draft.role || 'EDITOR',
-      },
+      { email, role: draft.role || 'EDITOR' },
       { adminId: props.adminId }
     );
-    updateDraft(workspaceId, { userId: '', name: '', saving: false, error: '' });
+    updateDraft(workspaceId, { email: '', saving: false, error: '' });
     await loadMembers(workspaceId, { force: true });
   } catch (err) {
     updateDraft(workspaceId, { saving: false, error: err?.message || 'Failed to assign user.' });
@@ -202,7 +197,7 @@ watch(
             >
               <div>
                 <div class="workspace-admin__member-name">{{ memberDisplayName(member) }}</div>
-                <div class="workspace-admin__member-meta">{{ member.userId || member.user?.id }}</div>
+                <div class="workspace-admin__member-meta">{{ member.user?.email || member.userId }}</div>
               </div>
               <span class="workspace-admin__member-role">{{ member.role }}</span>
             </li>
@@ -213,17 +208,12 @@ watch(
             <div class="workspace-admin__assign-row">
               <input
                 class="workspace-admin__input"
-                type="text"
-                placeholder="User ID (UUID)"
-                :value="draftFor(workspace.id).userId"
-                @input="updateDraft(workspace.id, { userId: $event.target.value })"
-              />
-              <input
-                class="workspace-admin__input"
-                type="text"
-                placeholder="User name (optional)"
-                :value="draftFor(workspace.id).name"
-                @input="updateDraft(workspace.id, { name: $event.target.value })"
+                type="email"
+                placeholder="Email address"
+                autocomplete="off"
+                :value="draftFor(workspace.id).email"
+                @input="updateDraft(workspace.id, { email: $event.target.value })"
+                @keydown.enter="assignMember(workspace.id)"
               />
               <select
                 class="workspace-admin__input workspace-admin__select"

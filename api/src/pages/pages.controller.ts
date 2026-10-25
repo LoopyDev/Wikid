@@ -527,17 +527,17 @@ export class PagesController {
     return this.pagesService.listWorkspaceMembers(userId, workspaceId, adminId);
   }
 
-  // Admin: add or update a member (role optional, defaults to EDITOR)
+  // Add or update a member by email (role optional, defaults to EDITOR)
   @Post('workspaces/:id/members')
   addWorkspaceMember(
     @Param('id') workspaceId: string,
+    @Body('email') email?: string,
     @Body('userId') userId?: string,
-    @Body('name') name?: string,
     @Body('role') role?: any,
     @Query('userId') requesterId?: string,
     @Query('adminId') adminId?: string,
   ) {
-    return this.pagesService.addWorkspaceMember(requesterId, workspaceId, { userId, name, role }, adminId);
+    return this.pagesService.addWorkspaceMember(requesterId, workspaceId, { email, userId, role }, adminId);
   }
 
   // Admin: change role
