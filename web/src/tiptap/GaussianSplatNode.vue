@@ -1,6 +1,6 @@
 <script setup>
 import { NodeViewWrapper } from '@tiptap/vue-3';
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { SplatMesh } from '@sparkjsdev/spark';
@@ -245,12 +245,11 @@ function handleDragOver(e) {
   e.preventDefault();
 }
 
-watch(src, (val) => {
-  if (val) initScene();
-});
-
-onMounted(() => {
-  if (src.value) initScene();
+// Start once both the file (src) and the viewer container exist. This covers the
+// first render, a fresh upload (Tiptap can set src before the container is attached)
+// and src changing from a collaborator's edit.
+watch([src, containerRef], ([val, el], [prevVal, prevEl]) => {
+  if (val && el && (val !== prevVal || el !== prevEl)) initScene();
 });
 
 onBeforeUnmount(() => {
