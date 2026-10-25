@@ -121,6 +121,7 @@ For the compliance database's optional immutability guards, see [`docs/complianc
 npm test             # web unit tests
 npm run typecheck    # API and collab server
 npm run build        # web production build
+npm run test:api     # API end-to-end tests (needs a running stack, see api/test/README.md)
 ```
 
 CI runs these, plus a Docker image build, on every push to `main` and every pull request.

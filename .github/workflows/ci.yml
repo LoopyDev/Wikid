@@ -34,8 +34,20 @@ jobs:
       - run: npm run build
 
   docker:
-    name: Docker images
+    name: Docker images and API tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - run: docker compose -f docker-compose.yml build
+      - name: Start the stack
+        run: docker compose -f docker-compose.yml up -d --wait
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: API tests
+        run: npm run test:api
+      - name: API logs on failure
+        if: failure()
+        run: docker compose -f docker-compose.yml logs api collab

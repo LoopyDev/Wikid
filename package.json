@@ -15,6 +15,7 @@
     "dev:web": "npm run dev -w web",
     "typecheck": "npm run typecheck -w api -w collab",
     "test": "npm test -w web",
+    "test:api": "npm run test:e2e -w api",
     "build": "npm run build -w web"
   },
   "overrides": {
