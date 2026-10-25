@@ -55,6 +55,13 @@ import { api } from '../api/client';
 import { useWorkspaceStore } from '../stores/workspace';
 import { useBlockSummarizer } from '../composables/useBlockSummarizer';
 import { blockSummaryCache } from '../services/blockSummaryCache';
+import { AiSuggestionExtension, aiSuggestionKey } from '../tiptap/aiSuggestions';
+import { BLOCK_ID_TYPES, blockHighlightKey, createBlockIdExtension, createBlockPositionExtension, isEmptyParagraphNode, parseBlockIdCounter } from '../tiptap/blockIds';
+import { createBulletDepthPlugin } from '../tiptap/bulletDepth';
+import { ColumnCleanupExtension, ColumnInputGuardExtension, columnCleanupKey } from '../tiptap/columnGuards';
+import { ORIGIN_META_KEY, SYNCED_FROM_ATTR, findColumnAncestor, isEmptyParagraph } from '../tiptap/editorShared';
+import { createInputSelectionGuardExtension } from '../tiptap/inputSelectionGuard';
+import { createSyncedMirrorExtension, resolveWorkspaceSyncedKey, workspaceSyncedKey } from '../tiptap/syncedBlocks';
 
 const props = defineProps({
   doc: {
@@ -617,12 +624,6 @@ const insertToggleHeading = (editor, range, level) => {
     .run();
 };
 
-const isEmptyParagraph = (node) => {
-  if (!node) return false;
-  if (node.type?.name !== 'paragraph') return false;
-  return node.content?.size === 0;
-};
-
 const getColumnOnlyBlock = (columnNode, columnPos) => {
   if (!columnNode || columnNode.type?.name !== 'column') return null;
   if (columnNode.childCount !== 1) return null;
@@ -632,13 +633,6 @@ const getColumnOnlyBlock = (columnNode, columnPos) => {
     pos: columnPos + 1,
     isEmpty: isEmptyParagraph(onlyChild),
   };
-};
-
-const isEmptyColumn = (columnNode) => {
-  if (!columnNode || columnNode.type?.name !== 'column') return false;
-  if (columnNode.childCount === 0) return true;
-  if (columnNode.childCount > 1) return false;
-  return isEmptyParagraph(columnNode.child(0));
 };
 
 const normalizeLinkHref = (raw) => {
@@ -652,18 +646,6 @@ const normalizeLinkHref = (raw) => {
     return trimmed;
   }
   return `https://${trimmed}`;
-};
-
-const findColumnAncestor = (state, pos) => {
-  if (!state || typeof pos !== 'number') return null;
-  const $pos = state.doc.resolve(pos);
-  for (let depth = $pos.depth; depth > 0; depth -= 1) {
-    const node = $pos.node(depth);
-    if (node?.type?.name === 'column') {
-      return { node, pos: $pos.before(depth) };
-    }
-  }
-  return null;
 };
 
 const INDENTABLE_TYPES = new Set(['paragraph', 'heading']);
@@ -1499,59 +1481,13 @@ const slashItems = [
   },
 ];
 
-const BLOCK_ID_TYPES = ['paragraph', 'heading', 'toggleHeading', 'codeBlock', 'blockquote', 'bulletList', 'orderedList', 'listItem', 'taskList', 'taskItem', 'horizontalRule', 'tableOfContents', 'callout', 'image', 'pageLink', 'databaseView', 'databaseForm', 'table', 'gaussianSplat'];
-const blockHighlightKey = new PluginKey('block-highlight');
-const aiSuggestionKey = new PluginKey('ai-suggestion');
-const bulletDepthKey = new PluginKey('bullet-depth');
-const bulletDepthPlugin = new Plugin({
-  key: bulletDepthKey,
-  props: {
-    decorations(state) {
-      const decorations = [];
-      state.doc.descendants((node, pos) => {
-        if (node.type.name !== 'bulletList') return;
-        const $pos = state.doc.resolve(pos);
-        let ancestorCount = 0;
-        for (let i = 1; i <= $pos.depth; i++) {
-          if ($pos.node(i).type.name === 'bulletList') ancestorCount++;
-        }
-        decorations.push(
-          Decoration.node(pos, pos + node.nodeSize, {
-            'data-bullet-depth': String(ancestorCount % 3),
-          }),
-        );
-      });
-      return DecorationSet.create(state.doc, decorations);
-    },
-  },
-});
-const SYNCED_FROM_ATTR = 'syncedFrom';
-const syncedMirrorKey = new PluginKey('synced-mirror');
-const columnCleanupKey = new PluginKey('column-cleanup');
-const columnInputGuardKey = new PluginKey('column-input-guard');
-const ORIGIN_META_KEY = 'wikidOrigin';
-// Changes from other collaborators arrive as one transaction that replaces the whole
-// document; y-prosemirror restores the local selection itself. Selection "repair"
-// plugins must leave these alone, or they move the cursor using stale positions.
-const isRemoteCollabChange = (tr) => !!tr.getMeta(ySyncPluginKey)?.isChangeOrigin;
 
-const columnDebugEnabled = () =>
-  typeof window !== 'undefined' && window.localStorage?.getItem('wikid:debug-columns') === '1';
 
-const logColumnDebug = (...args) => {
-  if (columnDebugEnabled()) {
-    console.log('[column-debug]', ...args);
-  }
-};
 
-const selectionDebugEnabled = () =>
-  typeof window !== 'undefined' && window.localStorage?.getItem('wikid:debug-selection') === '1';
 
-const logSelectionDebug = (...args) => {
-  if (selectionDebugEnabled()) {
-    console.log('[selection-debug]', ...args);
-  }
-};
+
+
+
 
 const undoDebugEnabled = () =>
   typeof window !== 'undefined' && window.localStorage?.getItem('wikid:debug-undo') === '1';
@@ -1628,124 +1564,17 @@ const describeUndoStacks = (state) => {
 const lastTextInputAt = ref(0);
 const lastTextInputInfo = ref(null);
 
-const summarizeSteps = (transactions) =>
-  transactions.map((tr) => ({
-    origin: tr.getMeta(ORIGIN_META_KEY),
-    uiEvent: tr.getMeta('uiEvent'),
-    inputType: tr.getMeta('inputType'),
-    ySync: !!tr.getMeta(ySyncPluginKey),
-    docChanged: tr.docChanged,
-    steps: tr.steps.map((step) => {
-      const json = step.toJSON?.();
-      if (!json || typeof json !== 'object') return { step: step.constructor?.name || 'step' };
-      const summary = { step: json.stepType };
-      if (typeof json.from === 'number') summary.from = json.from;
-      if (typeof json.to === 'number') summary.to = json.to;
-      if (json.slice?.content) {
-        summary.slice = json.slice.content.map((node) => node.type || node);
-      }
-      return summary;
-    }),
-  }));
 
-const isInlineSlice = (slice) => {
-  if (!slice?.content) return false;
-  let inlineOnly = true;
-  slice.content.forEach((node) => {
-    if (!node.isInline) {
-      inlineOnly = false;
-    }
-  });
-  return inlineOnly;
-};
 
-const resolveColumnSelection = (state, columnPos, preferPos) => {
-  if (!state || typeof columnPos !== 'number') return null;
-  const columnNode = state.doc.nodeAt(columnPos);
-  if (!columnNode || columnNode.type?.name !== 'column') return null;
-  const minPos = columnPos + 1;
-  const maxPos = columnPos + columnNode.nodeSize - 1;
-  const target = Number.isFinite(preferPos)
-    ? Math.max(minPos, Math.min(preferPos, Math.max(minPos, maxPos - 1)))
-    : minPos;
-  let best = null;
-  let bestDistance = Infinity;
-  columnNode.descendants((node, pos) => {
-    if (!node.isTextblock) return;
-    const docPos = columnPos + 1 + pos;
-    const start = docPos + 1;
-    const end = docPos + node.nodeSize - 1;
-    const insidePos = Math.min(Math.max(target, start), end);
-    const distance = Math.abs(insidePos - target);
-    if (distance < bestDistance) {
-      bestDistance = distance;
-      best = insidePos;
-    }
-  });
-  if (best != null) {
-    return TextSelection.create(state.doc, best);
-  }
-  return Selection.near(state.doc.resolve(target), 1);
-};
 
-const findTextblockAtSelection = (state) => {
-  if (!state?.selection) return null;
-  const { $from } = state.selection;
-  for (let depth = $from.depth; depth > 0; depth -= 1) {
-    const node = $from.node(depth);
-    if (node?.isTextblock) {
-      return { node, pos: $from.before(depth) };
-    }
-  }
-  return null;
-};
 
-const findBlockAtSelection = (state) => {
-  if (!state?.selection) return null;
-  const { $from } = state.selection;
-  for (let depth = $from.depth; depth > 0; depth -= 1) {
-    const node = $from.node(depth);
-    if (node?.isBlock) {
-      return { node, pos: $from.before(depth) };
-    }
-  }
-  return null;
-};
 
-const describeBlock = (block) => {
-  if (!block?.node) return null;
-  const nodeSize = block.node.nodeSize || 0;
-  const start = block.pos + 1;
-  const end = block.pos + nodeSize - 1;
-  return {
-    pos: block.pos,
-    type: block.node.type?.name || null,
-    id: block.node.attrs?.id || null,
-    isTextblock: !!block.node.isTextblock,
-    isLeaf: !!block.node.isLeaf,
-    nodeSize,
-    range: Number.isFinite(nodeSize) && nodeSize > 0 ? { start, end } : null,
-    text: block.node.isTextblock ? (block.node.textContent || '').slice(0, 60) : '',
-  };
-};
 
-const describeSelection = (state) => {
-  if (!state?.selection) return null;
-  const { from, to, empty, $from } = state.selection;
-  const parent = $from?.parent;
-  const parentOffset = $from?.parentOffset;
-  const parentSize = parent?.content?.size ?? null;
-  return {
-    from,
-    to,
-    empty,
-    depth: $from?.depth ?? null,
-    parent: parent?.type?.name || null,
-    parentOffset,
-    atStart: parentOffset === 0,
-    atEnd: typeof parentSize === 'number' ? parentOffset === parentSize : false,
-  };
-};
+
+
+
+
+
 
 const parseBlockUrl = (text) => {
   if (typeof text !== 'string') return null;
@@ -2034,16 +1863,7 @@ const sourceKey = (pageId, blockId) => {
   return pageId ? `${pageId}:${blockId}` : blockId;
 };
 
-const workspaceSyncedKey = (pageId, blockId) => {
-  if (!pageId || !blockId) return null;
-  return `${pageId}:${blockId}`;
-};
 
-const resolveWorkspaceSyncedKey = (syncedFrom, pageId) => {
-  if (!syncedFrom) return null;
-  if (syncedFrom.includes(':')) return syncedFrom;
-  return workspaceSyncedKey(pageId, syncedFrom) || syncedFrom;
-};
 
 const hasWorkspaceSyncedReference = (blockId) => {
   if (!blockId || !props.pageId) return false;
@@ -2086,714 +1906,17 @@ const serializeSyncedNode = (node) => {
   return json;
 };
 
-const BlockIdExtension = Extension.create({
-  name: 'block-id',
-  addGlobalAttributes() {
-    return [
-      {
-        types: BLOCK_ID_TYPES,
-        attributes: {
-          id: {
-            default: null,
-          },
-          [SYNCED_FROM_ATTR]: {
-            default: null,
-            parseHTML: (element) => element.getAttribute('data-synced-from') || null,
-            renderHTML: (attributes) => {
-              const syncedFrom = attributes[SYNCED_FROM_ATTR];
-              return syncedFrom ? { 'data-synced-from': syncedFrom } : {};
-            },
-          },
-        },
-      },
-    ];
-  },
-  addProseMirrorPlugins() {
-    const nextFromDoc = (doc) => {
-      let max = 0;
-      doc.descendants((node) => {
-        const num = parseBlockIdCounter(node.attrs?.id);
-        if (num !== null && num >= max) {
-          max = num + 1;
-        }
-      });
-      return max || 1;
-    };
 
-    const key = new PluginKey('block-id-manager');
-    return [
-      new Plugin({
-        key,
-        state: {
-          init: (_, state) => ({ nextId: nextFromDoc(state.doc) }),
-          apply(tr, value) {
-            const meta = tr.getMeta(key);
-            if (meta && typeof meta.nextId === 'number') {
-              return { nextId: meta.nextId };
-            }
-            return value;
-          },
-        },
-        appendTransaction(transactions, oldState, newState) {
-          let tr = newState.tr;
-          let changed = false;
-          const seen = new Set();
-          const pluginState = key.getState(newState) || { nextId: 1 };
-          let nextId = pluginState.nextId;
-          const isSingleEmptyParagraph =
-            isCollabEnabled.value
-            && newState.doc.childCount === 1
-            && isEmptyParagraphNode(newState.doc.child(0));
 
-          if (isSingleEmptyParagraph) {
-            return null;
-          }
 
-          newState.doc.descendants((node, pos) => {
-            if (!node.isBlock) return;
-            if (!BLOCK_ID_TYPES.includes(node.type.name)) return;
-            const currentId = node.attrs?.id;
-            const num = parseBlockIdCounter(currentId);
-            const isDuplicate = currentId && seen.has(currentId);
-            const needsId = !currentId || num === null || isDuplicate;
-            if (currentId) {
-              seen.add(currentId);
-            }
-            if (needsId) {
-              const newId = `block-${nextId}`;
-              nextId += 1;
-              seen.add(newId);
-              tr = tr.setNodeMarkup(pos, node.type, { ...node.attrs, id: newId }, node.marks);
-              changed = true;
-            }
-          });
 
-          if (changed) {
-            tr.setMeta(ORIGIN_META_KEY, 'block-id-manager');
-            tr.setMeta(key, { nextId });
-            return tr;
-          }
 
-          // keep counter fresh if doc gained larger ids externally
-          const maxId = nextFromDoc(newState.doc);
-          if (maxId > nextId) {
-            const metaTr = newState.tr.setMeta(key, { nextId: maxId });
-            return metaTr;
-          }
-          return null;
-        },
-      }),
-    ];
-  },
-});
 
-const BlockPositionExtension = Extension.create({
-  name: 'block-position-deco',
-  addProseMirrorPlugins() {
-    return [
-      new Plugin({
-        key: blockHighlightKey,
-        state: {
-          init: () => ({ highlightId: null, highlightType: null }),
-          apply(tr, value) {
-            let highlightId = value.highlightId;
-            let highlightType = value.highlightType;
-            const meta = tr.getMeta(blockHighlightKey);
-            if (meta && typeof meta.highlightId === 'string') {
-              highlightId = meta.highlightId;
-            }
-            if (meta && typeof meta.highlightType === 'string') {
-              highlightType = meta.highlightType;
-            }
-            if (meta && meta.clearHighlight) {
-              highlightId = null;
-              highlightType = null;
-            }
-            return { highlightId, highlightType };
-          },
-        },
-        props: {
-          decorations(state) {
-            const pluginState = blockHighlightKey.getState(state) || { highlightId: null, highlightType: null };
-            const decos = [];
-            const syncedSources = new Set();
-            state.doc.descendants((node) => {
-              if (node.isBlock && node.attrs?.[SYNCED_FROM_ATTR]) {
-                syncedSources.add(node.attrs[SYNCED_FROM_ATTR]);
-              }
-            });
-            state.doc.descendants((node, pos) => {
-              if (!node.isBlock) return;
-              const id = node.attrs?.id;
-              const syncedFrom = node.attrs?.[SYNCED_FROM_ATTR];
-              const attrs = { 'data-block-pos': String(pos), 'data-pos': String(pos) };
-              const classes = [];
-              if (id) {
-                attrs['data-block-id'] = id;
-              }
-              if (syncedFrom) {
-                attrs['data-synced-from'] = syncedFrom;
-                classes.push('synced-block');
-              }
-              if (id && (syncedSources.has(id) || hasWorkspaceSyncedReference(id))) {
-                classes.push('synced-source-block');
-              }
-              if (pluginState.highlightId && id === pluginState.highlightId) {
-                if (pluginState.highlightType === 'toc') {
-                  classes.push('toc-block-highlight');
-                } else {
-                  classes.push('block-link-focus');
-                }
-              }
-              if (classes.length) {
-                attrs.class = classes.join(' ');
-              }
-              decos.push(Decoration.node(pos, pos + node.nodeSize, attrs));
-            });
-            return DecorationSet.create(state.doc, decos);
-          },
-        },
-      }),
-    ];
-  },
-});
 
-const ColumnCleanupExtension = Extension.create({
-  name: 'column-cleanup',
-  addProseMirrorPlugins() {
-    return [
-      new Plugin({
-        key: columnCleanupKey,
-        state: {
-          init: () => ({ pending: null }),
-          apply(tr, value) {
-            let pending = value.pending;
-            const meta = tr.getMeta(columnCleanupKey);
-            if (meta?.clear) {
-              return { pending: null };
-            }
-            if (meta?.pending) {
-              pending = meta.pending;
-            }
-            if (pending && typeof pending.pos === 'number') {
-              const mapped = tr.mapping.mapResult(pending.pos);
-              if (mapped.deleted) {
-                pending = null;
-              } else if (mapped.pos !== pending.pos) {
-                pending = { ...pending, pos: mapped.pos };
-              }
-            }
-            return { pending };
-          },
-        },
-        appendTransaction(transactions, _oldState, newState) {
-          const hadDocChange = transactions.some((tr) => tr.docChanged);
-          if (!hadDocChange) return null;
-          const pluginState = columnCleanupKey.getState(newState) || { pending: null };
-          const pending = pluginState.pending;
-          if (!pending || typeof pending.pos !== 'number') return null;
-          const columnPos = pending.pos;
-          const columnNode = newState.doc.nodeAt(columnPos);
-          if (!columnNode || columnNode.type?.name !== 'column') {
-            return newState.tr.setMeta(columnCleanupKey, { clear: true });
-          }
-          if (!isEmptyColumn(columnNode)) {
-            return newState.tr.setMeta(columnCleanupKey, { clear: true });
-          }
-          const $pos = newState.doc.resolve(columnPos);
-          const columnsNode = $pos.parent;
-          const columnsPos = $pos.before($pos.depth);
-          let tr = newState.tr.delete(columnPos, columnPos + columnNode.nodeSize);
-          if (columnsNode?.type?.name === 'columns') {
-            const mappedColumnsPos = tr.mapping.map(columnsPos);
-            const updatedColumns = tr.doc.nodeAt(mappedColumnsPos);
-            if (updatedColumns?.type?.name === 'columns' && updatedColumns.childCount <= 1) {
-              const remainingColumn = updatedColumns.childCount === 1 ? updatedColumns.child(0) : null;
-              const replacement = remainingColumn?.content?.size
-                ? remainingColumn.content
-                : newState.schema.nodes.paragraph?.create();
-              if (replacement) {
-                tr = tr.replaceWith(mappedColumnsPos, mappedColumnsPos + updatedColumns.nodeSize, replacement);
-              } else {
-                tr = tr.delete(mappedColumnsPos, mappedColumnsPos + updatedColumns.nodeSize);
-              }
-            }
-          }
-          tr.setMeta(columnCleanupKey, { clear: true });
-          tr.setMeta(ORIGIN_META_KEY, 'column-cleanup');
-          return tr;
-        },
-      }),
-    ];
-  },
-});
 
-const ColumnInputGuardExtension = Extension.create({
-  name: 'column-input-guard',
-  addProseMirrorPlugins() {
-    return [
-      new Plugin({
-        key: columnInputGuardKey,
-        appendTransaction(transactions, oldState, newState) {
-          const debug = columnDebugEnabled();
-          const hasDocChange = transactions.some((tr) => tr.docChanged);
-          const oldColumn = findColumnAncestor(oldState, oldState.selection.from);
-          const newColumn = findColumnAncestor(newState, newState.selection.from);
-          if (debug && oldColumn?.pos !== newColumn?.pos) {
-            logColumnDebug('selection-shift', {
-              hasDocChange,
-              from: oldColumn?.pos ?? null,
-              to: newColumn?.pos ?? null,
-              selection: {
-                old: oldState.selection.from,
-                next: newState.selection.from,
-              },
-              diff: {
-                start: oldState.doc.content.findDiffStart(newState.doc.content),
-                end: oldState.doc.content.findDiffEnd(newState.doc.content),
-              },
-              meta: summarizeSteps(transactions),
-            });
-          }
 
-          if (!hasDocChange) return null;
-          if (transactions.some(isRemoteCollabChange)) return null;
-          if (!oldColumn) return null;
 
-          const mapping = new Mapping();
-          transactions.forEach((tr) => mapping.appendMap(tr.mapping));
-          let hasBlockInsertion = false;
-          let hasSplitInput = false;
-          transactions.forEach((tr) => {
-            const inputType = tr.getMeta('inputType');
-            if (inputType === 'insertParagraph' || inputType === 'insertLineBreak') {
-              hasSplitInput = true;
-            }
-            if (!hasBlockInsertion) {
-              tr.steps.forEach((step) => {
-                const slice = step?.slice;
-                if (!slice?.content) return;
-                if (!isInlineSlice(slice)) {
-                  hasBlockInsertion = true;
-                }
-              });
-            }
-          });
-          const mappedColumn = mapping.mapResult(oldColumn.pos);
-          if (mappedColumn.deleted) return null;
-          const columnNode = newState.doc.nodeAt(mappedColumn.pos);
-          if (!columnNode || columnNode.type?.name !== 'column') return null;
-
-          const mappedFrom = mapping.map(oldState.selection.from);
-          const oldColumnOffset = oldState.selection.from - (oldColumn.pos + 1);
-          let preferPos = mappedColumn.pos + 1 + Math.max(0, Math.min(oldColumnOffset, columnNode.content.size));
-          let usedTextblockFallback = false;
-          let mappedTextblockPos = null;
-          const oldTextblock = findTextblockAtSelection(oldState);
-          if (oldTextblock) {
-            const mappedBlock = mapping.mapResult(oldTextblock.pos);
-            if (!mappedBlock.deleted) {
-              mappedTextblockPos = mappedBlock.pos;
-              const newBlock = newState.doc.nodeAt(mappedBlock.pos);
-              if (newBlock?.isTextblock) {
-                const oldOffset = Math.max(0, oldState.selection.from - (oldTextblock.pos + 1));
-                const oldSize = oldTextblock.node.content.size;
-                const newSize = newBlock.content.size;
-                const delta = newSize - oldSize;
-                const expectedOffset = Math.max(
-                  0,
-                  Math.min(newBlock.content.size, oldOffset + delta)
-                );
-                preferPos = mappedBlock.pos + 1 + expectedOffset;
-                usedTextblockFallback = true;
-              }
-            }
-          }
-          const newTextblock = findTextblockAtSelection(newState);
-          const textblockChanged = mappedTextblockPos != null
-            && newTextblock?.pos != null
-            && mappedTextblockPos !== newTextblock.pos;
-          if (newColumn?.pos === mappedColumn.pos) {
-            if (oldState.selection.empty && newState.selection.empty) {
-              if (textblockChanged && (hasBlockInsertion || hasSplitInput)) {
-                return null;
-              }
-              const expectedSelection = resolveColumnSelection(newState, mappedColumn.pos, preferPos);
-              if (!expectedSelection) return null;
-              const drift = Math.abs(newState.selection.from - expectedSelection.from);
-              if (drift >= 4) {
-                logColumnDebug('caret-drift', {
-                  mappedFrom,
-                  from: newState.selection.from,
-                  expected: expectedSelection.from,
-                  drift,
-                  fallback: usedTextblockFallback,
-                });
-                return newState.tr.setSelection(expectedSelection);
-              }
-            }
-            return null;
-          }
-
-          const nextSelection = resolveColumnSelection(newState, mappedColumn.pos, preferPos);
-          if (!nextSelection) return null;
-
-          const diffStart = oldState.doc.content.findDiffStart(newState.doc.content);
-          const diffEnd = oldState.doc.content.findDiffEnd(newState.doc.content);
-          const newRange = diffStart == null || !diffEnd ? null : { from: diffStart, to: diffEnd.b };
-          const oldRange = diffStart == null || !diffEnd ? null : { from: diffStart, to: diffEnd.a };
-          const insertedSlice = newRange ? newState.doc.slice(newRange.from, newRange.to) : null;
-          const insertionColumn = newRange ? findColumnAncestor(newState, newRange.from) : null;
-          const canMove =
-            insertedSlice
-            && isInlineSlice(insertedSlice)
-            && newRange
-            && oldRange
-            && oldRange.from === oldRange.to
-            && newRange.from !== newRange.to
-            && insertionColumn
-            && insertionColumn.pos !== mappedColumn.pos;
-
-          logColumnDebug('input-jump', {
-            from: oldColumn.pos,
-            to: newColumn?.pos ?? null,
-            mappedColumn: mappedColumn.pos,
-            selection: { old: oldState.selection.from, mapped: mappedFrom, prefer: preferPos },
-            fallback: usedTextblockFallback,
-            diff: { newRange, oldRange },
-            canMove,
-          });
-
-          if (canMove) {
-            let tr = newState.tr.delete(newRange.from, newRange.to);
-            const insertAt = Math.max(
-              mappedColumn.pos + 1,
-              Math.min(tr.mapping.map(mappedFrom), mappedColumn.pos + columnNode.nodeSize - 1)
-            );
-            tr = tr.replaceRange(insertAt, insertAt, insertedSlice);
-            const head = Math.min(tr.doc.content.size, insertAt + insertedSlice.content.size);
-            const repairedSelection = resolveColumnSelection(tr, mappedColumn.pos, head);
-            if (repairedSelection) {
-              tr = tr.setSelection(repairedSelection);
-            }
-            logColumnDebug('input-repair', {
-              from: newRange.from,
-              to: newRange.to,
-              insertAt,
-            });
-            return tr;
-          }
-
-          return newState.tr.setSelection(nextSelection);
-        },
-      }),
-    ];
-  },
-});
-
-const InputSelectionGuardExtension = Extension.create({
-  name: 'input-selection-guard',
-  addProseMirrorPlugins() {
-    return [
-      new Plugin({
-        appendTransaction(transactions, oldState, newState) {
-          const hasDocChange = transactions.some((tr) => tr.docChanged);
-          if (!hasDocChange) return null;
-          if (transactions.some(isRemoteCollabChange)) return null;
-          const debug = selectionDebugEnabled();
-          const oldBlock = findBlockAtSelection(oldState);
-          const newBlock = findBlockAtSelection(newState);
-          const selectionShifted = oldBlock?.pos !== newBlock?.pos;
-          const typingAgeMs = lastTextInputAt.value ? Date.now() - lastTextInputAt.value : null;
-          const hasTextInput = transactions.some((tr) => {
-            const inputType = tr.getMeta('inputType');
-            if (typeof inputType === 'string') {
-              return inputType.startsWith('insert') || inputType === 'insertText' || inputType === 'insertCompositionText';
-            }
-            return tr.getMeta('uiEvent') === 'input';
-          });
-          const treatAsTyping = hasTextInput || (typingAgeMs != null && typingAgeMs < 60);
-          const hasBlockInsertion = transactions.some((tr) =>
-            tr.steps.some((step) => {
-              const slice = step?.slice;
-              if (!slice?.content) return false;
-              let inlineOnly = true;
-              slice.content.forEach((node) => {
-                if (!node.isInline) inlineOnly = false;
-              });
-              return !inlineOnly;
-            })
-          );
-          if (debug && selectionShifted) {
-            let mappedOld = null;
-            if (oldBlock?.pos != null) {
-              const mapping = new Mapping();
-              transactions.forEach((tr) => mapping.appendMap(tr.mapping));
-              const mapped = mapping.mapResult(oldBlock.pos);
-              const mappedNode = !mapped.deleted ? newState.doc.nodeAt(mapped.pos) : null;
-              mappedOld = {
-                pos: mapped.pos,
-                deleted: mapped.deleted,
-                block: mappedNode ? describeBlock({ node: mappedNode, pos: mapped.pos }) : null,
-              };
-            }
-            logSelectionDebug('selection-shift', {
-              hasTextInput,
-              hasBlockInsertion,
-              typingAgeMs,
-              lastTextInputInfo: lastTextInputInfo.value,
-              oldSelection: { from: oldState.selection.from, to: oldState.selection.to, empty: oldState.selection.empty },
-              newSelection: { from: newState.selection.from, to: newState.selection.to, empty: newState.selection.empty },
-              oldSelectionInfo: describeSelection(oldState),
-              newSelectionInfo: describeSelection(newState),
-              oldBlock: describeBlock(oldBlock),
-              newBlock: describeBlock(newBlock),
-              mappedOldBlock: mappedOld,
-              meta: summarizeSteps(transactions),
-              metaJson: JSON.stringify(summarizeSteps(transactions)),
-            });
-          }
-          // A new block (Enter, pasted blocks) moves the cursor on purpose
-          if (hasBlockInsertion) return null;
-          if (!(oldState.selection instanceof TextSelection) || !oldState.selection.empty) {
-            if (debug && selectionShifted) {
-              logSelectionDebug('guard-skip', { reason: 'non-text-selection' });
-            }
-            return null;
-          }
-          if (!treatAsTyping) {
-            if (debug && selectionShifted) {
-              logSelectionDebug('guard-skip', { reason: 'no-typing-signal', typingAgeMs });
-            }
-            return null;
-          }
-
-          const oldTextblock = findTextblockAtSelection(oldState);
-          if (!oldTextblock) {
-            if (debug && selectionShifted) {
-              logSelectionDebug('guard-skip', { reason: 'no-old-textblock' });
-            }
-            return null;
-          }
-
-          const mapping = new Mapping();
-          transactions.forEach((tr) => mapping.appendMap(tr.mapping));
-          const mappedBlock = mapping.mapResult(oldTextblock.pos);
-          const oldOffset = Math.max(0, oldState.selection.from - (oldTextblock.pos + 1));
-          if (mappedBlock.deleted) {
-            const replacement = newState.doc.nodeAt(oldTextblock.pos);
-            if (!replacement?.isTextblock) {
-              if (debug && selectionShifted) {
-                logSelectionDebug('guard-skip', { reason: 'old-textblock-deleted' });
-              }
-              return null;
-            }
-            const start = oldTextblock.pos + 1;
-            const end = oldTextblock.pos + replacement.nodeSize - 1;
-            const target = Math.max(start, Math.min(start + oldOffset, end));
-            if (debug) {
-              logSelectionDebug('selection-restore', {
-                target,
-                mappedBlock: { pos: oldTextblock.pos, start, end },
-                oldSelection: { from: oldState.selection.from, to: oldState.selection.to },
-                newSelection: { from: newState.selection.from, to: newState.selection.to },
-                recovery: 'replacement-at-old-pos',
-              });
-            }
-            return newState.tr.setSelection(TextSelection.create(newState.doc, target));
-          }
-          const node = newState.doc.nodeAt(mappedBlock.pos);
-          if (!node?.isTextblock) {
-            if (debug && selectionShifted) {
-              logSelectionDebug('guard-skip', { reason: 'mapped-node-not-textblock' });
-            }
-            return null;
-          }
-
-          const start = mappedBlock.pos + 1;
-          const end = mappedBlock.pos + node.nodeSize - 1;
-          const { from, to } = newState.selection;
-          if (from >= start && to <= end) return null;
-
-          const mappedHead = mapping.map(oldState.selection.from);
-          const target = Math.max(start, Math.min(mappedHead, end));
-          if (debug) {
-            logSelectionDebug('selection-restore', {
-              target,
-              mappedBlock: { pos: mappedBlock.pos, start, end },
-              oldSelection: { from: oldState.selection.from, to: oldState.selection.to },
-              newSelection: { from, to },
-            });
-          }
-          return newState.tr.setSelection(TextSelection.create(newState.doc, target));
-        },
-      }),
-    ];
-  },
-});
-
-// ── AI Suggestion Extension ───────────────────────────────────────────────────
-// Tracks blocks modified by AI suggestions, renders decorations, and manages
-// per-block revert/accept. State: Map<blockIndex, {from, to, originalText}>.
-const AiSuggestionExtension = Extension.create({
-  name: 'ai-suggestion',
-  addProseMirrorPlugins() {
-    return [
-      new Plugin({
-        key: aiSuggestionKey,
-        state: {
-          init: () => ({ suggestions: [] }),
-          apply(tr, pluginState) {
-            const meta = tr.getMeta(aiSuggestionKey);
-            if (meta?.type === 'set') {
-              return { suggestions: meta.suggestions };
-            }
-            if (meta?.type === 'remove') {
-              return { suggestions: pluginState.suggestions.filter((s) => s.nodeIndex !== meta.nodeIndex) };
-            }
-            if (meta?.type === 'clear') {
-              return { suggestions: [] };
-            }
-            // Map positions through any doc-changing transaction
-            if (!tr.docChanged || !pluginState.suggestions.length) return pluginState;
-            return {
-              suggestions: pluginState.suggestions.map((s) => ({
-                ...s,
-                from: tr.mapping.map(s.from),
-                to:   tr.mapping.map(s.to, -1),
-              })),
-            };
-          },
-        },
-        props: {
-          decorations(state) {
-            const { suggestions } = aiSuggestionKey.getState(state) || {};
-            if (!suggestions?.length) return DecorationSet.empty;
-            const decos = [];
-            for (const s of suggestions) {
-              if (s.from >= 0 && s.to > s.from && s.to <= state.doc.content.size) {
-                decos.push(
-                  Decoration.node(s.from, s.to, {
-                    class: 'ai-suggestion-block',
-                    'data-suggestion-index': String(s.nodeIndex),
-                  })
-                );
-              }
-            }
-            return DecorationSet.create(state.doc, decos);
-          },
-        },
-      }),
-    ];
-  },
-});
 // ─────────────────────────────────────────────────────────────────────────────
-
-const SyncedMirrorExtension = Extension.create({
-  name: 'synced-mirror',
-  addProseMirrorPlugins() {
-    const normalizeSyncedNode = (node) => {
-      const attrs = { ...(node?.attrs || {}) };
-      delete attrs.id;
-      delete attrs[SYNCED_FROM_ATTR];
-      return {
-        type: node?.type?.name || '',
-        attrs,
-        marks: (node?.marks || []).map((mark) => ({ type: mark.type.name, attrs: mark.attrs })),
-        content: node?.content?.toJSON ? node.content.toJSON() : node?.content,
-      };
-    };
-    const sameSyncedShape = (a, b) => JSON.stringify(normalizeSyncedNode(a)) === JSON.stringify(normalizeSyncedNode(b));
-
-    return [
-      new Plugin({
-        key: syncedMirrorKey,
-        appendTransaction(transactions, oldState, newState) {
-          let tr = newState.tr;
-          let changed = false;
-          const oldSources = new Map();
-          const oldRefs = new Map();
-          oldState.doc.descendants((node, pos) => {
-            if (!node.isBlock) return;
-            if (node.attrs?.[SYNCED_FROM_ATTR]) {
-              const sourceId = node.attrs[SYNCED_FROM_ATTR];
-              if (!oldRefs.has(sourceId)) oldRefs.set(sourceId, []);
-              oldRefs.get(sourceId).push({ node, pos });
-              return;
-            }
-            const id = node.attrs?.id;
-            if (id && !oldSources.has(id)) {
-              oldSources.set(id, { node, pos });
-            }
-          });
-          const sources = new Map();
-          newState.doc.descendants((node, pos) => {
-            if (!node.isBlock) return;
-            if (node.attrs?.[SYNCED_FROM_ATTR]) return; // only originals are sources
-            const id = node.attrs?.id;
-            if (id && !sources.has(id)) {
-              sources.set(id, { node, pos });
-            }
-          });
-          const syncedNodes = new Map();
-          newState.doc.descendants((node, pos) => {
-            if (node.isBlock && node.attrs?.[SYNCED_FROM_ATTR]) {
-              const sourceId = node.attrs[SYNCED_FROM_ATTR];
-              if (!syncedNodes.has(sourceId)) syncedNodes.set(sourceId, []);
-              syncedNodes.get(sourceId).push({ node, pos, sourceId });
-            }
-          });
-          sources.forEach((source, sourceId) => {
-            const refs = syncedNodes.get(sourceId) || [];
-            const locked = isSyncedLocked(sourceId);
-            let masterNode = source.node;
-
-            if (!locked) {
-              const prevSource = oldSources.get(sourceId)?.node;
-              const sourceChanged = !prevSource || !sameSyncedShape(prevSource, source.node);
-              const prevRefs = oldRefs.get(sourceId) || [];
-              const changedRef = refs.find((ref) => {
-                const prior = prevRefs.find((oldRef) => oldRef.node.attrs?.id === ref.node.attrs?.id)?.node;
-                return !prior || !sameSyncedShape(prior, ref.node);
-              });
-
-              if (!sourceChanged && changedRef) {
-                masterNode = changedRef.node;
-              }
-            }
-
-            if (!locked) {
-              // If the master came from a reference, align the source to it; otherwise, keep source as master.
-              const sourceAttrs = { ...masterNode.attrs, id: sourceId };
-              delete sourceAttrs[SYNCED_FROM_ATTR];
-              const desiredSource = masterNode.type.create(sourceAttrs, masterNode.content, masterNode.marks);
-              if (!sameSyncedShape(desiredSource, source.node)) {
-                tr = tr.replaceWith(source.pos, source.pos + source.node.nodeSize, desiredSource);
-                changed = true;
-                masterNode = desiredSource;
-              }
-            }
-
-            refs.forEach(({ node, pos }) => {
-              const nextAttrs = { ...masterNode.attrs, id: node.attrs?.id, [SYNCED_FROM_ATTR]: sourceId };
-              const desired = masterNode.type.create(nextAttrs, masterNode.content, masterNode.marks);
-              const shapesMatch = locked ? node.eq(desired) : sameSyncedShape(node, desired);
-              if (!shapesMatch) {
-                tr = tr.replaceWith(pos, pos + node.nodeSize, desired);
-                changed = true;
-              }
-            });
-          });
-          if (changed) {
-            tr.setMeta(ORIGIN_META_KEY, 'synced-mirror');
-            return tr;
-          }
-          return null;
-        },
-      }),
-    ];
-  },
-});
 
 const handleState = ref({ node: null, pos: -1 });
 const handleVisible = ref(false);
@@ -3323,7 +2446,6 @@ const notifySyncedBlockLocked = () => {
   }
 };
 
-const isEmptyParagraphNode = (node) => node?.type?.name === 'paragraph' && node.content?.size === 0;
 const isEmptyTextblockNode = (node) => !!node?.isTextblock && node.content?.size === 0;
 const isSingleEmptyParagraphDoc = (doc) =>
   Array.isArray(doc?.content) &&
@@ -3524,14 +2646,6 @@ const logSetup = (...args) => {
   if (setupDebugEnabled()) {
     console.log('[setup-collab]', ...args);
   }
-};
-
-const parseBlockIdCounter = (id) => {
-  if (typeof id !== 'string') return null;
-  const match = id.match(/block-(\d+)/);
-  if (!match) return null;
-  const num = Number.parseInt(match[1], 10);
-  return Number.isFinite(num) && num >= 0 ? num : null;
 };
 
 const blockDebugEnabled = () =>
@@ -4067,9 +3181,9 @@ editor = useEditor({
             : []),
         ]
       : []),
-    BlockIdExtension,
-    SyncedMirrorExtension,
-    BlockPositionExtension,
+    createBlockIdExtension({ isCollabEnabled }),
+    createSyncedMirrorExtension({ isSyncedLocked }),
+    createBlockPositionExtension({ hasWorkspaceSyncedReference }),
     ColumnCleanupExtension,
     Indent,
     Color.configure({ types: ['textStyle'] }),
@@ -4185,9 +3299,9 @@ editor = useEditor({
       },
     }),
     ColumnInputGuardExtension,
-    InputSelectionGuardExtension,
+    createInputSelectionGuardExtension({ lastTextInputAt, lastTextInputInfo }),
     AiSuggestionExtension,
-    Extension.create({ name: 'bullet-depth', addProseMirrorPlugins: () => [bulletDepthPlugin] }),
+    Extension.create({ name: 'bullet-depth', addProseMirrorPlugins: () => [createBulletDepthPlugin()] }),
   ],
   onCreate({ editor: ed }) {
     logSetup('create', {
