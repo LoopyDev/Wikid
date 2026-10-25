@@ -13,7 +13,7 @@
 	import no_server_headers
 	encode zstd gzip
 	header {
-		Strict-Transport-Security "max-age=31536000"
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
 		# Don't let other sites put Wikid in a frame (clickjacking); Wikid never frames itself
 		X-Frame-Options "DENY"
 		# Use the declared Content-Type; don't let browsers guess (e.g. treat an upload as a script)
