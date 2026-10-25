@@ -24,7 +24,8 @@ export const formatInlineMarkdown = (text) => {
   out = out.replace(/_([^_]+)_/g, '<em>$1</em>');
   out = out.replace(/~~([^~]+)~~/g, '<del>$1</del>');
   tokens.forEach((html, index) => {
-    out = out.replace(`%%CODE_${index}%%`, html);
+    // A function, so `$&` and the like in the code aren't read as replacement patterns
+    out = out.replace(`%%CODE_${index}%%`, () => html);
   });
   return out;
 };
