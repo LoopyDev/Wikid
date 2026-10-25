@@ -11,7 +11,16 @@
 - Entry: `api/src/main.ts` bootstraps Nest Express with a 10 MB body limit and CORS for `localhost:5173/5174`.
 - Modules (`api/src/app.module.ts`):
   - `Prisma` / `CompliancePrisma`: PrismaClient singletons for each database.
-  - `Pages`: page, block, and database CRUD; database templates (inventory, maintenance, assignments); forms; workspaces; users and admin endpoints.
+  - `Pages`: page, block, and database CRUD; database templates (inventory, maintenance, assignments); forms; workspaces; users and admin endpoints. One controller (`pages.controller.ts`) over layered services, each using only the ones listed before it:
+    - `page-access.service.ts`: workspace lookup, membership and page access checks.
+    - `collab-sync.service.ts`: pushes API changes into live-editing documents; collab tokens.
+    - `database-setup.service.ts`: creating a page's database (default and template fields, compliance schema).
+    - `database-values.service.ts`: field options and checking the values stored in rows and forms.
+    - `wiki.service.ts`: wiki homes and their pages databases.
+    - `pages.service.ts`: pages, edit locks, visibility, moving, reordering, setup, bin and delete, blocks.
+    - `databases.service.ts`: databases, fields, rows, row pages, relations and their history.
+    - `workspaces.service.ts`, `database-forms.service.ts`, `database-views.service.ts`, `users.service.ts`.
+    - Shared constants and helpers are in `pages.shared.ts`; password hashing is in `password.util.ts`.
   - `Collab`: endpoints the collab server calls to load/store Yjs state (`CollabDoc`), plus a materializer that periodically writes Yjs docs back to `Page.content` and database rows.
   - `Compliance`: compliance records, workflow transitions (Draft → Submitted → In Review → Closed/Sealed), and compliance uploads.
   - `Uploads`: S3 uploads via `@aws-sdk/client-s3`; `PUBLIC_API_URL` sets the absolute URL base.

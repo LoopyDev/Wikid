@@ -4,12 +4,12 @@ import { Request, Response as ExpressResponse } from 'express';
 import { memoryStorage } from 'multer';
 import { Readable } from 'stream';
 import { UploadsService } from './uploads.service';
-import { PagesService } from '../pages/pages.service';
+import { PageAccessService } from '../pages/page-access.service';
 import { assertSystemAdmin } from '../utils/assert-admin.util';
 
 @Controller('uploads')
 export class UploadsController {
-  constructor(private readonly uploads: UploadsService, private readonly pages: PagesService) {}
+  constructor(private readonly uploads: UploadsService, private readonly pageAccess: PageAccessService) {}
 
   private buildUrl(req: Request, filename: string) {
     const explicitBase = process.env.PUBLIC_API_URL?.trim();
@@ -40,7 +40,7 @@ export class UploadsController {
     const isImage = file.mimetype?.startsWith('image/');
     const isAllowedExt = ['.spz'].includes(ext);
     if (!isImage && !isAllowedExt) throw new BadRequestException('Unsupported file type');
-    await this.pages.ensurePageWriteAccess(pageId, { userId, userName });
+    await this.pageAccess.ensurePageWriteAccess(pageId, { userId, userName });
     const uploaded = await this.uploads.uploadImage({
       pageId,
       buffer: file.buffer,
@@ -65,7 +65,7 @@ export class UploadsController {
     if (!trimmed) throw new BadRequestException('url is required');
     if (!pageId) throw new BadRequestException('pageId is required');
     if (!userId) throw new BadRequestException('userId is required');
-    await this.pages.ensurePageWriteAccess(pageId, { userId, userName });
+    await this.pageAccess.ensurePageWriteAccess(pageId, { userId, userName });
     let response: Response;
     try {
       response = await fetch(trimmed);
@@ -103,7 +103,7 @@ export class UploadsController {
   ) {
     if (!pageId || !filename) throw new BadRequestException('Invalid upload path');
     if (!userId) throw new BadRequestException('userId is required');
-    await this.pages.ensurePageReadAccess(pageId, { userId, userName });
+    await this.pageAccess.ensurePageReadAccess(pageId, { userId, userName });
     const key = `${pageId}/${filename}`;
     try {
       const result = await this.uploads.getObject(key);
