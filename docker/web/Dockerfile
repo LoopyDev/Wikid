@@ -12,7 +12,7 @@ ENV VITE_API_URL=/api \
     VITE_COLLAB_URL=/collab
 RUN npm run build -w web
 
-FROM nginx:1.27-alpine
+FROM nginx:1.30-alpine
 COPY docker/web/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/web/dist /usr/share/nginx/html
 EXPOSE 80

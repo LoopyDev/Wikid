@@ -78,9 +78,12 @@ docker compose logs -f caddy     # certificate issuance; Ctrl+C to stop
 
 ```bash
 git pull
-docker compose up -d --build
+docker compose build --pull      # rebuild, fetching newer base images (security fixes)
+docker compose up -d
 docker image prune -f            # remove old images
 ```
+
+`--pull` matters: without it, rebuilds reuse the base images (nginx, Node) downloaded the first time and never get their security updates. Run this every few weeks even when Wikid itself hasn't changed. `docker compose pull` does the same for the images that aren't built (Postgres, Silo, Caddy).
 
 New database migrations are applied automatically when the API starts.
 
