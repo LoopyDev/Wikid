@@ -75,6 +75,23 @@ test.describe('sidebar', () => {
     await expect(main(page).getByRole('listitem').filter({ hasText: childTitle })).toHaveCount(0);
   });
 
+  test("shows a page's menu in full, over the page next to the sidebar", async ({ alice: page, workspaceId }) => {
+    const title = unique('Menu page');
+    await openPage(page, await createPage(page, workspaceId, { title }));
+    await openItemMenu(page, title);
+    const del = page.locator('.page-menu').getByRole('button', { name: 'Delete', exact: true });
+    await expect(del).toBeVisible();
+    // The sidebar scrolls, which would clip a menu inside it: check the button is really on top.
+    const box = (await del.boundingBox())!;
+    const sidebarRight = (await sidebar(page).boundingBox())!;
+    expect(box.x + box.width).toBeGreaterThan(sidebarRight.x + sidebarRight.width);
+    const onTop = await del.evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      return el.contains(document.elementFromPoint(r.left + r.width - 4, r.top + r.height / 2));
+    });
+    expect(onTop).toBe(true);
+  });
+
   test("stays in the workspace after deleting its last page", async ({ alice: page, workspaceId }) => {
     const title = unique('Only page');
     const id = await createPage(page, workspaceId, { title });

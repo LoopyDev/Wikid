@@ -637,11 +637,9 @@ button {
   z-index: 10000;
 }
 
+/* Placed next to its button when it opens (it's drawn on <body>) */
 .page-menu {
-  position: absolute;
-  left: calc(100% + 6px);
-  right: auto;
-  top: calc(100% + 8px);
+  position: fixed;
   z-index: 10001;
 }
 .page-menu-overlay {

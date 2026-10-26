@@ -1,5 +1,5 @@
 <script setup>
-import { computed, defineComponent, Fragment, h, nextTick, onBeforeUnmount, onMounted, provide, ref, watch, watchEffect } from 'vue';
+import { computed, defineComponent, Fragment, h, nextTick, onBeforeUnmount, onMounted, provide, ref, Teleport, watch, watchEffect } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useWorkspaceStore } from './stores/workspace';
 import TiptapEditor from './components/TiptapEditor.vue';
@@ -2890,7 +2890,7 @@ const PageTree = defineComponent({
                     e.currentTarget?.blur?.();
                   },
                 }, '+'),
-                h('div', { class: 'page-menu-wrapper' }, [
+                h('div', { class: 'page-menu-wrapper', 'data-menu-for': page.id }, [
                   h('button', {
                     class: 'page-menu-btn',
                     onClick: (e) => {
@@ -2899,19 +2899,21 @@ const PageTree = defineComponent({
                       e.currentTarget?.blur?.();
                     },
                   }, '...'),
+                  // Drawn on <body>, next to the button: the sidebar scrolls, so it would clip the menu.
                   props.menuOpenFor === page.id
-                    ? h('div', {
+                    ? h(Teleport, { to: 'body' }, h('div', {
                         class: 'page-menu context-menu',
                         onVnodeMounted(vnode) {
                           const el = vnode.el;
-                          if (!el) return;
-                          requestAnimationFrame(() => {
-                            const rect = el.getBoundingClientRect();
-                            if (rect.bottom > window.innerHeight) {
-                              el.style.top = 'auto';
-                              el.style.bottom = '0';
-                            }
-                          });
+                          const button = document.querySelector(`.page-menu-wrapper[data-menu-for="${page.id}"]`);
+                          if (!el || !button) return;
+                          const anchor = button.getBoundingClientRect();
+                          const menu = el.getBoundingClientRect();
+                          const margin = 8;
+                          const left = Math.min(anchor.right + 6, window.innerWidth - menu.width - margin);
+                          const top = Math.min(anchor.bottom + margin, window.innerHeight - menu.height - margin);
+                          el.style.left = `${Math.max(margin, left)}px`;
+                          el.style.top = `${Math.max(margin, top)}px`;
                         },
                       }, [
                         h('button', { type: 'button', class: 'context-menu__item', onClick: (e) => { e.stopPropagation(); props.duplicate(page); } }, 'Duplicate'),
@@ -2940,7 +2942,7 @@ const PageTree = defineComponent({
                         h('button', { type: 'button', class: 'context-menu__item', onClick: (e) => { e.stopPropagation(); props.exportHtml(page); } }, 'Export'),
                         h('button', { type: 'button', class: 'context-menu__item', onClick: (e) => { e.stopPropagation(); props.remove(page); } }, 'Delete'),
                         h('button', { type: 'button', class: 'context-menu__item', onClick: handleTreeAction }, treeActionLabel),
-                      ])
+                      ]))
                     : null,
                 ]),
               ])
