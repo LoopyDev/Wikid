@@ -381,8 +381,6 @@ export const useWorkspaceStore = defineStore('workspace', {
         }
         const localTitle = this.pages.find((p) => p.id === pageId)?.title;
         this.titleDraft = localTitle || page.title || 'Untitled page';
-        // Ignore legacy lock flags when collaboration is enabled
-        this.editingLockedBy = null;
         if (page.setupStatus === 'PENDING') {
           // Avoid creating collab docs for pages that haven't chosen a type yet.
           await this.updateCollabContext(null, null, null);
@@ -573,7 +571,6 @@ export const useWorkspaceStore = defineStore('workspace', {
           userId: this.activeUser.id,
           userName: this.activeUser.name,
         });
-        this.editingLockedBy = null;
       } finally {
         this.finishSaving(started);
       }
