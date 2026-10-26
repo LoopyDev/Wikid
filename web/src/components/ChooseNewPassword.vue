@@ -35,40 +35,48 @@ const submit = async () => {
 
 <template>
   <div class="login-page">
-    <div class="login-card">
-      <h1>Choose a new password</h1>
-      <p class="muted">Your password was set for you. Choose your own to continue.</p>
+    <main class="login-card">
+      <header class="login-header">
+        <div class="login-brand">
+          <span class="login-brand__mark" aria-hidden="true"><i class="bi bi-journal-text"></i></span>
+          Wikid
+        </div>
+        <h1 class="login-title">Choose a new password</h1>
+        <p class="login-subtitle">Your password was set for you. Choose your own to continue.</p>
+      </header>
       <form class="login-form" @submit.prevent="submit">
-        <input
-          v-model="currentPassword"
-          class="login-input"
-          type="password"
-          placeholder="Password you were given"
-          autocomplete="current-password"
-          required
-        />
-        <input
-          v-model="newPassword"
-          class="login-input"
-          type="password"
-          placeholder="New password"
-          autocomplete="new-password"
-          required
-        />
-        <input
-          v-model="confirmPassword"
-          class="login-input"
-          type="password"
-          placeholder="Confirm new password"
-          autocomplete="new-password"
-          required
-        />
-        <p v-if="error" class="login-error">{{ error }}</p>
-        <button class="ghost-btn login-submit-btn" type="submit" :disabled="saving">
+        <div class="login-field">
+          <label class="login-label" for="given-password">Password you were given</label>
+          <input
+            id="given-password"
+            v-model="currentPassword"
+            class="login-input"
+            type="password"
+            autocomplete="current-password"
+            required
+          />
+        </div>
+        <div class="login-field">
+          <label class="login-label" for="new-password">New password</label>
+          <input id="new-password" v-model="newPassword" class="login-input" type="password" autocomplete="new-password" required />
+        </div>
+        <div class="login-field">
+          <label class="login-label" for="confirm-password">Confirm new password</label>
+          <input
+            id="confirm-password"
+            v-model="confirmPassword"
+            class="login-input"
+            type="password"
+            autocomplete="new-password"
+            required
+          />
+        </div>
+        <p v-if="error" class="login-alert" role="alert">{{ error }}</p>
+        <button class="login-primary-btn" type="submit" :disabled="saving">
           {{ saving ? 'Saving…' : 'Save and continue' }}
         </button>
-        <button class="ghost-btn" type="button" @click="workspace.logout()">Log out</button>
+        <button class="login-secondary-btn" type="button" @click="workspace.logout()">Log out</button>
       </form>
-    </div>
+    </main>
   </div>
 </template>

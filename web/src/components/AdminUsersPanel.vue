@@ -179,8 +179,8 @@ onMounted(loadUsers);
 }
 
 .admin-users-form {
-  background: var(--surface-raised, #f8fafc);
-  border: 1px solid var(--border, #e2e8f0);
+  background: var(--modal-card-bg);
+  border: 1px solid var(--surface-border);
   border-radius: 10px;
   padding: 16px;
   margin-bottom: 16px;
@@ -212,8 +212,8 @@ onMounted(loadUsers);
   border: 1px solid transparent;
 }
 .admin-user-row:hover {
-  border-color: var(--border, #e2e8f0);
-  background: var(--surface-raised, #f8fafc);
+  border-color: var(--surface-border);
+  background: var(--modal-card-bg);
 }
 .admin-user-info {
   display: flex;

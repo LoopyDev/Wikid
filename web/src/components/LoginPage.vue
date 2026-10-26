@@ -26,32 +26,45 @@ const handleLogin = async () => {
 
 <template>
   <div class="login-page">
-    <div class="login-card">
-      <h1>Wikid</h1>
+    <main class="login-card">
+      <header class="login-header">
+        <div class="login-brand">
+          <span class="login-brand__mark" aria-hidden="true"><i class="bi bi-journal-text"></i></span>
+          Wikid
+        </div>
+        <h1 class="login-title">Sign in</h1>
+        <p class="login-subtitle">Use your email address or username.</p>
+      </header>
       <form class="login-form" @submit.prevent="handleLogin">
-        <input
-          v-model="loginEmail"
-          class="login-input"
-          type="text"
-          placeholder="Email or username"
-          autocomplete="username"
-          autocapitalize="none"
-          spellcheck="false"
-          required
-        />
-        <input
-          v-model="loginPassword"
-          class="login-input"
-          type="password"
-          placeholder="Password"
-          autocomplete="current-password"
-          required
-        />
-        <p v-if="loginError" class="login-error">{{ loginError }}</p>
-        <button class="ghost-btn login-submit-btn" type="submit" :disabled="loginLoading">
+        <div class="login-field">
+          <label class="login-label" for="login-name">Email or username</label>
+          <input
+            id="login-name"
+            v-model="loginEmail"
+            class="login-input"
+            type="text"
+            autocomplete="username"
+            autocapitalize="none"
+            spellcheck="false"
+            required
+          />
+        </div>
+        <div class="login-field">
+          <label class="login-label" for="login-password">Password</label>
+          <input
+            id="login-password"
+            v-model="loginPassword"
+            class="login-input"
+            type="password"
+            autocomplete="current-password"
+            required
+          />
+        </div>
+        <p v-if="loginError" class="login-alert" role="alert">{{ loginError }}</p>
+        <button class="login-primary-btn" type="submit" :disabled="loginLoading">
           {{ loginLoading ? 'Signing in…' : 'Sign in' }}
         </button>
       </form>
-    </div>
+    </main>
   </div>
 </template>

@@ -66,9 +66,9 @@ test.describe('signing in', () => {
     await page.reload();
     await expect(page.getByRole('heading', { name: 'Choose a new password' })).toBeVisible();
 
-    await page.getByPlaceholder('Password you were given').fill('given-pass');
-    await page.getByPlaceholder('New password', { exact: true }).fill('my-own-pass');
-    await page.getByPlaceholder('Confirm new password').fill('my-own-pass');
+    await page.getByLabel('Password you were given').fill('given-pass');
+    await page.getByLabel('New password', { exact: true }).fill('my-own-pass');
+    await page.getByLabel('Confirm new password').fill('my-own-pass');
     await page.getByRole('button', { name: 'Save and continue' }).click();
     await expect(page.getByRole('complementary').locator('.user-name')).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Choose a new password' })).toHaveCount(0);
