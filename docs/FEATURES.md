@@ -96,17 +96,17 @@ What Wikid does today, and how much to rely on each part. Wikid is in early deve
 
 ## Planned
 
-Roughly in this order:
+First, making what's here solid: more automated tests (especially for Beta features), checks that every API
+route only lets the right people in, rate limiting on login, and two-factor authentication. Then, roughly in this order:
 
-1. Page history: versions, who changed what, restoring a version
-2. A documented, tested restore from backups
-3. Single sign-on (OIDC: Google, Microsoft Entra, Okta, Keycloak, Authentik)
-4. Groups and teams for permissions
-5. Admin audit log (logins, permission changes, deletions, exports)
-6. Two-factor authentication
+1. A documented, tested restore from backups
+2. Page history: versions, who changed what, restoring a version
+3. Import from Markdown
+4. Page templates
+5. Groups and teams for permissions
+6. Admin audit log (logins, permission changes, deletions, exports)
 7. Comments and @mentions, with notifications
-8. Page templates
-9. Import from Markdown
-10. Read-only share links
-11. Page owners and "last reviewed" dates
-12. Later: invite links, optional email (invites, password reset), and open sign-up behind an admin switch
+8. Read-only share links
+9. Single sign-on (OIDC: Google, Microsoft Entra, Okta, Keycloak, Authentik)
+10. Page owners and "last reviewed" dates
+11. Later: invite links, optional email (invites, password reset), and open sign-up behind an admin switch
