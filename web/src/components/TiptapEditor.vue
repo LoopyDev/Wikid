@@ -3355,10 +3355,6 @@ const handleBubbleHighlightOutsideClick = (event) => {
   }
 };
 
-const toggleSubmenu = (name) => {
-  openSubmenu.value = openSubmenu.value === name ? null : name;
-};
-
 const setHandleLocked = (locked) => {
   handleLocked.value = !!locked;
   if (!editor.value) return;

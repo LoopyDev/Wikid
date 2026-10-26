@@ -75,6 +75,26 @@ test.describe('sidebar', () => {
     await expect(main(page).getByRole('listitem').filter({ hasText: childTitle })).toHaveCount(0);
   });
 
+  test("stays in the workspace after deleting its last page", async ({ alice: page, workspaceId }) => {
+    const title = unique('Only page');
+    const id = await createPage(page, workspaceId, { title });
+    await openPage(page, id);
+    const memberships = await (await page.request.get('/api/workspaces')).json();
+    const workspaceName = memberships.find((m: any) => m.workspace?.id === workspaceId).workspace.name as string;
+    await expect(sidebar(page).locator('.user-name')).toHaveText(workspaceName);
+
+    await openItemMenu(page, title);
+    await page.getByRole('button', { name: 'Delete', exact: true }).click();
+    await main(page).getByRole('button', { name: 'Delete', exact: true }).click();
+    await expect(sidebarItem(page, title)).toHaveCount(0);
+
+    // Give any fallback a moment to kick in, then check nothing else was opened.
+    await page.waitForTimeout(1500);
+    await expect(sidebar(page).locator('.user-name')).toHaveText(workspaceName);
+    expect(new URL(page.url()).pathname).toBe('/');
+    await expect(page.locator('.ProseMirror')).toHaveCount(0);
+  });
+
   test("lists the linked workspace's pages when opening a link", async ({ alice: page, workspaceId }) => {
     const otherTitle = unique('Other');
     await createPage(page, workspaceId, { title: otherTitle });
