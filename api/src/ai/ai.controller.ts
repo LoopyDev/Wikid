@@ -4,6 +4,7 @@ import { AiService, AiMode, AiSuggestBlock } from './ai.service';
 import { AuthUser, CurrentUser } from '../auth/auth.guard';
 import { PrismaService } from '../prisma/prisma.service';
 import { SYSTEM_ADMIN_ID } from '../constants/system-admin.const';
+import { SettingsService } from '../settings/settings.service';
 // AiSummarizeResult is returned implicitly — no explicit import needed for the route
 
 @Controller('ai')
@@ -11,6 +12,7 @@ export class AiController {
   constructor(
     private readonly aiService: AiService,
     private readonly prisma: PrismaService,
+    private readonly settings: SettingsService,
   ) {}
 
   @Post('generate')
@@ -23,9 +25,7 @@ export class AiController {
     if (!prompt?.trim()) {
       throw new HttpException('prompt is required', HttpStatus.BAD_REQUEST);
     }
-    if (!process.env.ANTHROPIC_API_KEY) {
-      throw new HttpException('AI is not configured on this server', HttpStatus.SERVICE_UNAVAILABLE);
-    }
+    await this.settings.assertAiAvailable();
 
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
@@ -57,9 +57,7 @@ export class AiController {
     if (!blocks?.length) {
       throw new HttpException('blocks is required', HttpStatus.BAD_REQUEST);
     }
-    if (!process.env.ANTHROPIC_API_KEY) {
-      throw new HttpException('AI is not configured on this server', HttpStatus.SERVICE_UNAVAILABLE);
-    }
+    await this.settings.assertAiAvailable();
     return this.aiService.generateSuggestions(prompt, blocks);
   }
 
@@ -83,9 +81,7 @@ export class AiController {
       const member = await this.prisma.userWorkspace.findFirst({ where: { userId: user?.id, workspaceId } });
       if (!member) throw new ForbiddenException('Workspace access required');
     }
-    if (!process.env.ANTHROPIC_API_KEY) {
-      throw new HttpException('AI is not configured on this server', HttpStatus.SERVICE_UNAVAILABLE);
-    }
+    await this.settings.assertAiAvailable();
 
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
@@ -111,9 +107,7 @@ export class AiController {
     if (!blocks?.length) {
       throw new HttpException('blocks is required', HttpStatus.BAD_REQUEST);
     }
-    if (!process.env.ANTHROPIC_API_KEY) {
-      throw new HttpException('AI is not configured on this server', HttpStatus.SERVICE_UNAVAILABLE);
-    }
+    await this.settings.assertAiAvailable();
     return this.aiService.summarizeBlocks(blocks);
   }
 }

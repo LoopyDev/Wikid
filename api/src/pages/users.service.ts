@@ -24,6 +24,7 @@ export class UsersService {
     const prefs: Record<string, any> = {};
     if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
       if (typeof payload.sidebarHidden === 'boolean') prefs.sidebarHidden = payload.sidebarHidden;
+      if (typeof payload.hideAi === 'boolean') prefs.hideAi = payload.hideAi;
     }
     return prefs;
   }

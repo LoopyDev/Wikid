@@ -275,6 +275,16 @@ export const api = {
       body: JSON.stringify({ parentId: parentId ?? null, orderedIds }),
     });
   },
+  // What this server offers (e.g. whether AI is available).
+  async getConfig() {
+    return request(`/config`);
+  },
+  async getAdminSettings() {
+    return request(`/admin/settings`);
+  },
+  async updateAdminSettings(payload) {
+    return request(`/admin/settings`, { method: 'PATCH', body: JSON.stringify(payload) });
+  },
   async login(payload) {
     return request(`/auth/login`, {
       method: 'POST',

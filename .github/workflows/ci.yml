@@ -41,6 +41,9 @@ jobs:
       - run: docker compose -f docker-compose.yml build
       - name: Start the stack
         run: docker compose -f docker-compose.yml up -d --wait
+        env:
+          # A placeholder so AI counts as set up and its on/off switches are tested; no test calls the AI.
+          ANTHROPIC_API_KEY: not-a-real-key
       - uses: actions/setup-node@v7
         with:
           node-version: 24

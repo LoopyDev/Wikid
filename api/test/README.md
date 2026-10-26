@@ -8,6 +8,7 @@ Start a stack with the demo users (the default), then run the tests from the rep
 
 ```bash
 docker compose -p wikid-dockertest -f docker-compose.yml up -d --build --wait
+# Optional: prefix with ANTHROPIC_API_KEY=not-a-real-key to test the AI on/off switches (CI does).
 npm run test:api
 docker compose -p wikid-dockertest -f docker-compose.yml down -v   # when finished
 ```

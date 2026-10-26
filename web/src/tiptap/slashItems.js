@@ -190,6 +190,7 @@ export function createSlashItems({ insertToggleHeading, insertColumns, insertIma
     {
       title: 'AI Writer',
       icon: '✦',
+      isAvailable: () => workspace.aiEnabled,
       hint: 'Write with AI',
       search: ['ai', 'write', 'generate', 'claude', 'gpt', 'assistant'],
       command: ({ editor, range }) => {

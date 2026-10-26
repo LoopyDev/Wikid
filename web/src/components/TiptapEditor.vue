@@ -1504,7 +1504,7 @@ defineExpose({
 
 <template>
   <div ref="wrapperRef" class="tiptap-wrapper">
-    <TextBubbleMenu v-if="editor" :editor="editor" :ai-streaming="aiStreaming" @ai-action="runAiBubbleAction" />
+    <TextBubbleMenu v-if="editor" :editor="editor" :ai-streaming="aiStreaming" :ai-enabled="workspace.aiEnabled" @ai-action="runAiBubbleAction" />
     <div
       v-if="editor && listHandleVisible"
       class="drag-handle drag-handle--floating drag-handle--list"

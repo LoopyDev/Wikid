@@ -272,3 +272,34 @@ describe('admin user management and passwords', () => {
     expect((await user.get('/auth/me')).status).toBe(200);
   });
 });
+
+describe('AI settings', () => {
+  it('reports whether AI is available, and lets only the admin switch it off', async () => {
+    const admin = await loginAs(USERS.admin.email);
+    const alice = await loginAs(USERS.alice.email);
+    const settings = await admin.get('/admin/settings');
+    expect(settings.status).toBe(200);
+    const configured = settings.body.ai.configured as boolean;
+    expect((await alice.get('/admin/settings')).status).toBe(403);
+    expect((await alice.patch('/admin/settings', { aiEnabled: false })).status).toBe(403);
+    expect((await admin.patch('/admin/settings', { aiEnabled: 'no' })).status).toBe(400);
+
+    expect((await alice.get('/config')).body.ai.available).toBe(configured);
+    expect((await admin.patch('/admin/settings', { aiEnabled: false })).body.ai.enabled).toBe(false);
+    expect((await alice.get('/config')).body.ai.available).toBe(false);
+    // The AI routes refuse while it's off (or not set up).
+    const generate = await alice.post('/ai/generate', { prompt: 'hello' });
+    expect(generate.status).toBe(configured ? 403 : 503);
+
+    expect((await admin.patch('/admin/settings', { aiEnabled: true })).body.ai.enabled).toBe(true);
+    expect((await alice.get('/config')).body.ai.available).toBe(configured);
+  });
+
+  it('keeps each user\'s "hide AI" choice', async () => {
+    const alice = await loginAs(USERS.alice.email);
+    const saved = await alice.patch(`/users/${USERS.alice.id}/preferences`, { preferences: { hideAi: true } });
+    expect(saved.status).toBe(200);
+    expect(saved.body.preferences.hideAi).toBe(true);
+    await alice.patch(`/users/${USERS.alice.id}/preferences`, { preferences: { hideAi: false } });
+  });
+});

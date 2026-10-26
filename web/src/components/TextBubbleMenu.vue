@@ -10,6 +10,8 @@ import { positionBubbleMenu, rectFromClientRects } from '../utils/menuPosition';
 const props = defineProps({
   editor: { type: Object, default: null },
   aiStreaming: { type: Boolean, default: false },
+  // Show the AI actions (Improve, Summarise, …).
+  aiEnabled: { type: Boolean, default: false },
 });
 const emit = defineEmits(['ai-action']);
 const editor = computed(() => props.editor);
@@ -282,14 +284,16 @@ onBeforeUnmount(() => {
     >
       Highlight
     </button>
-    <span class="bubble-menu__divider" aria-hidden="true"></span>
-    <template v-if="!aiStreaming">
-      <button class="bubble-menu__btn bubble-menu__btn--ai" type="button" title="Improve writing" @mousedown.prevent @click.prevent="emit('ai-action', 'improve')">✦ Improve</button>
-      <button class="bubble-menu__btn bubble-menu__btn--ai" type="button" title="Summarise" @mousedown.prevent @click.prevent="emit('ai-action', 'summarise')">Summarise</button>
-      <button class="bubble-menu__btn bubble-menu__btn--ai" type="button" title="Make shorter" @mousedown.prevent @click.prevent="emit('ai-action', 'shorten')">Shorten</button>
-      <button class="bubble-menu__btn bubble-menu__btn--ai" type="button" title="Expand with more detail" @mousedown.prevent @click.prevent="emit('ai-action', 'expand')">Expand</button>
+    <template v-if="aiEnabled">
+      <span class="bubble-menu__divider" aria-hidden="true"></span>
+      <template v-if="!aiStreaming">
+        <button class="bubble-menu__btn bubble-menu__btn--ai" type="button" title="Improve writing" @mousedown.prevent @click.prevent="emit('ai-action', 'improve')">✦ Improve</button>
+        <button class="bubble-menu__btn bubble-menu__btn--ai" type="button" title="Summarise" @mousedown.prevent @click.prevent="emit('ai-action', 'summarise')">Summarise</button>
+        <button class="bubble-menu__btn bubble-menu__btn--ai" type="button" title="Make shorter" @mousedown.prevent @click.prevent="emit('ai-action', 'shorten')">Shorten</button>
+        <button class="bubble-menu__btn bubble-menu__btn--ai" type="button" title="Expand with more detail" @mousedown.prevent @click.prevent="emit('ai-action', 'expand')">Expand</button>
+      </template>
+      <span v-else class="bubble-menu__ai-streaming" aria-live="polite">✦ Writing…</span>
     </template>
-    <span v-else class="bubble-menu__ai-streaming" aria-live="polite">✦ Writing…</span>
   </BubbleMenu>
   <Teleport to="body">
     <div

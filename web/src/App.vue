@@ -6,6 +6,7 @@ import TiptapEditor from './components/TiptapEditor.vue';
 import DatabaseTable from './components/DatabaseTable.vue';
 import TopBar from './components/TopBar.vue';
 import CollabAdminPanel from './components/CollabAdminPanel.vue';
+import AdminSettingsPanel from './components/AdminSettingsPanel.vue';
 import WorkspacesAdminPanel from './components/WorkspacesAdminPanel.vue';
 import AdminUsersPanel from './components/AdminUsersPanel.vue';
 import PageIcon from './components/PageIcon.vue';
@@ -2127,6 +2128,15 @@ if (typeof window !== 'undefined') {
           <div class="page-icon-slot"><span class="page-icon" aria-hidden="true">🔄</span></div>
           <div class="sidebar__title">Collaboration</div>
         </button>
+        <button
+          class="sidebar__item sidebar__item--utility"
+          :class="{ active: activeView === 'admin:settings' }"
+          type="button"
+          @click="openAdminView('admin:settings')"
+        >
+          <div class="page-icon-slot"><span class="page-icon" aria-hidden="true">⚙️</span></div>
+          <div class="sidebar__title">Settings</div>
+        </button>
       </div>
       <div class="sidebar__empty" v-if="loadingPages">Loading...</div>
       <div class="sidebar__footer">
@@ -2150,7 +2160,7 @@ if (typeof window !== 'undefined') {
     <main class="content">
       <div class="content-with-ai-panel">
         <AiSidePanel
-          v-if="showAiPanel && !splitPageId"
+          v-if="showAiPanel && !splitPageId && workspace.aiEnabled"
           :workspace-id="workspace.currentPage?.workspaceId || workspace.activeWorkspaceId || ''"
           :page-context="aiPageContext"
           :page-title="workspace.currentPage?.title || ''"
@@ -2179,7 +2189,7 @@ if (typeof window !== 'undefined') {
           :full-width="isFullWidthPage"
           :show-full-width-toggle="!splitPageId && isDocLayout"
           :show-sidebar-toggle="isSidebarHidden"
-          :show-ai-toggle="!splitPageId && isDocLayout"
+          :show-ai-toggle="!splitPageId && isDocLayout && workspace.aiEnabled"
           :ai-panel-open="showAiPanel"
           :show-workspace-name="!splitPageId && !(breadcrumbs.length && breadcrumbs[0]?.title === '…')"
           @export="openExportModal"
@@ -2234,6 +2244,19 @@ if (typeof window !== 'undefined') {
           </div>
           <section class="sysadmin-body">
             <CollabAdminPanel v-if="isAdminUser" :admin-id="activeUser?.id" />
+            <div v-else class="muted">Admin access required.</div>
+          </section>
+        </template>
+        <template v-else-if="activeView === 'admin:settings'">
+          <div class="frame-heading sysadmin-heading">
+            <div class="sysadmin-heading__icon" aria-hidden="true">⚙️</div>
+            <div>
+              <h1 class="sysadmin-heading__title">Settings</h1>
+              <p class="muted">Settings for everyone on this server.</p>
+            </div>
+          </div>
+          <section class="sysadmin-body">
+            <AdminSettingsPanel v-if="isAdminUser" />
             <div v-else class="muted">Admin access required.</div>
           </section>
         </template>

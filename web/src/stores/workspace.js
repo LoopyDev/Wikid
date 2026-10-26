@@ -45,6 +45,8 @@ export const useWorkspaceStore = defineStore('workspace', {
     deletingCascade: false,
     // An admin set this user's password; they choose their own before using the app.
     mustChangePassword: false,
+    // The server has AI set up and the admin hasn't turned it off (see aiEnabled).
+    aiAvailable: false,
     // Set when someone moves the open page (or a page it's inside) to the Bin:
     // { openPageId, pageId, pageTitle, pageIds, byName, byMe }. Only shown while that page is still open.
     remoteDeletion: null,
@@ -79,6 +81,10 @@ export const useWorkspaceStore = defineStore('workspace', {
     },
     activePageRemotelyDeleted(state) {
       return !!state.remoteDeletion && state.remoteDeletion.openPageId === state.activePageId;
+    },
+    // Show AI features: available on this server, and not hidden in this user's settings.
+    aiEnabled(state) {
+      return state.aiAvailable && state.userPreferences?.hideAi !== true;
     },
     canEditActiveWorkspace(state) {
       return state.activeWorkspaceRole === 'OWNER' || state.activeWorkspaceRole === 'EDITOR';
@@ -165,7 +171,7 @@ export const useWorkspaceStore = defineStore('workspace', {
         });
         this.workspaces = Array.isArray(memberships) ? memberships : [];
         this.hasApi = true;
-        await this.fetchUserPreferences();
+        await Promise.all([this.fetchUserPreferences(), this.loadServerConfig()]);
         const savedWorkspaceId = this.loadLastWorkspaceId();
         const defaultWorkspace =
           this.workspaces.find((entry) => entry.workspace?.id === savedWorkspaceId) ||
@@ -531,6 +537,29 @@ export const useWorkspaceStore = defineStore('workspace', {
         this.setUserPreferences(user?.preferences || {});
       } catch (err) {
         console.warn('Load user preferences failed', err);
+      }
+    },
+    async loadServerConfig() {
+      try {
+        const config = await api.getConfig();
+        this.aiAvailable = !!config?.ai?.available;
+      } catch (err) {
+        console.warn('Load server config failed', err);
+        this.aiAvailable = false;
+      }
+    },
+    async setHideAiPreference(hidden) {
+      const next = !!hidden;
+      this.userPreferences = { ...this.userPreferences, hideAi: next };
+      if (!this.activeUser || !this.hasApi) return;
+      try {
+        await api.updateUserPreferences(
+          this.activeUser.id,
+          { hideAi: next },
+          { userId: this.activeUser.id, userName: this.activeUser.name }
+        );
+      } catch (err) {
+        console.warn('Save user preferences failed', err);
       }
     },
     async setSidebarHiddenPreference(hidden) {

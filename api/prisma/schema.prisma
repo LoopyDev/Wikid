@@ -245,3 +245,10 @@ enum BlockType {
   DIVIDER
   EMBED
 }
+
+// System-wide settings the admin changes at runtime, by key (e.g. "aiEnabled": false).
+model AppSetting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+}

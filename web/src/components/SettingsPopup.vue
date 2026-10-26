@@ -224,6 +224,14 @@ watch(settingsTab, (tab) => {
             <span>Color mode</span>
             <button class="ghost-btn ghost-btn-background" type="button" @click="emit('toggle-theme')">{{ themeModeLabel }}</button>
           </div>
+          <label v-if="workspace.aiAvailable" class="settings-theme-row settings-toggle-row">
+            <span>Show AI features</span>
+            <input
+              type="checkbox"
+              :checked="workspace.userPreferences?.hideAi !== true"
+              @change="workspace.setHideAiPreference(!$event.target.checked)"
+            />
+          </label>
         </div>
         <div v-else-if="settingsTab === 'Password'">
           <h3>Change password</h3>

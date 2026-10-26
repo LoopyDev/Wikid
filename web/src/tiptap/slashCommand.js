@@ -26,6 +26,7 @@ export default Extension.create({
         items: ({ query }) => {
           const q = query.toLowerCase();
           return extension.options.commands
+            .filter((item) => !item.isAvailable || item.isAvailable())
             .filter((item) => item.title.toLowerCase().includes(q) || item.search?.some((t) => t.includes(q)))
             .slice(0, 10);
         },
