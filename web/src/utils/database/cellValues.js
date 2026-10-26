@@ -29,7 +29,8 @@ export const stringifyValue = (value) => {
     return value.map((item) => stringifyValue(item)).filter(Boolean).join(', ');
   }
   if (value && typeof value === 'object') {
-    const label = value.label ?? value.id;
+    // An empty label (relations stored as a bare id) falls back to the id
+    const label = value.label || value.id;
     if (label !== undefined && label !== null && String(label).trim()) {
       return String(label);
     }
