@@ -221,7 +221,8 @@ onBeforeUnmount(() => {
       class="bubble-menu__btn"
       :class="{ active: editor.isActive('bold') }"
       type="button"
-      aria-pressed="editor.isActive('bold')"
+      aria-label="Bold"
+      :aria-pressed="editor.isActive('bold') ? 'true' : 'false'"
       @mousedown.prevent
       @click.prevent="toggleBold"
     >
@@ -231,7 +232,8 @@ onBeforeUnmount(() => {
       class="bubble-menu__btn"
       :class="{ active: editor.isActive('italic') }"
       type="button"
-      aria-pressed="editor.isActive('italic')"
+      aria-label="Italic"
+      :aria-pressed="editor.isActive('italic') ? 'true' : 'false'"
       @mousedown.prevent
       @click.prevent="toggleItalic"
     >
@@ -241,7 +243,8 @@ onBeforeUnmount(() => {
       class="bubble-menu__btn bubble-menu__btn--strike"
       :class="{ active: editor.isActive('strike') }"
       type="button"
-      aria-pressed="editor.isActive('strike')"
+      aria-label="Strikethrough"
+      :aria-pressed="editor.isActive('strike') ? 'true' : 'false'"
       @mousedown.prevent
       @click.prevent="toggleStrike"
     >
@@ -251,7 +254,7 @@ onBeforeUnmount(() => {
       class="bubble-menu__btn"
       :class="{ active: editor.isActive('link') }"
       type="button"
-      aria-pressed="editor.isActive('link')"
+      :aria-pressed="editor.isActive('link') ? 'true' : 'false'"
       @mousedown.prevent
       @click.prevent="promptLink"
     >

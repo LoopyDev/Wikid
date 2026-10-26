@@ -107,7 +107,10 @@ test.describe('editor menus', () => {
     const toolbar = page.locator('.bubble-menu').filter({ has: page.getByRole('button', { name: 'Color' }) });
     await expect(toolbar).toBeVisible();
 
-    await toolbar.getByRole('button', { name: 'B', exact: true }).click();
+    const bold = toolbar.getByRole('button', { name: 'Bold' });
+    await expect(bold).toHaveAttribute('aria-pressed', 'false');
+    await bold.click();
+    await expect(bold).toHaveAttribute('aria-pressed', 'true');
     await toolbar.getByRole('button', { name: 'Color' }).click();
     await page.getByRole('menu').filter({ hasText: 'Text color' }).getByRole('button', { name: 'Orange' }).click();
     const marks = () =>
