@@ -9865,3 +9865,23 @@ button {
   text-align: center;
   font-size: 0.8rem;
 }
+
+/* Shown when someone else moves the open page to the Bin */
+.page-deleted-notice {
+  grid-column: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  background: var(--highlight-color-orange);
+  border: 1px solid var(--text-color-orange);
+  color: var(--text-primary);
+  padding: 10px 14px;
+  border-radius: 10px;
+}
+
+.page-deleted-notice__actions {
+  display: flex;
+  gap: 8px;
+}

@@ -537,7 +537,9 @@ export class PagesService {
       where: { id: { in: idsToDelete } },
       data: { isDeleted: true, deletedAt },
     });
-    this.collabSync.announcePagesChanged(page.workspaceId, idsToDelete);
+    this.collabSync.announcePagesChanged(page.workspaceId, idsToDelete, {
+      deleted: { pageId: id, byUserId: user?.userId, byName: user?.userName },
+    });
     return result;
   }
 
@@ -560,7 +562,7 @@ export class PagesService {
       where: { id: { in: idsToRestore } },
       data: { isDeleted: false, deletedAt: null },
     });
-    this.collabSync.announcePagesChanged(page.workspaceId, idsToRestore);
+    this.collabSync.announcePagesChanged(page.workspaceId, idsToRestore, { restored: true });
     return result;
   }
 

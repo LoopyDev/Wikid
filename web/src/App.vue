@@ -72,6 +72,16 @@ const resizePageTitle = (el = pageTitleRef.value) => {
 const activeUser = computed(() => workspace.activeUser);
 const activeWorkspaceName = computed(() => workspace.currentWorkspace?.workspace?.name || 'Workspace');
 const canEditWorkspace = computed(() => workspace.canEditActiveWorkspace);
+// The open page itself can't be edited once someone else has moved it to the Bin.
+const canEditPage = computed(() => canEditWorkspace.value && !workspace.activePageRemotelyDeleted);
+const remoteDeletionMessage = computed(() => {
+  const deletion = workspace.activePageRemotelyDeleted ? workspace.remoteDeletion : null;
+  if (!deletion) return '';
+  const who = deletion.byMe ? 'You' : deletion.byName || 'Someone';
+  if (deletion.pageId === deletion.openPageId) return `${who} moved this page to the Bin.`;
+  const parent = deletion.pageTitle ? `"${deletion.pageTitle}"` : 'a page above this one';
+  return `${who} moved ${parent} to the Bin, with this page inside it.`;
+});
 const isWorkspaceOwner = computed(() => activeWorkspaceRole.value === 'OWNER');
 const isAdminUser = computed(() => activeUser.value?.id === SYSTEM_ADMIN_ID);
 const activeView = ref('page');
@@ -689,7 +699,7 @@ const cleanupTitleCollab = () => {
 
 const persistCollabTitle = (rawTitle) => {
   if (!workspace.hasApi || !workspace.activePageId) return;
-  if (!canEditWorkspace.value) return;
+  if (!canEditPage.value) return;
   const user = activeUser.value;
   if (!user) return;
   if (collabTitleSaveTimer.value) {
@@ -708,7 +718,7 @@ const persistCollabTitle = (rawTitle) => {
 
 const persistCollabIcon = (rawIcon) => {
   if (!workspace.hasApi || !workspace.activePageId) return;
-  if (!canEditWorkspace.value) return;
+  if (!canEditPage.value) return;
   const user = activeUser.value;
   if (!user) return;
   if (collabIconSaveTimer.value) {
@@ -985,12 +995,12 @@ const handleUpdateDoc = async (updated) => {
     setupSeedDoc.value = updated;
     logSetup('seed-doc', { captured: true });
   }
-  if (!isSetupPage.value || setupAutoCompleteTriggered.value || setupSaving.value || !canEditWorkspace.value) {
+  if (!isSetupPage.value || setupAutoCompleteTriggered.value || setupSaving.value || !canEditPage.value) {
     logSetup('update', {
       setup: isSetupPage.value,
       triggered: setupAutoCompleteTriggered.value,
       saving: setupSaving.value,
-      canEdit: canEditWorkspace.value,
+      canEdit: canEditPage.value,
     });
     return;
   }
@@ -1116,7 +1126,7 @@ const handleDatabasePresence = (presence) => {
   collabPresence.value = presence;
 };
 const handleTitleInput = (event) => {
-  if (!canEditWorkspace.value) return;
+  if (!canEditPage.value) return;
   const target = event?.target;
   const value = target?.value ?? '';
   resizePageTitle(target);
@@ -1132,7 +1142,7 @@ const handleTitleInput = (event) => {
 };
 
 const handleTitleEnter = (event) => {
-  if (!canEditWorkspace.value) return;
+  if (!canEditPage.value) return;
   if (isDatabasePage.value) return;
   if (!showWikiHomeDoc.value) return;
   event?.preventDefault?.();
@@ -1714,7 +1724,7 @@ const submitComplianceSetupModal = () => {
   if (resolver) resolver(result);
 };
 const handleComplianceSetup = async () => {
-  if (!workspace.currentPage || !canEditWorkspace.value) return;
+  if (!workspace.currentPage || !canEditPage.value) return;
   const result = await requestComplianceSetup({
     allowTitle: false,
     defaultTitle: workspace.currentPage?.title || 'Untitled database',
@@ -1724,7 +1734,7 @@ const handleComplianceSetup = async () => {
   await chooseSetupKind('DATABASE', { complianceMode: true, database: result.database });
 };
 const chooseSetupKind = async (kind, options = {}) => {
-  if (!workspace.currentPage || !workspace.activeUser || !canEditWorkspace.value) return false;
+  if (!workspace.currentPage || !workspace.activeUser || !canEditPage.value) return false;
   setupSaving.value = true;
   setupError.value = '';
   let success = false;
@@ -2263,7 +2273,7 @@ const closeEmojiPicker = () => {
   showEmojiPicker.value = false;
 };
 const toggleIconPicker = () => {
-  if (!canEditWorkspace.value) return;
+  if (!canEditPage.value) return;
   if (showEmojiPicker.value) {
     closeEmojiPicker();
     return;
@@ -2271,7 +2281,7 @@ const toggleIconPicker = () => {
   showEmojiPicker.value = true;
 };
 const choosePageIcon = (value) => {
-  if (!canEditWorkspace.value) return;
+  if (!canEditPage.value) return;
   if (workspace.currentPage) {
     if (workspace.collabActive && iconYMap.value) {
       handleCollabStatus({ text: 'Saving...', state: 'saving' });
@@ -3360,7 +3370,7 @@ const DeleteTreeBranch = defineComponent({
                   ref="emojiTriggerRef"
                   class="page-icon-main"
                   type="button"
-                  :disabled="!canEditWorkspace"
+                  :disabled="!canEditPage"
                   @click="toggleIconPicker"
                 >
                   <PageIcon
@@ -3384,7 +3394,7 @@ const DeleteTreeBranch = defineComponent({
                 class="page-title"
                 rows="1"
                 :value="pageTitle"
-                :readonly="!canEditWorkspace"
+                :readonly="!canEditPage"
                 @input="handleTitleInput"
                 @keydown.enter.prevent="handleTitleEnter"
                 placeholder="Untitled page"
@@ -3398,6 +3408,15 @@ const DeleteTreeBranch = defineComponent({
                 </select>
               </div>
             </div>
+            <div v-if="remoteDeletionMessage" class="page-deleted-notice" role="status">
+              <span>{{ remoteDeletionMessage }}</span>
+              <span class="page-deleted-notice__actions">
+                <button v-if="canEditWorkspace" class="ghost-btn" type="button" @click="workspace.restoreRemotelyDeletedPage()">
+                  Restore
+                </button>
+                <button class="ghost-btn" type="button" @click="workspace.leaveRemotelyDeletedPage()">Close</button>
+              </span>
+            </div>
             <div v-if="error" class="alert">{{ error }}</div>
             <div v-else-if="loadingDoc" class="muted">Loading page...</div>
             <section
@@ -3408,7 +3427,7 @@ const DeleteTreeBranch = defineComponent({
               <DatabaseTable
                 v-if="isDatabasePage && activePageId"
                 :page-id="activePageId"
-                :readonly="!canEditWorkspace"
+                :readonly="!canEditPage"
                 @collabready="handleCollabReady"
                 @collabpresence="handleDatabasePresence"
               />
@@ -3417,7 +3436,7 @@ const DeleteTreeBranch = defineComponent({
                   <DatabaseTable
                     v-if="activeWikiDatabasePageId"
                     :page-id="activeWikiDatabasePageId"
-                    :readonly="!canEditWorkspace"
+                    :readonly="!canEditPage"
                     :collab="wikiDatabaseCollab"
                     embedded
                     @collabpresence="handleDatabasePresence"
@@ -3450,7 +3469,7 @@ const DeleteTreeBranch = defineComponent({
                   <PageProperties
                     v-if="activePageId"
                     :page-id="activePageId"
-                    :readonly="!canEditWorkspace"
+                    :readonly="!canEditPage"
                   />
                   <TiptapEditor
                     ref="tiptapEditorRef"
@@ -3460,7 +3479,7 @@ const DeleteTreeBranch = defineComponent({
                     :seed-doc="setupSeedDoc"
                     :page-id="activePageId"
                     :collab="editorCollab"
-                    :readonly="!canEditWorkspace"
+                    :readonly="!canEditPage"
                     :placeholder="isSetupPage ? 'Start typing to create a regular page' : ''"
                     :seed-collab-on-mount="setupAutoCompleteTriggered"
                     :request-delete-confirmation="requestDeleteConfirmation"
@@ -3475,7 +3494,7 @@ const DeleteTreeBranch = defineComponent({
                       <button
                         class="create-page__card"
                         type="button"
-                        :disabled="setupSaving || !canEditWorkspace"
+                        :disabled="setupSaving || !canEditPage"
                         @click="chooseSetupKind('DOC')"
                       >
                         <div class="create-page__card-title">Page</div>
@@ -3484,7 +3503,7 @@ const DeleteTreeBranch = defineComponent({
                       <button
                         class="create-page__card"
                         type="button"
-                        :disabled="setupSaving || !canEditWorkspace"
+                        :disabled="setupSaving || !canEditPage"
                         @click="chooseSetupKind('DATABASE')"
                       >
                         <div class="create-page__card-title">Database</div>
@@ -3493,7 +3512,7 @@ const DeleteTreeBranch = defineComponent({
                       <button
                         class="create-page__card"
                         type="button"
-                        :disabled="setupSaving || !canEditWorkspace"
+                        :disabled="setupSaving || !canEditPage"
                         @click="handleComplianceSetup"
                       >
                         <div class="create-page__card-title">Compliance database</div>

@@ -43,6 +43,9 @@ export const useWorkspaceStore = defineStore('workspace', {
     pendingTitleSave: null,
     savingHold: null,
     deletingCascade: false,
+    // Set when someone moves the open page (or a page it's inside) to the Bin:
+    // { openPageId, pageId, pageTitle, pageIds, byName, byMe }. Only shown while that page is still open.
+    remoteDeletion: null,
     collabToken: null,
     collabDocName: null,
     collabWorkspaceId: null,
@@ -71,6 +74,9 @@ export const useWorkspaceStore = defineStore('workspace', {
       return this.pages.filter(
         (p) => p.workspaceId === this.activeWorkspaceId && p.visibility !== 'PRIVATE' && !p.isDeleted && !p.isHidden
       );
+    },
+    activePageRemotelyDeleted(state) {
+      return !!state.remoteDeletion && state.remoteDeletion.openPageId === state.activePageId;
     },
     canEditActiveWorkspace(state) {
       return state.activeWorkspaceRole === 'OWNER' || state.activeWorkspaceRole === 'EDITOR';
@@ -280,9 +286,16 @@ export const useWorkspaceStore = defineStore('workspace', {
       // Ignore the answer if the user has moved to another workspace meanwhile
       if (workspaceId !== this.activeWorkspaceId) return;
       const pending = this.pendingTitleUpdates || {};
-      this.pages = (Array.isArray(pages) ? pages : []).map((p) =>
+      const next = (Array.isArray(pages) ? pages : []).map((p) =>
         typeof pending[p.id]?.title === 'string' ? { ...p, title: pending[p.id].title } : p
       );
+      // Someone else moved the open page to the Bin: keep it (marked deleted, so the sidebar
+      // leaves it out) until it's restored or closed, so the page and its notice stay on screen.
+      if (this.activePageRemotelyDeleted && !next.some((p) => p.id === this.activePageId)) {
+        const open = this.pages.find((p) => p.id === this.activePageId);
+        if (open) next.push({ ...open, isDeleted: true });
+      }
+      this.pages = next;
       if (!keepBin) this.binPages = [];
     },
     // Keeps the live events channel open for the active workspace, so the sidebar and the open
@@ -308,7 +321,22 @@ export const useWorkspaceStore = defineStore('workspace', {
       });
     },
     handlePagesChanged(message) {
-      for (const id of message?.pageIds || []) liveEvents.changedIds.add(id);
+      const pageIds = message?.pageIds || [];
+      const openPageId = this.activePageId;
+      if (message?.deleted?.pageId && openPageId && pageIds.includes(openPageId)) {
+        this.remoteDeletion = {
+          openPageId,
+          pageId: message.deleted.pageId,
+          pageTitle: this.pages.find((p) => p.id === message.deleted.pageId)?.title || '',
+          pageIds,
+          byName: message.deleted.byName || '',
+          byMe: !!message.deleted.byUserId && message.deleted.byUserId === this.activeUser?.id,
+        };
+      } else if (this.remoteDeletion && message?.restored && pageIds.includes(this.remoteDeletion.pageId)) {
+        // Restored (from the Bin or by someone else): carry on editing.
+        this.remoteDeletion = null;
+      }
+      for (const id of pageIds) liveEvents.changedIds.add(id);
       // Several changes often arrive together (e.g. a page and its sub-pages); refresh once.
       clearTimeout(liveEvents.refreshTimer);
       liveEvents.refreshTimer = setTimeout(() => {
@@ -1039,6 +1067,36 @@ export const useWorkspaceStore = defineStore('workspace', {
         this.error = err?.message || 'Failed to delete page';
       } finally {
         this.deletingCascade = false;
+      }
+    },
+    // The open page was moved to the Bin by someone else: put it (and the page it was deleted with) back.
+    async restoreRemotelyDeletedPage() {
+      const deletion = this.remoteDeletion;
+      if (!deletion || !this.hasApi || !this.canEditActiveWorkspace) return;
+      try {
+        await api.restorePage(deletion.pageId, { userId: this.activeUser?.id, userName: this.activeUser?.name });
+        this.remoteDeletion = null;
+        if (this.activeWorkspaceId) await this.loadPageList(this.activeWorkspaceId, { keepBin: true });
+      } catch (err) {
+        console.warn('Restore page failed', err);
+        this.error = err?.message || 'Failed to restore page';
+      }
+    },
+    // ...or leave it, opening another page in the same workspace.
+    leaveRemotelyDeletedPage() {
+      const deletedIds = new Set(this.remoteDeletion?.pageIds || []);
+      this.remoteDeletion = null;
+      const next = this.pages.find(
+        (p) => p.workspaceId === this.activeWorkspaceId && !p.isDeleted && !p.isHidden && !deletedIds.has(p.id)
+      );
+      if (next) {
+        this.selectPage(next);
+      } else {
+        this.activePageId = null;
+        this.activePageWorkspaceId = null;
+        this.doc = fallbackDoc;
+        this.titleDraft = 'Untitled page';
+        this.clearLastPageId();
       }
     },
     async loadBinPages() {

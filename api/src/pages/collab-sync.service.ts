@@ -87,10 +87,16 @@ export class CollabSyncService {
    * deleted or restored), so their sidebar and open page catch up. Fire-and-forget: a missing or
    * slow collab server never fails or delays the request that made the change.
    */
-  announcePagesChanged(workspaceId: string | null | undefined, pageIds: Array<string | null | undefined>) {
+  // `deleted` says which page was moved to the Bin (the others in pageIds are its sub-pages) and by
+  // whom, so people with one of them open can be told; `restored` marks pages coming back from the Bin.
+  announcePagesChanged(
+    workspaceId: string | null | undefined,
+    pageIds: Array<string | null | undefined>,
+    extra?: { deleted?: { pageId: string; byUserId?: string; byName?: string }; restored?: boolean },
+  ) {
     if (!this.collabServerUrl || !this.collabApiSecret || !workspaceId) return;
     const ids = Array.from(new Set(pageIds.filter((id): id is string => typeof id === 'string' && !!id)));
-    const message = { type: 'pages-changed', workspaceId, pageIds: ids };
+    const message = { type: 'pages-changed', workspaceId, pageIds: ids, ...extra };
     fetch(`${this.collabServerUrl}/collab/broadcast`, {
       method: 'POST',
       headers: {
