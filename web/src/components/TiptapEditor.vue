@@ -70,6 +70,7 @@ import { blockDebugEnabled, describeUndoOrigin, describeUndoStacks, logBlockDebu
 import { normalizeLinkHref, parseBlockUrl } from '../utils/editorLinks';
 import { markdownToHtml, shouldHandleMarkdownPaste } from '../utils/markdownPaste';
 import { positionBubbleMenu, rectFromClientRects } from '../utils/menuPosition';
+import { colorFromId } from '../utils/presenceColor';
 import { buildPageLinkFieldsFromCollab, buildPageLinkRowsFromCollab, getPageLinkFieldSource, isPageLinkCollabEmpty, pageLinkBuiltinAttributes, parsePageLinkAttribute, resolvePageLinkRow } from '../utils/pageLinkAttributes';
 
 const props = defineProps({
@@ -1276,16 +1277,6 @@ const isCollabEnabled = computed(
   () => !!props.collab && !!props.collab.docName && !!props.collab.token && !!props.collab.url
 );
 const collabReady = computed(() => isCollabEnabled.value && !!collabProvider.value);
-const palette = ['#f97316', '#22d3ee', '#a855f7', '#ef4444', '#10b981', '#facc15', '#14b8a6', '#3b82f6', '#f472b6'];
-const colorFromId = (id = '') => {
-  let hash = 0;
-  for (let i = 0; i < id.length; i += 1) {
-    hash = (hash << 5) - hash + id.charCodeAt(i);
-    hash |= 0;
-  }
-  const idx = Math.abs(hash) % palette.length;
-  return palette[idx];
-};
 const cursorUser = computed(() => ({
   name: workspace.activeUser?.name || 'Guest',
   color: colorFromId(workspace.activeUser?.id || 'guest'),

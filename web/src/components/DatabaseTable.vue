@@ -15,6 +15,16 @@ import { formatDateTime } from '../utils/date-format';
 import { useWorkspaceStore } from '../stores/workspace';
 import PageIcon from './PageIcon.vue';
 import DatabaseFormPage from './DatabaseFormPage.vue';
+import { handleCellConfirmKeydown, handleNumberKeydown, handleNumberPaste, readSelectionOffset, sanitizeNumberInput } from '../utils/database/cellInput';
+import { getAssetTagValue, getMultiSelectValues, getMultiSelectValuesFromRaw, getRelationEntries, getRowIdValue, normalizeCellValue, normalizeFilterValues, normalizeRelationEntry, pruneMultiSelectValues, renderRowIdCell, shouldClearCell, stringifyValue, valueForField } from '../utils/database/cellValues';
+import { clearYMap, cloneForSeed, ensureCollabRowDataMap, generateId, getEntryValue, hydrateRow, readCollabOrder, toPlainValue } from '../utils/database/collabRows';
+import { multiSelectDotStyle, multiSelectPillStyle } from '../utils/database/colors';
+import { ADD_COLUMN_ID, ADD_COLUMN_LABEL, ADD_COLUMN_SIZE, ASSET_TAG_COLUMN_SIZE, AUTO_SIZE_BASE, AUTO_SIZE_BUFFER, AUTO_SIZE_CHAR_LIMIT, AUTO_SIZE_CHAR_WIDTH, AUTO_SIZE_FIRST_EXTRA, AUTO_SIZE_MULTI_MEMBERS_PLACEHOLDER, AUTO_SIZE_MULTI_PILL_GAP, AUTO_SIZE_MULTI_PILL_PADDING, AUTO_SIZE_MULTI_PLACEHOLDER, AUTO_SIZE_PAGE_ICON_EXTRA, AUTO_SIZE_RELATION_MULTI_PLACEHOLDER, AUTO_SIZE_RELATION_PLACEHOLDER, AUTO_SIZE_SELECT_EXTRA, AUTO_SIZE_SELECT_PLACEHOLDER, COLUMN_DEFAULT_SIZE, COLUMN_MAX_SIZE, COLUMN_MIN_SIZE, ROW_ID_COLUMN_ID, ROW_ID_COLUMN_LABEL, ROW_ID_COLUMN_MIN_SIZE, ROW_ID_COLUMN_SIZE, getFontForElement } from '../utils/database/columnLayout';
+import { AUDIT_VIEW_ID, DEFAULT_INITIAL_STATUS, GOVERNANCE_FILTER_ID, auditStatusOptions, getAuditStatusClass, getComplianceRecordId, governanceFilterChoices, governanceFilterOption } from '../utils/database/compliance';
+import { fieldTypeIcons, fieldTypes, formatFieldType, getFieldSource, getMultiSelectChoiceValues, getRelationConfig, isAssetTagField, isFieldDeleteLocked, isFieldOptionsLocked, isFieldReadOnly, isFieldTypeLocked, isLastEditedField, isMembersField, isPageField, isPageFieldEditable, isRelationField, isSelectField, normalizeFieldOptions } from '../utils/database/fieldOptions';
+import { DEFAULT_FORM_ICON, buildFormField, getConditionOpOptions, normalizeFormIcon, normalizeRequiredWhenOp } from '../utils/database/forms';
+import { OPERATOR_LABELS, VIEW_TYPE_LABELS, normalizeViewConfig, normalizeViewType, operatorNeedsValue, operatorsForFieldType, sortByType, toComparableDate } from '../utils/database/views';
+import { colorFromId } from '../utils/presenceColor';
 
 const props = defineProps({
   pageId: {
@@ -175,7 +185,7 @@ const membersWorkspaceId = computed(() => databasePage.value?.workspaceId || wor
 const workspaceMembers = ref([]);
 const membersLoading = ref(false);
 const membersLoadedFor = ref(null);
-const AUDIT_VIEW_ID = 'audit';
+
 const canCreateForms = computed(() => !props.embedded && !isReadonly.value);
 const activeForm = computed(() => formViews.value.find((form) => form.id === activeViewId.value) || null);
 const activeSavedView = computed(() => savedViews.value.find((view) => view.id === activeViewId.value) || null);
@@ -195,24 +205,9 @@ const showFormTabs = computed(
     !props.embedded &&
     (formViews.value.length > 0 || savedViews.value.length > 0 || canCreateForms.value || canShowAudit.value)
 );
-const DEFAULT_FORM_ICON = 'icon:pencil-square';
-const auditStatusOptions = [
-  { id: 'DRAFT', label: 'Draft', tone: 'draft' },
-  { id: 'SUBMITTED', label: 'Submitted', tone: 'submitted' },
-  { id: 'REVIEW', label: 'In Review', tone: 'review' },
-  { id: 'CLOSED', label: 'Closed', tone: 'closed' },
-  { id: 'ARCHIVED', label: 'Archived', tone: 'archived' },
-];
-const GOVERNANCE_FILTER_ID = '__governanceStatus__';
-const governanceFilterChoices = auditStatusOptions.map((status) => ({
-  value: status.id,
-  label: status.label,
-}));
-const governanceFilterOption = { id: GOVERNANCE_FILTER_ID, name: 'Governance status', type: 'Status' };
-const DEFAULT_INITIAL_STATUS = 'SUBMITTED';
+
 const auditStatusIds = new Set(auditStatusOptions.map((status) => status.id));
-const auditStatusClassById = Object.fromEntries(auditStatusOptions.map((status) => [status.id, status.tone]));
-const COMPLIANCE_RECORD_KEY = '__complianceRecordId';
+
 const complianceStatusByRecordId = ref(new Map());
 
 const runWithSavingIndicator = async (task) => {
@@ -230,66 +225,10 @@ const updateTableWrapWidth = () => {
   tableWrapWidth.value = wrapWidth || rootWidth;
 };
 
-const fieldTypes = [
-  { value: 'TEXT', label: 'Text' },
-  { value: 'NUMBER', label: 'Number' },
-  { value: 'DATE', label: 'Date' },
-  { value: 'CHECKBOX', label: 'Checkbox' },
-  { value: 'SELECT', label: 'Select' },
-  { value: 'MULTI_SELECT', label: 'Multi-select' },
-  { value: 'RELATION', label: 'Relation' },
-  { value: 'URL', label: 'URL' },
-];
-const fieldTypeIcons = {
-  TEXT: 'Tx',
-  NUMBER: '#',
-  DATE: 'Dt',
-  CHECKBOX: '[]',
-  SELECT: 'Sel',
-  MULTI_SELECT: 'Mul',
-  RELATION: 'Rel',
-  URL: 'URL',
-};
-const COLUMN_DEFAULT_SIZE = 180;
-const COLUMN_MIN_SIZE = 120;
-const COLUMN_MAX_SIZE = 1220;
-const ROW_ID_COLUMN_ID = '__row_id__';
-const ROW_ID_COLUMN_LABEL = 'Item ID';
-const ROW_ID_COLUMN_SIZE = 260;
-const ROW_ID_COLUMN_MIN_SIZE = 200;
-const ASSET_TAG_COLUMN_SIZE = 140;
-const ADD_COLUMN_ID = '__add_column__';
-const ADD_COLUMN_LABEL = 'Add';
-const ADD_COLUMN_SIZE = 120;
-const AUTO_SIZE_CHAR_LIMIT = 30;
-const AUTO_SIZE_CHAR_WIDTH = 8.5;
-const AUTO_SIZE_BASE = 26;
-const AUTO_SIZE_FIRST_EXTRA = 26;
-const AUTO_SIZE_PAGE_ICON_EXTRA = 30;
-const AUTO_SIZE_BUFFER = 8;
-const AUTO_SIZE_SELECT_PLACEHOLDER = 'Select...';
-const AUTO_SIZE_RELATION_PLACEHOLDER = 'Select record...';
-const AUTO_SIZE_RELATION_MULTI_PLACEHOLDER = 'Select records...';
-const AUTO_SIZE_MULTI_PLACEHOLDER = 'Add option';
-const AUTO_SIZE_MULTI_MEMBERS_PLACEHOLDER = 'Add person';
-const AUTO_SIZE_SELECT_EXTRA = 24;
-const AUTO_SIZE_MULTI_PILL_PADDING = 18;
-const AUTO_SIZE_MULTI_PILL_GAP = 6;
-const formatFieldType = (type) => fieldTypes.find((entry) => entry.value === type)?.label || type || 'Field';
-
 const hasApi = computed(() => workspace.hasApi);
 const activeUser = computed(() => workspace.activeUser);
 const membersMap = computed(() => new Map(workspaceMembers.value.map((member) => [member.id, member.name])));
-const presencePalette = ['#f97316', '#22d3ee', '#a855f7', '#ef4444', '#10b981', '#facc15', '#14b8a6', '#3b82f6', '#f472b6'];
-const colorFromId = (id = '') => {
-  let hash = 0;
-  for (let i = 0; i < id.length; i += 1) {
-    hash = (hash << 5) - hash + id.charCodeAt(i);
-    hash |= 0;
-  }
-  const idx = Math.abs(hash) % presencePalette.length;
-  return presencePalette[idx];
-};
+
 const localPresenceId = computed(() => activeUser.value?.id || null);
 const presenceUser = computed(() => ({
   id: activeUser.value?.id || 'guest',
@@ -315,64 +254,10 @@ let lastLocalCursor = null;
 const cellInputRefs = new Map();
 let caretMeasureCanvas = null;
 
-const normalizeChoice = (choice) => {
-  if (typeof choice === 'string') {
-    const value = choice.trim();
-    return value ? { value, color: null } : null;
-  }
-  if (choice && typeof choice === 'object') {
-    const value = typeof choice.value === 'string' ? choice.value.trim() : '';
-    if (!value) return null;
-    const label = typeof choice.label === 'string' ? choice.label.trim() : '';
-    const color = typeof choice.color === 'string' && choice.color.trim() ? choice.color.trim() : null;
-    return { value, label: label || null, color };
-  }
-  return null;
-};
 
-const normalizeFieldOptions = (field) => {
-  const options = field?.options && typeof field.options === 'object' && !Array.isArray(field.options) ? field.options : {};
-  const rawChoices = Array.isArray(options.choices) ? options.choices : [];
-  const choices = rawChoices.map(normalizeChoice).filter(Boolean);
-  return { ...options, choices };
-};
 
-const getFieldSource = (field) => normalizeFieldOptions(field).source || null;
-const isMembersField = (field) => getFieldSource(field) === 'members';
-const isPageField = (field) => getFieldSource(field) === 'page';
-const isLastEditedField = (field) => getFieldSource(field) === 'lastEdited';
-const isAssetTagField = (field) => getFieldSource(field) === 'assetTag';
-const isRelationField = (field) => field?.type === 'RELATION';
-const getRelationConfig = (field) => {
-  const options = normalizeFieldOptions(field);
-  const relation = options?.relation;
-  if (!relation || typeof relation !== 'object' || Array.isArray(relation)) return null;
-  const pageId = typeof relation.pageId === 'string' ? relation.pageId.trim() : '';
-  if (!pageId) return null;
-  const rawHistory = relation.history;
-  let history = null;
-  if (rawHistory === true) {
-    history = { enabled: true, pageId: '' };
-  } else if (rawHistory && typeof rawHistory === 'object' && !Array.isArray(rawHistory) && rawHistory.enabled === true) {
-    const historyPageId = typeof rawHistory.pageId === 'string' ? rawHistory.pageId.trim() : '';
-    history = { enabled: true, pageId: historyPageId || '' };
-  }
-  return { pageId, allowMultiple: relation.allowMultiple === true, history };
-};
-const isSystemField = (field) => {
-  const source = getFieldSource(field);
-  return source === 'page' || source === 'members' || source === 'lastEdited';
-};
-const isFieldTypeLocked = (field) => isSystemField(field) || isAssetTagField(field);
-const isFieldOptionsLocked = (field) => isSystemField(field) || isAssetTagField(field);
-const isFieldDeleteLocked = (field) => isSystemField(field);
-const isFieldReadOnly = (field) => {
-  const options = normalizeFieldOptions(field);
-  if (options.source === 'lastEdited') return true;
-  if (options.source === 'page') return !!options.readonly;
-  return !!options.readonly;
-};
-const isPageFieldEditable = (field) => isPageField(field) && !normalizeFieldOptions(field).readonly;
+
+
 const pageTitleFieldId = computed(() => fields.value.find((field) => isPageField(field))?.id || null);
 const emitPageTitleUpdated = (pageId, title) => {
   if (typeof window === 'undefined' || !pageId) return;
@@ -399,17 +284,6 @@ const emitFieldUpdated = (field) => {
     })
   );
 };
-
-const buildFormField = (field) => ({
-  fieldId: field.id,
-  label: null,
-  required: false,
-  editable: true,
-  auto: null,
-  selectSource: null,
-  requiredWhen: null,
-  visibleWhen: null,
-});
 
 const buildFormFieldsFromDatabase = () => fields.value.filter((field) => field?.id).map(buildFormField);
 
@@ -503,11 +377,6 @@ const getAutoFixedChoices = (fieldId, selectSource) => {
   return normalizeFieldOptions(field).choices;
 };
 
-const normalizeRequiredWhenOp = (op) => {
-  if (op === 'equals' || op === 'isFilled' || op === 'isEmpty') return op;
-  return '';
-};
-
 const buildRequiredWhenCondition = (conditionFieldId, op, value) => {
   const trimmed = typeof conditionFieldId === 'string' ? conditionFieldId.trim() : '';
   if (!trimmed) return null;
@@ -525,15 +394,6 @@ const buildRequiredWhenCondition = (conditionFieldId, op, value) => {
     return { fieldId: trimmed, op: normalizedOp, value: nextValue };
   }
   return { fieldId: trimmed, op: normalizedOp };
-};
-
-const getConditionOpOptions = (fieldType, hasChoices) => {
-  const options = [];
-  if (fieldType === 'SELECT' && hasChoices) {
-    options.push({ value: 'equals', label: 'Equals' });
-  }
-  options.push({ value: 'isFilled', label: 'Value is filled' }, { value: 'isEmpty', label: 'Value is empty' });
-  return options;
 };
 
 const normalizeFormCondition = (raw) => {
@@ -605,12 +465,6 @@ const normalizeFormStorage = (rawFields) => {
     return { fields, config };
   }
   return { fields: [], config: null };
-};
-
-const normalizeFormIcon = (rawIcon) => {
-  if (typeof rawIcon !== 'string') return DEFAULT_FORM_ICON;
-  const trimmed = rawIcon.trim();
-  return trimmed ? trimmed : DEFAULT_FORM_ICON;
 };
 
 const normalizeFormConfig = (rawConfig) => {
@@ -1365,35 +1219,11 @@ const handleOpenFormFromList = (formId) => {
   }
 };
 
-const cloneForSeed = (value) => JSON.parse(JSON.stringify(value));
 
-const hydrateRow = (row) => ({
-  ...row,
-  data: row?.data && typeof row.data === 'object' ? { ...row.data } : {},
-});
 
-const isSelectField = (field) => field?.type === 'SELECT' || field?.type === 'MULTI_SELECT';
-const normalizeFilterValues = (value) => {
-  if (Array.isArray(value)) {
-    return value.map((item) => String(item).trim()).filter(Boolean);
-  }
-  if (value && typeof value === 'object' && !Array.isArray(value)) {
-    const id = typeof value.id === 'string' ? value.id.trim() : '';
-    return id ? [id] : [];
-  }
-  if (value === null || value === undefined) return [];
-  const trimmed = String(value).trim();
-  return trimmed ? [trimmed] : [];
-};
 
-const getComplianceRecordId = (row) => {
-  const data = row?.data;
-  if (!data || typeof data !== 'object' || Array.isArray(data)) return '';
-  const raw = data[COMPLIANCE_RECORD_KEY];
-  if (typeof raw !== 'string') return '';
-  const trimmed = raw.trim();
-  return trimmed || '';
-};
+
+
 
 const syncComplianceStatusCache = (rowList) => {
   const nextMap = new Map(complianceStatusByRecordId.value);
@@ -1420,38 +1250,10 @@ const getRowComplianceStatus = (row) => {
   return complianceStatusByRecordId.value.get(recordId) || '';
 };
 
-const getAuditStatusClass = (status) => {
-  if (typeof status !== 'string') return '';
-  const normalized = status.trim().toUpperCase();
-  return auditStatusClassById[normalized] || '';
-};
-
 const getAuditRowClass = (row) => {
   if (!isAuditView.value) return '';
   const tone = getAuditStatusClass(getRowComplianceStatus(row));
   return tone ? `db-row--audit db-row--audit-${tone}` : 'db-row--audit';
-};
-
-
-const stringifyValue = (value) => {
-  if (value instanceof Y.Array) {
-    return value.toArray().map((item) => stringifyValue(item)).filter(Boolean).join(', ');
-  }
-  if (value instanceof Y.Map) {
-    const label = value.get('label') ?? value.get('id');
-    return label ? String(label) : '';
-  }
-  if (Array.isArray(value)) {
-    return value.map((item) => stringifyValue(item)).filter(Boolean).join(', ');
-  }
-  if (value && typeof value === 'object') {
-    const label = value.label ?? value.id;
-    if (label !== undefined && label !== null && String(label).trim()) {
-      return String(label);
-    }
-  }
-  if (value === null || value === undefined) return '';
-  return String(value);
 };
 
 const relationOptionsForPage = (pageId) => relationOptionsByPageId.value[pageId] || [];
@@ -1519,12 +1321,7 @@ const primeRelationOptions = (fieldList) => {
   });
 };
 
-const getRowIdValue = (row) => (row?.id ? String(row.id) : '');
 
-const renderRowIdCell = (row) => {
-  const value = getRowIdValue(row);
-  return h('span', { class: 'db-readonly-cell db-row-id-cell', title: value }, value || '—');
-};
 
 const getAutoColumnSizing = (fields, rows) => {
   const sizing = {};
@@ -1829,77 +1626,9 @@ const getChoiceLabel = (field, value) => {
   return match?.value || String(value);
 };
 
-const normalizeCellValue = (field, value) => {
-  const rawValue = String(value ?? '');
-  if (!field) return rawValue;
-  if (field.type === 'MULTI_SELECT') {
-    if (Array.isArray(value)) {
-      const cleaned = value.map((item) => String(item).trim()).filter(Boolean);
-      return cleaned.length ? cleaned : null;
-    }
-    const raw = rawValue.trim();
-    if (!raw) return null;
-    return raw
-      .split(',')
-      .map((item) => item.trim())
-      .filter(Boolean);
-  }
-  const raw = rawValue;
-  const trimmed = raw.trim();
-  if (field.type === 'NUMBER') {
-    if (!trimmed) return null;
-    const num = Number(trimmed);
-    return Number.isFinite(num) ? num : null;
-  }
-  if (field.type === 'CHECKBOX') {
-    if (!trimmed) return null;
-    const normalized = trimmed.toLowerCase();
-    if (['true', 'yes', '1', 'x', 'y'].includes(normalized)) return true;
-    if (['false', 'no', '0'].includes(normalized)) return false;
-    return true;
-  }
-  if (field.type === 'URL') {
-    if (!trimmed) return null;
-    return trimmed;
-  }
-  if (!trimmed) return null;
-  return raw;
-};
 
-const normalizeRelationEntry = (raw) => {
-  if (!raw) return null;
-  if (raw instanceof Y.Map) {
-    const id = raw.get('id');
-    const label = raw.get('label');
-    if (id) return { id: String(id), label: label ? String(label) : '' };
-    return null;
-  }
-  if (typeof raw === 'string') {
-    const id = raw.trim();
-    return id ? { id, label: '' } : null;
-  }
-  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
-    const id = typeof raw.id === 'string' ? raw.id.trim() : '';
-    if (!id) return null;
-    const label = typeof raw.label === 'string' ? raw.label.trim() : '';
-    return { id, label };
-  }
-  return null;
-};
 
-const getRelationEntries = (row, field) => {
-  if (!row || !field) return [];
-  const raw = row?.data?.[field.id];
-  if (!raw) return [];
-  if (raw instanceof Y.Array) {
-    return raw.toArray().map((entry) => normalizeRelationEntry(entry)).filter(Boolean);
-  }
-  if (Array.isArray(raw)) {
-    return raw.map((entry) => normalizeRelationEntry(entry)).filter(Boolean);
-  }
-  const entry = normalizeRelationEntry(raw);
-  return entry ? [entry] : [];
-};
+
 
 const getRelationLabel = (field, entry) => {
   if (!entry) return '';
@@ -1944,73 +1673,17 @@ const normalizeRelationCellValue = (field, rawValue) => {
   return normalizeValue(rawValue);
 };
 
-const shouldClearCell = (value) => value === null || value === '' || (Array.isArray(value) && value.length === 0);
 
-const valueForField = (row, field) => {
-  const value = row?.data?.[field.id];
-  if (field.type === 'RELATION') {
-    const entry = getRelationEntries(row, field)[0];
-    return entry?.id || '';
-  }
-  if (field.type === 'MULTI_SELECT') {
-    if (Array.isArray(value)) return value.join(', ');
-    if (value instanceof Y.Array) return value.toArray().map((item) => String(item).trim()).filter(Boolean).join(', ');
-  }
-  return value ?? '';
-};
 
-const getAssetTagValue = (row, field) => {
-  const raw = row?.data?.[field.id];
-  if (typeof raw === 'string' && raw.trim()) return raw.trim();
-  if (raw !== null && raw !== undefined) return String(raw);
-  return row?.id ? String(row.id) : '';
-};
 
-const getMultiSelectValues = (row, field) => {
-  if (!row || !field) return [];
-  if (field.type === 'RELATION') {
-    const relation = getRelationConfig(field);
-    if (!relation?.allowMultiple) return [];
-    return getRelationEntries(row, field).map((entry) => entry.id).filter(Boolean);
-  }
-  const value = row?.data?.[field.id];
-  if (value instanceof Y.Array) {
-    return value.toArray().map((item) => String(item).trim()).filter(Boolean);
-  }
-  if (Array.isArray(value)) {
-    return value.map((item) => String(item).trim()).filter(Boolean);
-  }
-  if (typeof value === 'string') {
-    return value
-      .split(',')
-      .map((item) => item.trim())
-      .filter(Boolean);
-  }
-  return [];
-};
 
-const getMultiSelectValuesFromRaw = (value) => {
-  if (value instanceof Y.Array) {
-    return value.toArray().map((item) => String(item).trim()).filter(Boolean);
-  }
-  if (Array.isArray(value)) {
-    return value.map((item) => String(item).trim()).filter(Boolean);
-  }
-  if (typeof value === 'string') {
-    return value
-      .split(',')
-      .map((item) => item.trim())
-      .filter(Boolean);
-  }
-  return [];
-};
 
-const getMultiSelectChoiceValues = (options) => {
-  const normalized = normalizeFieldOptions({ options });
-  return normalized.choices.map((choice) => choice.value).filter(Boolean);
-};
 
-const pruneMultiSelectValues = (values, allowedSet) => values.filter((value) => allowedSet.has(value));
+
+
+
+
+
 
 const displayValueForField = (row, field) => {
   if (isAssetTagField(field)) {
@@ -2035,33 +1708,9 @@ const displayValueForField = (row, field) => {
   return valueForField(row, field);
 };
 
-const generateId = () => {
-  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
-    return crypto.randomUUID();
-  }
-  const hex = () => Math.floor((1 + Math.random()) * 0x10000).toString(16).slice(1);
-  return `${hex()}${hex()}-${hex()}-${hex()}-${hex()}-${hex()}${hex()}${hex()}`;
-};
 
-const toPlainValue = (value) => {
-  if (value instanceof Y.Map) {
-    const obj = {};
-    value.forEach((item, key) => {
-      obj[key] = toPlainValue(item);
-    });
-    return obj;
-  }
-  if (value instanceof Y.Array) {
-    return value.toArray().map((item) => toPlainValue(item));
-  }
-  return value;
-};
 
-const getEntryValue = (entry, key) => {
-  if (!entry) return undefined;
-  if (entry instanceof Y.Map) return entry.get(key);
-  return entry[key];
-};
+
 
 const cleanupMultiSelectOptions = (field, nextOptions, options = {}) => {
   if (!field || field.type !== 'MULTI_SELECT') return;
@@ -2113,22 +1762,9 @@ const cleanupMultiSelectOptions = (field, nextOptions, options = {}) => {
   }, 'db-option-cleanup');
 };
 
-const clearYMap = (map) => {
-  if (!map) return;
-  map.forEach((_, key) => {
-    map.delete(key);
-  });
-};
-
 const createCollabDoc = () => {
   const guid = collabContext.value?.docName || `wikid-db-${Math.random().toString(16).slice(2)}`;
   return new Y.Doc({ guid });
-};
-
-const readCollabOrder = (order) => {
-  if (!order) return [];
-  const raw = typeof order.toArray === 'function' ? order.toArray() : [];
-  return raw.map((id) => String(id)).filter(Boolean);
 };
 
 const buildFieldsFromCollab = () => {
@@ -2518,20 +2154,6 @@ const ensureCollabRowMap = (rowId) => {
   return rowMap;
 };
 
-const ensureCollabRowDataMap = (rowMap) => {
-  if (!rowMap) return null;
-  const entry = rowMap.get('data');
-  if (entry instanceof Y.Map) return entry;
-  const dataMap = new Y.Map();
-  if (entry && typeof entry === 'object' && !Array.isArray(entry)) {
-    Object.entries(entry).forEach(([key, value]) => {
-      dataMap.set(key, value);
-    });
-  }
-  rowMap.set('data', dataMap);
-  return dataMap;
-};
-
 // Queue of pending ensureRowPage calls deferred while focus is in the table.
 const pendingEnsureRowPages = [];
 const flushPendingEnsureRowPages = () => {
@@ -2607,33 +2229,11 @@ const ensureRowPage = async (row, options = {}) => {
   }
 };
 
-const hexToRgb = (hex) => {
-  if (typeof hex !== 'string') return null;
-  const cleaned = hex.trim().replace('#', '');
-  if (![3, 6].includes(cleaned.length)) return null;
-  const normalized = cleaned.length === 3 ? cleaned.split('').map((char) => char + char).join('') : cleaned;
-  const num = Number.parseInt(normalized, 16);
-  if (Number.isNaN(num)) return null;
-  return { r: (num >> 16) & 255, g: (num >> 8) & 255, b: num & 255 };
-};
 
-const rgbaFromHex = (hex, alpha) => {
-  const rgb = hexToRgb(hex);
-  if (!rgb) return null;
-  return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${alpha})`;
-};
 
-const multiSelectPillStyle = (color) => {
-  if (!color) return {};
-  const background = rgbaFromHex(color, 0.18) || color;
-  const border = rgbaFromHex(color, 0.45) || color;
-  return { backgroundColor: background, borderColor: border };
-};
 
-const multiSelectDotStyle = (color) => ({
-  backgroundColor: color || 'rgba(148, 163, 184, 0.35)',
-  borderColor: color || 'rgba(148, 163, 184, 0.6)',
-});
+
+
 
 const activeField = computed(() => {
   if (!fieldMenu.value.fieldId) return null;
@@ -3485,14 +3085,6 @@ const clearLocalCellCursor = () => {
   setLocalCellCursor(null, null);
 };
 
-const readSelectionOffset = (target) => {
-  const offset = target?.selectionStart;
-  if (Number.isFinite(offset)) return offset;
-  const value = target?.value;
-  if (typeof value === 'string') return value.length;
-  return null;
-};
-
 const caretLeftFromTarget = (target) => {
   if (typeof window === 'undefined' || !target) return null;
   const offset = readSelectionOffset(target);
@@ -3662,13 +3254,6 @@ const getMeasureContext = () => {
     caretMeasureCanvas = document.createElement('canvas');
   }
   return caretMeasureCanvas.getContext('2d');
-};
-
-const getFontForElement = (el) => {
-  if (typeof window === 'undefined' || !el) return null;
-  const style = window.getComputedStyle(el);
-  if (style.font) return style.font;
-  return `${style.fontStyle} ${style.fontVariant} ${style.fontWeight} ${style.fontSize} / ${style.lineHeight} ${style.fontFamily}`;
 };
 
 const measureTextWidth = (text, font) => {
@@ -4030,97 +3615,17 @@ const handleRowMenuKeydown = (event) => {
   }
 };
 
-const sanitizeNumberInput = (value) => {
-  if (value === null || value === undefined) return '';
-  let raw = String(value);
-  raw = raw.replace(/[^0-9.-]/g, '');
-  const hasLeadingMinus = raw.startsWith('-');
-  raw = raw.replace(/-/g, '');
-  if (hasLeadingMinus) {
-    raw = `-${raw}`;
-  }
-  const dotIndex = raw.indexOf('.');
-  if (dotIndex !== -1) {
-    raw = `${raw.slice(0, dotIndex + 1)}${raw.slice(dotIndex + 1).replace(/\./g, '')}`;
-  }
-  return raw;
-};
 
-const isNumberInputCandidateValid = (value) => /^-?\d*\.?\d*$/.test(value);
 
-const handleNumberKeydown = (event) => {
-  if (event.metaKey || event.ctrlKey || event.altKey) return;
-  const allowedKeys = ['Backspace', 'Delete', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Tab', 'Enter', 'Home', 'End', 'Escape'];
-  if (allowedKeys.includes(event.key)) return;
-  if (event.key.length !== 1) return;
-  const target = event.target;
-  const current = String(target?.value ?? '');
-  const start = target?.selectionStart ?? current.length;
-  const end = target?.selectionEnd ?? start;
-  const next = `${current.slice(0, start)}${event.key}${current.slice(end)}`;
-  if (!isNumberInputCandidateValid(next)) {
-    event.preventDefault();
-  }
-};
 
-const handleCellConfirmKeydown = (event) => {
-  if (event?.key !== 'Enter') return;
-  if (event.isComposing || event.key === 'Process') return;
-  event.preventDefault();
-  event.stopPropagation();
-  const target = event.target;
-  if (typeof target?.blur === 'function') {
-    target.blur();
-  }
-};
 
-const handleNumberPaste = (event) => {
-  const text = event.clipboardData?.getData('text') ?? '';
-  if (!text) return;
-  const cleaned = sanitizeNumberInput(text);
-  if (cleaned === text) return;
-  event.preventDefault();
-  const target = event.target;
-  const current = String(target?.value ?? '');
-  const start = target?.selectionStart ?? current.length;
-  const end = target?.selectionEnd ?? start;
-  const next = `${current.slice(0, start)}${cleaned}${current.slice(end)}`;
-  target.value = next;
-  if (typeof target?.setSelectionRange === 'function') {
-    const pos = start + cleaned.length;
-    target.setSelectionRange(pos, pos);
-  }
-};
 
-const compareNullable = (a, b, compare) => {
-  const aEmpty = a === null || a === undefined || a === '';
-  const bEmpty = b === null || b === undefined || b === '';
-  if (aEmpty && bEmpty) return 0;
-  if (aEmpty) return 1;
-  if (bEmpty) return -1;
-  return compare(a, b);
-};
 
-const sortByType = (type, aRaw, bRaw) => {
-  if (type === 'NUMBER') {
-    const aNum = aRaw === null || aRaw === undefined || aRaw === '' ? null : Number(aRaw);
-    const bNum = bRaw === null || bRaw === undefined || bRaw === '' ? null : Number(bRaw);
-    return compareNullable(aNum, bNum, (a, b) => a - b);
-  }
-  if (type === 'DATE') {
-    const aTime = aRaw ? new Date(aRaw).getTime() : null;
-    const bTime = bRaw ? new Date(bRaw).getTime() : null;
-    return compareNullable(aTime, bTime, (a, b) => a - b);
-  }
-  if (type === 'CHECKBOX') {
-    const aBool = aRaw ? 1 : 0;
-    const bBool = bRaw ? 1 : 0;
-    return compareNullable(aBool, bBool, (a, b) => a - b);
-  }
-  const aText = stringifyValue(aRaw).toLowerCase();
-  const bText = stringifyValue(bRaw).toLowerCase();
-  return compareNullable(aText, bText, (a, b) => a.localeCompare(b));
-};
+
+
+
+
+
 
 const renderMultiSelectCell = (row, field) => {
   const values = getMultiSelectValues(row, field);
@@ -4588,13 +4093,6 @@ const tableRows = computed(() => {
     return page.wikiHomeId === homeId;
   });
 });
-
-// Parse a value into a comparable timestamp for DATE filters.
-const toComparableDate = (value) => {
-  if (value == null || value === '') return null;
-  const ts = typeof value === 'number' ? value : Date.parse(value);
-  return Number.isNaN(ts) ? null : ts;
-};
 
 const matchesFilterRule = (row, rule) => {
   const field = fieldById.value.get(rule.fieldId);
@@ -5068,84 +4566,13 @@ const deleteField = async (field) => {
   }
 };
 
-// ---------------------------------------------------------------------------
-// Saved views (persisted, filterable Table / Gallery / Board views)
-// ---------------------------------------------------------------------------
-const VIEW_TYPES = ['TABLE', 'GALLERY', 'BOARD'];
-const VIEW_TYPE_LABELS = { TABLE: 'Table', GALLERY: 'Gallery', BOARD: 'Board' };
 const DEFAULT_VIEW_ICONS = { TABLE: 'icon:table', GALLERY: 'icon:grid-3x3-gap', BOARD: 'icon:kanban' };
-const OPERATOR_LABELS = {
-  is: 'is',
-  is_not: 'is not',
-  contains: 'contains',
-  not_contains: 'does not contain',
-  is_empty: 'is empty',
-  is_not_empty: 'is not empty',
-  gt: '>',
-  gte: '≥',
-  lt: '<',
-  lte: '≤',
-  before: 'before',
-  after: 'after',
-  on_or_before: 'on or before',
-  on_or_after: 'on or after',
-  is_checked: 'is checked',
-  is_unchecked: 'is unchecked',
-};
 
-const operatorsForFieldType = (type) => {
-  switch (type) {
-    case 'CHECKBOX':
-      return ['is_checked', 'is_unchecked'];
-    case 'NUMBER':
-      return ['is', 'is_not', 'gt', 'gte', 'lt', 'lte', 'is_empty', 'is_not_empty'];
-    case 'DATE':
-      return ['is', 'is_not', 'before', 'after', 'on_or_before', 'on_or_after', 'is_empty', 'is_not_empty'];
-    case 'SELECT':
-      return ['is', 'is_not', 'is_empty', 'is_not_empty'];
-    case 'MULTI_SELECT':
-    case 'RELATION':
-      return ['contains', 'not_contains', 'is_empty', 'is_not_empty'];
-    default:
-      return ['is', 'is_not', 'contains', 'not_contains', 'is_empty', 'is_not_empty'];
-  }
-};
-const operatorNeedsValue = (operator) =>
-  !['is_empty', 'is_not_empty', 'is_checked', 'is_unchecked'].includes(operator);
 
-const normalizeViewType = (value) => {
-  const upper = typeof value === 'string' ? value.trim().toUpperCase() : '';
-  return VIEW_TYPES.includes(upper) ? upper : 'TABLE';
-};
 
-const normalizeViewConfig = (config) => {
-  const src = config && typeof config === 'object' && !Array.isArray(config) ? config : {};
-  const rawFilters = src.filters && typeof src.filters === 'object' ? src.filters : {};
-  const rules = Array.isArray(rawFilters.rules)
-    ? rawFilters.rules
-        .filter((rule) => rule && typeof rule === 'object' && rule.fieldId && rule.operator)
-        .map((rule) => ({
-          fieldId: String(rule.fieldId),
-          operator: String(rule.operator),
-          value: rule.value === undefined ? null : rule.value,
-        }))
-    : [];
-  const sorts = Array.isArray(src.sorts)
-    ? src.sorts
-        .filter((sort) => sort && typeof sort === 'object' && sort.fieldId)
-        .map((sort) => ({ fieldId: String(sort.fieldId), direction: sort.direction === 'desc' ? 'desc' : 'asc' }))
-    : [];
-  const hiddenFieldIds = Array.isArray(src.hiddenFieldIds)
-    ? src.hiddenFieldIds.filter((id) => typeof id === 'string')
-    : [];
-  return {
-    filters: { match: rawFilters.match === 'OR' ? 'OR' : 'AND', rules },
-    sorts,
-    hiddenFieldIds,
-    groupFieldId: typeof src.groupFieldId === 'string' ? src.groupFieldId : null,
-    cardFieldId: typeof src.cardFieldId === 'string' ? src.cardFieldId : null,
-  };
-};
+
+
+
 
 const normalizeSavedView = (view) => {
   if (!view || typeof view !== 'object') return null;
