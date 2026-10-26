@@ -55,6 +55,15 @@ const parseDocumentName = (documentName: string | undefined | null): WorkspaceDo
   return null;
 };
 
+// Each workspace has an events document that carries only stateless messages ("pages changed")
+// to everyone with the workspace open. It holds no content, so it's never loaded or saved.
+const EVENTS_DOC_ID = 'events';
+const eventsDocumentName = (workspaceId: string) => `ws:${workspaceId}:${EVENTS_DOC_ID}`;
+const isEventsDocument = (documentName: string | undefined | null) => {
+  const doc = parseDocumentName(documentName);
+  return doc?.scope === 'ws' && doc.pageId === EVENTS_DOC_ID;
+};
+
 const verifyToken = (token: string | undefined | null, doc: WorkspaceDoc): AuthContext => {
   if (!jwtSecret) {
     throw new Error('COLLAB_JWT_SECRET is not set');
@@ -272,9 +281,11 @@ const server = Server.configure({
     new Logger(),
     new Database({
       fetch: async ({ documentName }) => {
+        if (isEventsDocument(documentName)) return null;
         return fetchDocState(documentName);
       },
       store: async ({ documentName, state }) => {
+        if (isEventsDocument(documentName)) return;
         await storeDocState(documentName, state);
       },
     }),
@@ -290,7 +301,12 @@ const server = Server.configure({
   },
   async onRequest({ request, response, instance }) {
     const path = getRequestPath(request);
-    if (path !== '/collab/push/db-row' && path !== '/collab/push/db-row-delete' && path !== '/collab/flush') {
+    if (
+      path !== '/collab/push/db-row' &&
+      path !== '/collab/push/db-row-delete' &&
+      path !== '/collab/flush' &&
+      path !== '/collab/broadcast'
+    ) {
       return;
     }
     if (!isAuthorizedRequest(request)) {
@@ -309,6 +325,24 @@ const server = Server.configure({
     } catch (err) {
       response.writeHead(400, { 'Content-Type': 'application/json' });
       response.end(JSON.stringify({ ok: false, error: 'Invalid request body' }));
+      throw null;
+    }
+    // Broadcast: send a message to everyone with a workspace open (see EVENTS_DOC_ID)
+    if (path === '/collab/broadcast') {
+      const workspaceId = typeof body?.workspaceId === 'string' ? body.workspaceId.trim() : '';
+      const message = body?.message;
+      if (!workspaceId || !message || typeof message !== 'object') {
+        response.writeHead(400, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ ok: false, error: 'workspaceId and message are required' }));
+        throw null;
+      }
+      // Only loaded while someone is connected; with nobody listening there's nothing to do.
+      const document = instance.documents.get(eventsDocumentName(workspaceId));
+      if (document) {
+        document.broadcastStateless(JSON.stringify(message));
+      }
+      response.writeHead(200, { 'Content-Type': 'application/json' });
+      response.end(JSON.stringify({ ok: true, delivered: !!document }));
       throw null;
     }
     // Flush: force-persist documents to DB immediately (used before export)
@@ -399,7 +433,7 @@ const server = Server.configure({
   },
   async onDisconnect({ socketId, documentName, clientsCount }) {
     console.log('collab disconnected', socketId);
-    if (clientsCount === 0) {
+    if (clientsCount === 0 && !isEventsDocument(documentName)) {
       await requestMaterialize(documentName);
     }
   },

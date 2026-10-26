@@ -2,6 +2,10 @@ import { defineStore } from 'pinia';
 import { api } from '../api/client';
 import { fallbackDoc, normalizeEditorDoc } from '../utils/editorDoc';
 import { SYSTEM_ADMIN_ID } from '../constants/system-admin';
+import { connectWorkspaceEvents } from '../services/workspaceEvents';
+
+// The live events channel for the active workspace (kept outside the reactive state)
+const liveEvents = { workspaceId: null, disconnect: null, refreshTimer: null, changedIds: new Set(), settingUp: new Set() };
 
 // A path like "/collab" means the collab server sits behind the same origin as the app
 const resolveCollabUrl = (url) => {
@@ -265,7 +269,8 @@ export const useWorkspaceStore = defineStore('workspace', {
       }
     },
     // Loads a workspace's page list for the sidebar, without changing which page is open.
-    async loadPageList(workspaceId) {
+    // Titles still being typed here are kept.
+    async loadPageList(workspaceId, { keepBin = false } = {}) {
       if (!workspaceId || !this.activeUser || !this.hasApi) return;
       const pages = await api.listPages({
         workspaceId,
@@ -274,8 +279,54 @@ export const useWorkspaceStore = defineStore('workspace', {
       });
       // Ignore the answer if the user has moved to another workspace meanwhile
       if (workspaceId !== this.activeWorkspaceId) return;
-      this.pages = Array.isArray(pages) ? pages : [];
-      this.binPages = [];
+      const pending = this.pendingTitleUpdates || {};
+      this.pages = (Array.isArray(pages) ? pages : []).map((p) =>
+        typeof pending[p.id]?.title === 'string' ? { ...p, title: pending[p.id].title } : p
+      );
+      if (!keepBin) this.binPages = [];
+    },
+    // Keeps the live events channel open for the active workspace, so the sidebar and the open
+    // page follow changes other people make. Viewers don't get collab tokens, so they go without.
+    syncWorkspaceEvents() {
+      const workspaceId =
+        this.activeUser && this.hasApi && this.collabUrl && this.canEditActiveWorkspace ? this.activeWorkspaceId : null;
+      if (workspaceId === liveEvents.workspaceId) return;
+      liveEvents.disconnect?.();
+      liveEvents.disconnect = null;
+      liveEvents.workspaceId = workspaceId;
+      clearTimeout(liveEvents.refreshTimer);
+      liveEvents.changedIds = new Set();
+      if (!workspaceId) return;
+      liveEvents.disconnect = connectWorkspaceEvents({
+        url: this.collabUrl,
+        workspaceId,
+        getToken: async () => {
+          const res = await api.collabToken({ userId: this.activeUser?.id, userName: this.activeUser?.name, workspaceId });
+          return res?.token || '';
+        },
+        onPagesChanged: (message) => this.handlePagesChanged(message),
+      });
+    },
+    handlePagesChanged(message) {
+      for (const id of message?.pageIds || []) liveEvents.changedIds.add(id);
+      // Several changes often arrive together (e.g. a page and its sub-pages); refresh once.
+      clearTimeout(liveEvents.refreshTimer);
+      liveEvents.refreshTimer = setTimeout(() => {
+        const changed = liveEvents.changedIds;
+        liveEvents.changedIds = new Set();
+        this.refreshAfterRemoteChange(changed).catch((err) => console.warn('Live page refresh failed', err));
+      }, 250);
+    },
+    async refreshAfterRemoteChange(changedIds) {
+      const workspaceId = this.activeWorkspaceId;
+      if (!workspaceId) return;
+      // Someone else set up the page that is showing the type picker here: open it as set up.
+      // (Not while this browser is setting it up itself; updatePageSetup handles that.)
+      const pageId = this.activePageId;
+      if (pageId && changedIds.has(pageId) && this.currentPage?.setupStatus === 'PENDING' && !liveEvents.settingUp.has(pageId)) {
+        await this.loadPageDoc(this.activePageId);
+      }
+      await this.loadPageList(workspaceId, { keepBin: true });
     },
     async loadPageDoc(pageId) {
       if (!pageId || !this.hasApi || !this.activeUser || this.deletingCascade) return;
@@ -673,6 +724,7 @@ export const useWorkspaceStore = defineStore('workspace', {
     async updatePageSetup(pageId, payload = {}) {
       if (!this.hasApi || !this.activeUser || !pageId) return null;
       if (!this.canEditActiveWorkspace) return null;
+      liveEvents.settingUp.add(pageId);
       try {
         const updated = await api.updatePageSetup(pageId, payload, {
           userId: this.activeUser.id,
@@ -685,9 +737,16 @@ export const useWorkspaceStore = defineStore('workspace', {
         }
         return updated;
       } catch (err) {
+        // Someone else set the type first: show the page as they set it up
+        if (/Setup already completed|only be changed while setup is pending/.test(err?.message || '')) {
+          await this.loadPageDoc(pageId);
+          return this.currentPage || null;
+        }
         console.warn('Update page setup failed', err);
         this.error = err?.message || 'Failed to update page setup';
         return null;
+      } finally {
+        liveEvents.settingUp.delete(pageId);
       }
     },
     async convertPageToWiki(pageId) {

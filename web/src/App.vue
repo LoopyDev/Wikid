@@ -24,6 +24,12 @@ const UNTITLED_PAGE_LABEL = 'Untitled page';
 
 const isDevMode = computed(() => typeof window !== 'undefined' && window.location?.pathname === '/dev');
 const workspace = useWorkspaceStore();
+// Follow page changes other people make in the open workspace
+watch(
+  () => [workspace.activeWorkspaceId, workspace.activeUserId, workspace.hasApi, workspace.activeWorkspaceRole],
+  () => workspace.syncWorkspaceEvents(),
+  { immediate: true },
+);
 const {
   pages,
   privatePages,

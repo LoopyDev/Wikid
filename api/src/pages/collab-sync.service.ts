@@ -82,6 +82,30 @@ export class CollabSyncService {
     );
   }
 
+  /**
+   * Tells everyone with the workspace open that pages changed (created, renamed, moved, set up,
+   * deleted or restored), so their sidebar and open page catch up. Fire-and-forget: a missing or
+   * slow collab server never fails or delays the request that made the change.
+   */
+  announcePagesChanged(workspaceId: string | null | undefined, pageIds: Array<string | null | undefined>) {
+    if (!this.collabServerUrl || !this.collabApiSecret || !workspaceId) return;
+    const ids = Array.from(new Set(pageIds.filter((id): id is string => typeof id === 'string' && !!id)));
+    const message = { type: 'pages-changed', workspaceId, pageIds: ids };
+    fetch(`${this.collabServerUrl}/collab/broadcast`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${this.collabApiSecret}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ workspaceId, message }),
+      signal: AbortSignal.timeout(2000),
+    })
+      .then((res) => {
+        if (!res.ok) console.warn('Collab broadcast failed', { workspaceId, status: res.status });
+      })
+      .catch((err) => console.warn('Collab broadcast error', { workspaceId, error: (err as Error)?.message || err }));
+  }
+
   async pushCollabDatabaseRowUpdate(
     database: { pageId: string; workspaceId: string },
     row: { id: string; data?: Prisma.InputJsonValue | null; pageId?: string | null }

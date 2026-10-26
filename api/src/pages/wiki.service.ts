@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { normalizeEditorContent } from './editor-doc.util';
 import { isUuid } from '../utils/uuid.util';
 import { PageAccessService } from './page-access.service';
+import { CollabSyncService } from './collab-sync.service';
 import { DatabaseSetupService } from './database-setup.service';
 import { POSITION_INCREMENT, getFieldSource } from './pages.shared';
 
@@ -14,6 +15,7 @@ export class WikiService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly access: PageAccessService,
+    private readonly collabSync: CollabSyncService,
     private readonly databaseSetup: DatabaseSetupService,
   ) {}
 
@@ -46,6 +48,7 @@ export class WikiService {
       data: { wikiConfig: nextConfig, wikiHomeId },
     });
 
+    this.collabSync.announcePagesChanged(page.workspaceId, [page.id, databasePage.id]);
     return { page: updated, databasePage };
   }
 

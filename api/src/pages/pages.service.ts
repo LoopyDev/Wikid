@@ -190,6 +190,7 @@ export class PagesService {
         updated.title
       );
     }
+    this.collabSync.announcePagesChanged(updated.workspaceId, [id]);
     return updated;
   }
 
@@ -242,6 +243,7 @@ export class PagesService {
         });
       }
     }
+    this.collabSync.announcePagesChanged(page.workspaceId, idsToUpdate);
     return { page: updatedPage, updatedIds: idsToUpdate };
   }
 
@@ -276,6 +278,8 @@ export class PagesService {
         setupStatus: true, wikiHomeId: true, wikiConfig: true,
       },
     });
+    this.collabSync.announcePagesChanged(page.workspaceId, idsToMove);
+    this.collabSync.announcePagesChanged(targetWorkspaceId, idsToMove);
     return { page: updatedPage, movedIds: idsToMove };
   }
 
@@ -397,6 +401,7 @@ export class PagesService {
     if (page.wikiHomeId) {
       await this.wiki.ensureWikiRowForPage(page);
     }
+    this.collabSync.announcePagesChanged(workspace.id, [page.id, parentId]);
     if (page.kind === PageKind.DATABASE) {
       return { ...page, databaseComplianceMode: typeof complianceMode === 'boolean' ? complianceMode : false };
     }
@@ -500,6 +505,7 @@ export class PagesService {
       where: { id },
       data: updateData,
     });
+    this.collabSync.announcePagesChanged(updated.workspaceId, [id]);
     if (updated.kind === PageKind.DATABASE) {
       const database = await this.prisma.database.findUnique({
         where: { pageId: updated.id },
@@ -511,7 +517,7 @@ export class PagesService {
   }
 
   async deletePage(id: string, user?: { userId?: string; userName?: string }) {
-    await this.access.requirePageAccess(id, user, { requireWrite: true });
+    const { page } = await this.access.requirePageAccess(id, user, { requireWrite: true });
     const descendantIds = await this.access.collectDescendantIds(id);
     const idsToDelete = [id, ...descendantIds];
     const forbiddenPrivate = await this.prisma.page.findFirst({
@@ -527,26 +533,35 @@ export class PagesService {
     }
     const deletedAt = new Date();
     await this.prisma.block.deleteMany({ where: { pageId: { in: idsToDelete } } });
-    return this.prisma.page.updateMany({
+    const result = await this.prisma.page.updateMany({
       where: { id: { in: idsToDelete } },
       data: { isDeleted: true, deletedAt },
     });
+    this.collabSync.announcePagesChanged(page.workspaceId, idsToDelete);
+    return result;
   }
 
   async destroyPages(ids: string[], user?: { userId?: string; userName?: string }) {
     if (!ids?.length) return { count: 0 };
     await Promise.all(ids.map((pageId) => this.access.requirePageAccess(pageId, user, { requireWrite: true, allowDeleted: true })));
-    return this.prisma.$transaction((tx) => this.removePages(tx, ids));
+    const pages = await this.prisma.page.findMany({ where: { id: { in: ids } }, select: { id: true, workspaceId: true } });
+    const result = await this.prisma.$transaction((tx) => this.removePages(tx, ids));
+    for (const workspaceId of new Set(pages.map((p) => p.workspaceId))) {
+      this.collabSync.announcePagesChanged(workspaceId, pages.filter((p) => p.workspaceId === workspaceId).map((p) => p.id));
+    }
+    return result;
   }
 
   async restorePage(id: string, user?: { userId?: string; userName?: string }) {
-    await this.access.requirePageAccess(id, user, { requireWrite: true, allowDeleted: true });
+    const { page } = await this.access.requirePageAccess(id, user, { requireWrite: true, allowDeleted: true });
     const descendantIds = await this.access.collectDescendantIds(id);
     const idsToRestore = [id, ...descendantIds];
-    return this.prisma.page.updateMany({
+    const result = await this.prisma.page.updateMany({
       where: { id: { in: idsToRestore } },
       data: { isDeleted: false, deletedAt: null },
     });
+    this.collabSync.announcePagesChanged(page.workspaceId, idsToRestore);
+    return result;
   }
 
   async reorderSiblings(payload: { parentId: string | null; orderedIds: string[] }, user?: { userId?: string; userName?: string }) {
@@ -677,6 +692,7 @@ export class PagesService {
     if (targetWikiHomeId) {
       await this.wiki.ensureWikiRowsForHome(targetWikiHomeId);
     }
+    this.collabSync.announcePagesChanged(workspaceId, [...orderedIds, parentId]);
     return { count: orderedIds.length, normalized: normalize };
   }
 }
