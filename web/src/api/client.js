@@ -275,6 +275,12 @@ export const api = {
       body: JSON.stringify({ parentId: parentId ?? null, orderedIds }),
     });
   },
+  // Pages and database rows matching `q` that this user can see, best first.
+  async search(q, { limit } = {}) {
+    const params = new URLSearchParams({ q });
+    if (limit) params.set('limit', String(limit));
+    return request(`/search?${params.toString()}`);
+  },
   // What this server offers (e.g. whether AI is available).
   async getConfig() {
     return request(`/config`);

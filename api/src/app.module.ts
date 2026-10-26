@@ -7,9 +7,10 @@ import { CollabModule } from './collab/collab.module';
 import { ComplianceModule } from './compliance/compliance.module';
 import { AiModule } from './ai/ai.module';
 import { SettingsModule } from './settings/settings.module';
+import { SearchModule } from './search/search.module';
 import { AuthModule } from './auth/auth.module';
 
 @Module({
-  imports: [PrismaModule, AuthModule, PagesModule, EmbedsModule, UploadsModule, CollabModule, ComplianceModule, AiModule, SettingsModule],
+  imports: [PrismaModule, AuthModule, PagesModule, EmbedsModule, UploadsModule, CollabModule, ComplianceModule, AiModule, SettingsModule, SearchModule],
 })
 export class AppModule {}

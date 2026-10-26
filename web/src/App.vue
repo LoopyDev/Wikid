@@ -7,6 +7,7 @@ import DatabaseTable from './components/DatabaseTable.vue';
 import TopBar from './components/TopBar.vue';
 import CollabAdminPanel from './components/CollabAdminPanel.vue';
 import AdminSettingsPanel from './components/AdminSettingsPanel.vue';
+import SearchDialog from './components/SearchDialog.vue';
 import WorkspacesAdminPanel from './components/WorkspacesAdminPanel.vue';
 import AdminUsersPanel from './components/AdminUsersPanel.vue';
 import PageIcon from './components/PageIcon.vue';
@@ -718,6 +719,7 @@ onMounted(() => {
   window.addEventListener('mousedown', handlePageMenuOutsideClick);
   window.addEventListener('mousedown', handleEmojiClickOutside);
   window.addEventListener('keydown', handleEmojiKeydown);
+  window.addEventListener('keydown', handleSearchShortcut);
   window.addEventListener('hashchange', focusBlockFromHash);
   window.addEventListener('wikid:api-status', handleApiStatus);
   window.addEventListener(AUTH_EXPIRED_EVENT, handleAuthExpired);
@@ -792,6 +794,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('mousedown', handlePageMenuOutsideClick);
   window.removeEventListener('mousedown', handleEmojiClickOutside);
   window.removeEventListener('keydown', handleEmojiKeydown);
+  window.removeEventListener('keydown', handleSearchShortcut);
   window.removeEventListener('hashchange', focusBlockFromHash);
   window.removeEventListener('wikid:api-status', handleApiStatus);
   window.removeEventListener(AUTH_EXPIRED_EVENT, handleAuthExpired);
@@ -1230,6 +1233,27 @@ const handleAuthExpired = () => {
   if (workspace.activeUserId) workspace.logout();
 };
 const handlePasswordChangeRequired = () => workspace.requirePasswordChange();
+
+// Search (sidebar button or Cmd/Ctrl+K).
+const showSearch = ref(false);
+const searchShortcutLabel =
+  typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent) ? '⌘K' : 'Ctrl K';
+const openSearch = () => {
+  closeMenu();
+  showUserMenu.value = false;
+  showSearch.value = true;
+};
+const openSearchResult = (pageId) => {
+  showSearch.value = false;
+  openRowPageFull(pageId);
+};
+const handleSearchShortcut = (event) => {
+  if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey || event.key.toLowerCase() !== 'k') return;
+  if (!activeUser.value || workspace.mustChangePassword) return;
+  event.preventDefault();
+  if (showSearch.value) showSearch.value = false;
+  else openSearch();
+};
 const openAdminView = (view) => {
   closeMenu();
   showUserMenu.value = false;
@@ -2020,6 +2044,12 @@ if (typeof window !== 'undefined') {
         </button>
       </header>
 
+      <button class="sidebar-search-btn" type="button" @click="openSearch">
+        <i class="bi bi-search" aria-hidden="true"></i>
+        Search
+        <kbd aria-hidden="true">{{ searchShortcutLabel }}</kbd>
+      </button>
+
       <div class="sidebar__section" v-if="!loadingPages && activeWorkspaceId">
         <button class="sidebar__section-title collapsible" type="button" @click="workspace.privateOpen = !workspace.privateOpen">
           <span>Private</span>
@@ -2577,6 +2607,7 @@ if (typeof window !== 'undefined') {
         @confirm="confirmDeleteModal"
       />
       <BinModal v-if="showBinModal" @close="closeBin" />
+      <SearchDialog v-if="showSearch" @open="openSearchResult" @close="showSearch = false" />
     </main>
   </div>
 </template>

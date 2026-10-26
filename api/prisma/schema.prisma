@@ -56,35 +56,37 @@ model UserWorkspace {
 }
 
 model Page {
-  id                String          @id @default(uuid()) @db.Uuid
-  workspaceId       String          @db.Uuid
-  parentId          String?         @db.Uuid
-  authorId          String?         @db.Uuid
-  title             String          @default("")
-  isPinned          Boolean         @default(false)
-  isFavorite        Boolean         @default(false)
+  id                String                   @id @default(uuid()) @db.Uuid
+  workspaceId       String                   @db.Uuid
+  parentId          String?                  @db.Uuid
+  authorId          String?                  @db.Uuid
+  title             String                   @default("")
+  isPinned          Boolean                  @default(false)
+  isFavorite        Boolean                  @default(false)
   icon              String?
-  coverImageAssetId String?         @db.Uuid
-  createdAt         DateTime        @default(now())
-  updatedAt         DateTime        @updatedAt
+  coverImageAssetId String?                  @db.Uuid
+  createdAt         DateTime                 @default(now())
+  updatedAt         DateTime                 @updatedAt
   content           Json?
   deletedAt         DateTime?
-  isDeleted         Boolean         @default(false)
-  position          Decimal         @default(0) @db.Decimal(10, 4)
-  kind              PageKind        @default(DOC)
-  visibility        PageVisibility  @default(PUBLIC)
-  setupStatus       PageSetupStatus @default(COMPLETE)
-  wikiHomeId        String?         @db.Uuid
+  isDeleted         Boolean                  @default(false)
+  position          Decimal                  @default(0) @db.Decimal(10, 4)
+  kind              PageKind                 @default(DOC)
+  visibility        PageVisibility           @default(PUBLIC)
+  setupStatus       PageSetupStatus          @default(COMPLETE)
+  wikiHomeId        String?                  @db.Uuid
   wikiConfig        Json?
-  isHidden          Boolean         @default(false)
+  isHidden          Boolean                  @default(false)
+  // Title and document text for search; kept up to date by Postgres (see the add_search migration).
+  searchVector      Unsupported("tsvector")?
   blocks            Block[]
   database          Database?
   databaseRows      DatabaseRow[]
-  author            User?           @relation("PageAuthor", fields: [authorId], references: [id])
-  coverImage        FileAsset?      @relation("CoverImage", fields: [coverImageAssetId], references: [id])
-  parent            Page?           @relation("PageHierarchy", fields: [parentId], references: [id])
-  children          Page[]          @relation("PageHierarchy")
-  workspace         Workspace       @relation(fields: [workspaceId], references: [id])
+  author            User?                    @relation("PageAuthor", fields: [authorId], references: [id])
+  coverImage        FileAsset?               @relation("CoverImage", fields: [coverImageAssetId], references: [id])
+  parent            Page?                    @relation("PageHierarchy", fields: [parentId], references: [id])
+  children          Page[]                   @relation("PageHierarchy")
+  workspace         Workspace                @relation(fields: [workspaceId], references: [id])
 
   @@index([workspaceId])
   @@index([parentId])
@@ -123,15 +125,17 @@ model DatabaseField {
 }
 
 model DatabaseRow {
-  id         String   @id @default(uuid()) @db.Uuid
-  databaseId String   @db.Uuid
-  position   Decimal  @default(0) @db.Decimal(10, 4)
-  data       Json?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-  pageId     String?  @db.Uuid
-  database   Database @relation(fields: [databaseId], references: [id])
-  page       Page?    @relation(fields: [pageId], references: [id])
+  id           String                   @id @default(uuid()) @db.Uuid
+  databaseId   String                   @db.Uuid
+  position     Decimal                  @default(0) @db.Decimal(10, 4)
+  data         Json?
+  createdAt    DateTime                 @default(now())
+  updatedAt    DateTime                 @updatedAt
+  pageId       String?                  @db.Uuid
+  // Cell values for search; kept up to date by Postgres (see the add_search migration).
+  searchVector Unsupported("tsvector")?
+  database     Database                 @relation(fields: [databaseId], references: [id])
+  page         Page?                    @relation(fields: [pageId], references: [id])
 
   @@unique([databaseId, pageId])
   @@index([databaseId])
