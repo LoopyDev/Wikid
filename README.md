@@ -4,6 +4,11 @@ A self-hosted wiki and workspace with a block-based editor, structured databases
 
 > **Status: early development, not production-ready.** See [Security](#security) before deploying anywhere reachable from the internet.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/editor-dark.png">
+  <img alt="A Wikid page: an onboarding checklist with a callout, to-do items and the page tree in the sidebar" src="docs/images/editor-light.png">
+</picture>
+
 ## Features
 
 How far along each feature is (stable, beta, experimental or planned) is in [docs/FEATURES.md](docs/FEATURES.md).
@@ -16,6 +21,11 @@ How far along each feature is (stable, beta, experimental or planned) is in [doc
 - Page links, link previews, resizable images, draw.io diagrams, Gaussian splat embeds
 - HTML, PDF and Markdown export
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/database-board-dark.png">
+  <img alt="An equipment database shown as a board, grouped by status" src="docs/images/database-board-light.png">
+</picture>
+
 **Databases**
 - Inline databases with Text, Number, Date, Checkbox, Select, Multi-select, URL, and Relation fields
 - Table, board and gallery views, with saved filters and sorts
@@ -26,6 +36,11 @@ How far along each feature is (stable, beta, experimental or planned) is in [doc
 - A separate, append-only compliance database for regulated records
 - Versioned schemas and configurable workflows (Draft → Submitted → In Review → Closed/Sealed by default) with role and approval guards
 - Isolated attachment storage with hash verification on export
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/search-dark.png">
+  <img alt="Search (Cmd/Ctrl+K) finding pages and database rows with the matched words highlighted" src="docs/images/search-light.png">
+</picture>
 
 **Collaboration and AI**
 - Real-time co-editing over Yjs and Hocuspocus, periodically written back to Postgres, with a live sidebar
@@ -138,7 +153,7 @@ Wikid hasn't had a security review yet. How it works today:
 - **Frontend and API location:** the frontend and API must be on the same site (for example `wiki.example.com` and `api.wiki.example.com`) so the browser sends the cookie. Set `CORS_ORIGINS` to your frontend's URL and serve both over HTTPS in production.
 - **Defaults:** the dev setup uses well-known defaults (`postgres`/`postgres`, `minioadmin`/`minioadmin`, demo accounts with the password `wikid`). The production setup in [`docs/deployment.md`](docs/deployment.md) requires your own passwords and admin login, and creates no demo accounts.
 
-If you find a security issue, please open a private security advisory on GitHub instead of a public issue.
+If you find a security issue, please report it privately; see [SECURITY.md](SECURITY.md).
 
 ## Contributing
 

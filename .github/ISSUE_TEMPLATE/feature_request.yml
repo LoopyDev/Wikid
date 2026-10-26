@@ -1,0 +1,25 @@
+name: Feature request
+description: Suggest something Wikid should do
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Check [what's planned](https://github.com/LoopyDev/Wikid/blob/main/docs/FEATURES.md#planned) first: if it's there, a 👍 or a comment on why it matters to you helps too.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What you're trying to do
+      description: The problem or situation, rather than the solution. Who runs into it, and how often?
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would help
+      description: How you imagine it working. Rough is fine.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you do today
+      description: Workarounds, or how other tools handle it.

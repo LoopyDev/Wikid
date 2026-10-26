@@ -1,0 +1,54 @@
+name: Bug report
+description: Something doesn't work as it should
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. For a **security** problem, please [report it privately](https://github.com/LoopyDev/Wikid/security/advisories/new) instead.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you saw, and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How to make it happen
+      description: Step by step, starting from a fresh page if you can.
+      placeholder: |
+        1. Create a page
+        2. Type "/table" and press Enter
+        3. …
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part of Wikid
+      options:
+        - Editor
+        - Databases or forms
+        - Live collaboration
+        - Search
+        - Sidebar, pages or workspaces
+        - Login, users or admin
+        - Export
+        - AI features
+        - Deployment or setup
+        - Something else
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Where you run it
+      description: How you deployed Wikid (Docker on a server, local dev setup, …), and the browser you used.
+      placeholder: Docker on Ubuntu 24.04, Firefox 131
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: Screenshots, browser console errors, server logs (`docker compose logs api collab`).

@@ -24,3 +24,11 @@ When a test fails, Playwright keeps a screenshot and a trace in `e2e/test-result
 - Pages are created through the API to save time; everything the test is about happens through the screen.
 - Type at a realistic pace and wait for the app to catch up before acting. Playwright can click and type within a millisecond, faster than the editor registers a click, which produces failures no person would ever see. `placeCursor` waits until the editor has the cursor where the test put it.
 - Tests marked `test.fail` describe the correct behaviour for a bug that isn't fixed yet. When the fix lands, Playwright reports "Expected to fail, but passed": change `test.fail` to `test`.
+
+## README screenshots
+
+`readme-screenshots.spec.ts` builds a small demo workspace and retakes the screenshots in `docs/images/` (light and dark). It's skipped in normal runs; to retake them, with the stack running:
+
+```bash
+WIKID_SCREENSHOTS=1 npm run test:e2e -- readme-screenshots
+```
