@@ -8,6 +8,7 @@ import { PagesService } from './pages.service';
 import { WorkspacesService } from './workspaces.service';
 import { isSystemAdmin } from './pages.shared';
 import { hashPassword, verifyPassword } from './password.util';
+import { loginLookup, normalizeUsername } from './username.util';
 
 // Users: login, profiles and preferences, password changes, and admin user management.
 @Injectable()
@@ -32,19 +33,18 @@ export class UsersService {
     return rest;
   }
 
-  async loginWithCredentials(email: string, password: string) {
-    if (!email || !password) {
-      throw new BadRequestException('Email and password are required');
+  // `login` is an email address or a username.
+  async loginWithCredentials(login: string, password: string) {
+    if (!login?.trim() || !password) {
+      throw new BadRequestException('Email or username and password are required');
     }
-    const user = await this.prisma.user.findUnique({
-      where: { email: email.toLowerCase().trim() },
-    });
+    const user = await this.prisma.user.findUnique({ where: loginLookup(login) });
     if (!user || !user.passwordHash) {
-      throw new UnauthorizedException('Invalid email or password');
+      throw new UnauthorizedException('Invalid email, username or password');
     }
     const valid = await verifyPassword(password, user.passwordHash);
     if (!valid) {
-      throw new UnauthorizedException('Invalid email or password');
+      throw new UnauthorizedException('Invalid email, username or password');
     }
     return { user: this.stripPassword(user) };
   }
@@ -98,20 +98,23 @@ export class UsersService {
 
   async adminCreateUser(
     adminId: string,
-    payload: { displayName: string; email: string; password: string; mustChangePassword?: boolean },
+    payload: { displayName: string; email: string; password: string; username?: string; mustChangePassword?: boolean },
   ) {
     assertSystemAdmin(adminId);
     const { displayName, email, password } = payload;
     if (!displayName?.trim()) throw new BadRequestException('displayName is required');
     if (!email?.trim()) throw new BadRequestException('email is required');
     if (!password) throw new BadRequestException('password is required');
+    const username = normalizeUsername(payload.username) || null;
     const existing = await this.prisma.user.findUnique({ where: { email: email.toLowerCase().trim() } });
     if (existing) throw new BadRequestException('A user with that email already exists');
+    await this.assertUsernameFree(username);
     const passwordHash = await hashPassword(password);
     const user = await this.prisma.user.create({
       data: {
         email: email.toLowerCase().trim(),
         displayName: displayName.trim(),
+        username,
         passwordHash,
         mustChangePassword: payload.mustChangePassword !== false,
       },
@@ -120,11 +123,16 @@ export class UsersService {
     return this.stripPassword(user);
   }
 
-  async adminUpdateUser(adminId: string, userId: string, payload: { displayName?: string; email?: string }) {
+  async adminUpdateUser(adminId: string, userId: string, payload: { displayName?: string; email?: string; username?: string | null }) {
     assertSystemAdmin(adminId);
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new NotFoundException('User not found');
-    const data: { displayName?: string; email?: string } = {};
+    const data: { displayName?: string; email?: string; username?: string | null } = {};
+    const username = normalizeUsername(payload.username);
+    if (username !== undefined) {
+      await this.assertUsernameFree(username, userId);
+      data.username = username;
+    }
     if (typeof payload.displayName === 'string' && payload.displayName.trim()) {
       data.displayName = payload.displayName.trim();
     }
@@ -136,6 +144,12 @@ export class UsersService {
     }
     const updated = await this.prisma.user.update({ where: { id: userId }, data });
     return this.stripPassword(updated);
+  }
+
+  private async assertUsernameFree(username: string | null | undefined, exceptUserId?: string) {
+    if (!username) return;
+    const clash = await this.prisma.user.findUnique({ where: { username }, select: { id: true } });
+    if (clash && clash.id !== exceptUserId) throw new BadRequestException('That username is taken');
   }
 
   async adminResetPassword(adminId: string, userId: string, newPassword: string, mustChangePassword = true) {

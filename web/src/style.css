@@ -8759,6 +8759,22 @@ button {
   font-size: 0.875rem;
   color: var(--text-secondary);
 }
+.settings-account {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 6px 16px;
+  margin: 0 0 16px;
+}
+
+.settings-account dt {
+  color: var(--text-muted);
+}
+
+.settings-account dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
 .settings-theme-row {
   display: flex;
   justify-content: space-between;

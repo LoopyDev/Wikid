@@ -17,6 +17,8 @@ datasource db {
 model User {
   id                 String          @id @default(uuid()) @db.Uuid
   email              String          @unique
+  // Optional; lower case. Users can log in with it instead of their email.
+  username           String?         @unique
   displayName        String
   createdAt          DateTime        @default(now())
   updatedAt          DateTime        @updatedAt

@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, watch } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useWorkspaceStore } from '../stores/workspace';
 import { api } from '../api/client';
@@ -17,6 +17,17 @@ const activeWorkspaceName = computed(() => workspace.currentWorkspace?.workspace
 const isWorkspaceOwner = computed(() => activeWorkspaceRole.value === 'OWNER');
 
 const settingsTab = ref('General');
+
+// Your account details (name, email, username), shown on the General tab.
+const profile = ref(null);
+onMounted(async () => {
+  if (!activeUser.value) return;
+  try {
+    profile.value = await api.getUser(activeUser.value.id, { userId: activeUser.value.id });
+  } catch {
+    profile.value = null;
+  }
+});
 
 const cpCurrent = ref('');
 const cpNew = ref('');
@@ -110,13 +121,13 @@ const withMemberAction = async (key, failure, action) => {
 };
 const inviteMember = async () => {
   if (!activeWorkspaceId.value || !activeUser.value || !isWorkspaceOwner.value) return;
-  const email = inviteEmail.value.trim();
-  if (!email) {
-    membersError.value = 'Enter the email address of the person to add.';
+  const login = inviteEmail.value.trim();
+  if (!login) {
+    membersError.value = 'Enter the email address or username of the person to add.';
     return;
   }
   await withMemberAction('invite', 'Failed to invite member', async () => {
-    await api.addWorkspaceMember(activeWorkspaceId.value, { email, role: inviteRole.value }, { userId: activeUser.value.id });
+    await api.addWorkspaceMember(activeWorkspaceId.value, { login, role: inviteRole.value }, { userId: activeUser.value.id });
     inviteEmail.value = '';
     await loadMembers();
   });
@@ -201,6 +212,14 @@ watch(settingsTab, (tab) => {
       <div class="settings-popup-content">
         <div v-if="settingsTab === 'General'">
           <h3>General</h3>
+          <dl v-if="profile" class="settings-account">
+            <dt>Name</dt>
+            <dd>{{ profile.displayName }}</dd>
+            <dt>Email</dt>
+            <dd>{{ profile.email }}</dd>
+            <dt>Username</dt>
+            <dd>{{ profile.username || 'None. Ask your admin to set one.' }}</dd>
+          </dl>
           <div class="settings-theme-row">
             <span>Color mode</span>
             <button class="ghost-btn ghost-btn-background" type="button" @click="emit('toggle-theme')">{{ themeModeLabel }}</button>
@@ -306,7 +325,7 @@ watch(settingsTab, (tab) => {
           <div v-if="isWorkspaceOwner" class="members-invite">
             <h4>Invite member</h4>
             <div class="members-invite-row">
-              <input v-model="inviteEmail" class="members-input" type="email" placeholder="Email address" autocomplete="off" @keydown.enter="inviteMember" />
+              <input v-model="inviteEmail" class="members-input" type="text" placeholder="Email or username" autocomplete="off" autocapitalize="none" @keydown.enter="inviteMember" />
               <select v-model="inviteRole" class="members-role-select">
                 <option value="OWNER">Owner</option>
                 <option value="EDITOR">Editor</option>

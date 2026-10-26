@@ -6,6 +6,7 @@ import { isUuid } from '../utils/uuid.util';
 import { PageAccessService } from './page-access.service';
 import { PagesService } from './pages.service';
 import { isSystemAdmin } from './pages.shared';
+import { loginLookup } from './username.util';
 
 // Workspaces and their members, plus the admin reset of all workspaces.
 @Injectable()
@@ -145,7 +146,7 @@ export class WorkspacesService {
   async addWorkspaceMember(
     userId: string | undefined,
     workspaceId: string,
-    payload: { email?: string; userId?: string; role?: WorkspaceRole },
+    payload: { login?: string; userId?: string; role?: WorkspaceRole },
     adminId?: string
   ) {
     if (adminId) {
@@ -174,12 +175,14 @@ export class WorkspacesService {
 
   // Members are existing accounts, found by email (or exact user ID). Never create a user
   // here: that used to turn a name or mistyped ID into an account nobody could log in to.
-  private async findUserForMembership(payload: { email?: string; userId?: string }) {
-    const email = payload.email?.trim().toLowerCase();
-    if (email) {
-      const user = await this.prisma.user.findUnique({ where: { email } });
+  // `login` is an email address or a username.
+  private async findUserForMembership(payload: { login?: string; userId?: string }) {
+    const login = payload.login?.trim().toLowerCase();
+    if (login) {
+      const user = await this.prisma.user.findUnique({ where: loginLookup(login) });
       if (!user) {
-        throw new NotFoundException(`No user with the email ${email}. Create their account first (Admin → Users).`);
+        const what = login.includes('@') ? 'email' : 'username';
+        throw new NotFoundException(`No user with the ${what} ${login}. Create their account first (Admin → Users).`);
       }
       return user;
     }
@@ -188,7 +191,7 @@ export class WorkspacesService {
       if (!user) throw new NotFoundException('User not found');
       return user;
     }
-    throw new BadRequestException('Enter the email address of the person to add');
+    throw new BadRequestException('Enter the email address or username of the person to add');
   }
 
   async updateWorkspaceMemberRole(

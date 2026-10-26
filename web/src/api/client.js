@@ -312,16 +312,16 @@ export const api = {
   async listUsers(adminId) {
     return request(`/admin/users?adminId=${encodeURIComponent(adminId)}`);
   },
-  async createUser(adminId, { displayName, email, password, mustChangePassword = true }) {
+  async createUser(adminId, { displayName, email, username, password, mustChangePassword = true }) {
     return request(`/admin/users`, {
       method: 'POST',
-      body: JSON.stringify({ adminId, displayName, email, password, mustChangePassword }),
+      body: JSON.stringify({ adminId, displayName, email, username, password, mustChangePassword }),
     });
   },
-  async updateUser(adminId, userId, { displayName, email } = {}) {
+  async updateUser(adminId, userId, { displayName, email, username } = {}) {
     return request(`/admin/users/${userId}`, {
       method: 'PATCH',
-      body: JSON.stringify({ adminId, displayName, email }),
+      body: JSON.stringify({ adminId, displayName, email, username }),
     });
   },
   async resetUserPassword(adminId, userId, newPassword, { mustChangePassword = true } = {}) {

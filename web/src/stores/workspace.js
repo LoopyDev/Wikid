@@ -456,7 +456,7 @@ export const useWorkspaceStore = defineStore('workspace', {
     },
     async login(email, password) {
       try {
-        const res = await api.login({ email, password });
+        const res = await api.login({ login: email, password });
         this.activeUserId = res.user.id;
         this.activeUserName = res.user.displayName;
         this.activeUserEmail = res.user.email;

@@ -33,10 +33,40 @@ describe('login and sessions', () => {
     expect(res.status).toBe(201);
   });
 
+  it('logs in with a username instead of the email, in any case', async () => {
+    const res = await new Session().request('POST', '/auth/login', { login: ' Alice ', password: DEMO_PASSWORD });
+    expect(res.status).toBe(201);
+    expect(res.body.user).toMatchObject({ id: USERS.alice.id, username: 'alice' });
+    expect((await new Session().request('POST', '/auth/login', { login: 'alice', password: 'wrong' })).status).toBe(401);
+    expect((await new Session().request('POST', '/auth/login', { login: 'nobody-here', password: DEMO_PASSWORD })).status).toBe(401);
+  });
+
+  it('lets the admin give users a unique username', async () => {
+    const admin = await loginAs(USERS.admin.email);
+    const name = `user-${Date.now().toString(36)}`;
+    const email = `${name}@example.com`;
+    const created = await admin.post('/admin/users', { adminId: 'x', displayName: 'Named', email, username: name.toUpperCase(), password: 'p', mustChangePassword: false });
+    expect(created.status).toBe(201);
+    expect(created.body.username).toBe(name);
+    const userId = created.body.id;
+    expect((await new Session().request('POST', '/auth/login', { login: name, password: 'p' })).status).toBe(201);
+
+    // Taken, badly formed, then cleared.
+    const taken = await admin.patch(`/admin/users/${userId}`, { adminId: 'x', username: 'alice' });
+    expect(taken.status).toBe(400);
+    expect(taken.body.message).toBe('That username is taken');
+    expect((await admin.patch(`/admin/users/${userId}`, { adminId: 'x', username: 'has space' })).status).toBe(400);
+    expect((await admin.patch(`/admin/users/${userId}`, { adminId: 'x', username: 'a@b' })).status).toBe(400);
+    const cleared = await admin.patch(`/admin/users/${userId}`, { adminId: 'x', username: '' });
+    expect(cleared.body.username).toBeNull();
+    expect((await new Session().request('POST', '/auth/login', { login: name, password: 'p' })).status).toBe(401);
+    await admin.delete(`/admin/users/${userId}?adminId=x`);
+  });
+
   it('rejects a wrong password or unknown email', async () => {
     const wrong = await new Session().login(USERS.alice.email, 'not-the-password');
     expect(wrong.status).toBe(401);
-    expect(wrong.body.message).toBe('Invalid email or password');
+    expect(wrong.body.message).toBe('Invalid email, username or password');
     expect((await new Session().login('nobody@example.com')).status).toBe(401);
     expect((await new Session().post('/auth/login', { email: USERS.alice.email })).status).toBe(400);
   });

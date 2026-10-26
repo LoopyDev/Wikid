@@ -32,9 +32,11 @@ const handleLogin = async () => {
         <input
           v-model="loginEmail"
           class="login-input"
-          type="email"
-          placeholder="Email"
-          autocomplete="email"
+          type="text"
+          placeholder="Email or username"
+          autocomplete="username"
+          autocapitalize="none"
+          spellcheck="false"
           required
         />
         <input

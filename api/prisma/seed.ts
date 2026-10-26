@@ -34,7 +34,7 @@ async function main() {
   await prisma.user.upsert({
     where: { id: systemUserId },
     update: { email: adminEmail, displayName: 'System Admin', passwordHash: adminHash },
-    create: { id: systemUserId, email: adminEmail, displayName: 'System Admin', passwordHash: adminHash },
+    create: { id: systemUserId, email: adminEmail, username: 'admin', displayName: 'System Admin', passwordHash: adminHash },
   });
 
   await prisma.workspace.upsert({
@@ -55,14 +55,14 @@ async function main() {
 
     await prisma.user.upsert({
       where: { id: aliceId },
-      update: { email: 'alice@wikid.local', displayName: 'Alice', passwordHash: aliceHash },
-      create: { id: aliceId, email: 'alice@wikid.local', displayName: 'Alice', passwordHash: aliceHash },
+      update: { email: 'alice@wikid.local', username: 'alice', displayName: 'Alice', passwordHash: aliceHash },
+      create: { id: aliceId, email: 'alice@wikid.local', username: 'alice', displayName: 'Alice', passwordHash: aliceHash },
     });
 
     await prisma.user.upsert({
       where: { id: bobId },
-      update: { email: 'bob@wikid.local', displayName: 'Bob', passwordHash: bobHash },
-      create: { id: bobId, email: 'bob@wikid.local', displayName: 'Bob', passwordHash: bobHash },
+      update: { email: 'bob@wikid.local', username: 'bob', displayName: 'Bob', passwordHash: bobHash },
+      create: { id: bobId, email: 'bob@wikid.local', username: 'bob', displayName: 'Bob', passwordHash: bobHash },
     });
 
     await prisma.userWorkspace.upsert({

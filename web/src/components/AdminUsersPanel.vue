@@ -9,9 +9,9 @@ const props = defineProps({
 
 const users = ref([]);
 const showCreateForm = ref(false);
-const createDraft = ref({ displayName: '', email: '', password: '', mustChangePassword: true });
+const createDraft = ref({ displayName: '', email: '', username: '', password: '', mustChangePassword: true });
 const editingId = ref(null);
-const editDraft = ref({ displayName: '', email: '' });
+const editDraft = ref({ displayName: '', email: '', username: '' });
 const resetId = ref(null);
 const resetPassword = ref('');
 const resetMustChange = ref(true);
@@ -23,7 +23,7 @@ const { loading, error, execute: loadUsers } = useApiMutation(async () => {
 
 const { loading: createLoading, error: createError, execute: createUser } = useApiMutation(async () => {
   await api.createUser(props.adminId, createDraft.value);
-  createDraft.value = { displayName: '', email: '', password: '', mustChangePassword: true };
+  createDraft.value = { displayName: '', email: '', username: '', password: '', mustChangePassword: true };
   showCreateForm.value = false;
   await loadUsers();
 });
@@ -49,7 +49,7 @@ const { loading: deleteLoading, error: deleteError, execute: confirmDelete } = u
 
 function startEdit(user) {
   editingId.value = user.id;
-  editDraft.value = { displayName: user.displayName, email: user.email };
+  editDraft.value = { displayName: user.displayName, email: user.email, username: user.username || '' };
   editError.value = '';
 }
 
@@ -80,6 +80,7 @@ onMounted(loadUsers);
       <div class="admin-users-form-fields">
         <input v-model="createDraft.displayName" class="login-input" type="text" placeholder="Display name" />
         <input v-model="createDraft.email" class="login-input" type="email" placeholder="Email" />
+        <input v-model="createDraft.username" class="login-input" type="text" placeholder="Username (optional)" autocapitalize="none" />
         <input v-model="createDraft.password" class="login-input" type="password" placeholder="Password" />
       </div>
       <label class="admin-users-check">
@@ -103,6 +104,7 @@ onMounted(loadUsers);
           <div class="admin-user-edit">
             <input v-model="editDraft.displayName" class="login-input" type="text" placeholder="Display name" />
             <input v-model="editDraft.email" class="login-input" type="email" placeholder="Email" />
+            <input v-model="editDraft.username" class="login-input" type="text" placeholder="Username (optional)" autocapitalize="none" />
             <p v-if="editError" class="login-error">{{ editError }}</p>
             <div class="admin-user-edit-actions">
               <button class="ghost-btn ghost-btn-background" type="button" :disabled="editLoading" @click="saveEdit(user.id)">
@@ -144,7 +146,7 @@ onMounted(loadUsers);
         <template v-else>
           <div class="admin-user-info">
             <span class="admin-user-name">{{ user.displayName }}</span>
-            <span class="admin-user-email muted">{{ user.email }}</span>
+            <span class="admin-user-email muted">{{ user.email }}<template v-if="user.username"> · @{{ user.username }}</template></span>
             <span v-if="user.mustChangePassword" class="admin-user-badge">Must choose a new password</span>
           </div>
           <div class="admin-user-row-actions">

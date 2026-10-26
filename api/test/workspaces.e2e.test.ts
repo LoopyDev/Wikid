@@ -102,7 +102,17 @@ describe('workspace members', () => {
     expect(unknown.body.message).toContain('No user with the email nobody@example.com');
     const empty = await alice.post(`/workspaces/${id}/members`, {});
     expect(empty.status).toBe(400);
-    expect(empty.body.message).toBe('Enter the email address of the person to add');
+    expect(empty.body.message).toBe('Enter the email address or username of the person to add');
+    const unknownName = await alice.post(`/workspaces/${id}/members`, { login: 'no-such-user' });
+    expect(unknownName.status).toBe(404);
+    expect(unknownName.body.message).toContain('No user with the username no-such-user');
+  });
+
+  it('adds a member by username', async () => {
+    const id = await createWorkspace(alice);
+    const added = await alice.post(`/workspaces/${id}/members`, { login: 'Bob', role: 'VIEWER' });
+    expect(added.status).toBe(201);
+    expect(added.body).toMatchObject({ userId: USERS.bob.id, role: 'VIEWER' });
   });
 
   it('only lets owners manage members', async () => {

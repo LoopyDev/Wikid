@@ -15,13 +15,28 @@ test.describe('signing in', () => {
     await expect(sidebar.getByRole('button', { name: /Wikid Workspace/ })).toBeVisible();
   });
 
+  test('signs in with a username instead of the email', async ({ page }) => {
+    await page.goto('/');
+    await page.getByRole('textbox', { name: 'Email or username' }).fill('alice');
+    await page.getByRole('textbox', { name: 'Password' }).fill(DEMO_PASSWORD);
+    await page.getByRole('button', { name: 'Sign in' }).click();
+    await expect(page.getByRole('complementary').getByRole('button', { name: /Wikid Workspace/ })).toBeVisible();
+
+    // Settings show the account's username.
+    await page.locator('.user-switch').click();
+    await page.locator('.popover-card').getByRole('button', { name: 'Settings' }).click();
+    const account = page.locator('.settings-account');
+    await expect(account.getByText('alice', { exact: true })).toBeVisible();
+    await expect(account.getByText(USERS.alice.email)).toBeVisible();
+  });
+
   test('shows an error for a wrong password', async ({ page }) => {
     await page.goto('/');
     await page.getByRole('textbox', { name: 'Email' }).fill(USERS.alice.email);
     await page.getByRole('textbox', { name: 'Password' }).fill('not-the-password');
     await page.getByRole('button', { name: 'Sign in' }).click();
 
-    await expect(page.getByText('Invalid email or password')).toBeVisible();
+    await expect(page.getByText('Invalid email, username or password')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
   });
 

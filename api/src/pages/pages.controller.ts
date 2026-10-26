@@ -412,11 +412,13 @@ export class PagesController {
   @Public()
   @Post('auth/login')
   async login(
-    @Body('email') email: string,
+    @Body('login') login: string | undefined,
+    @Body('email') email: string | undefined,
     @Body('password') password: string,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const result = await this.users.loginWithCredentials(email, password);
+    // `login` is an email or a username; `email` is the older name for it.
+    const result = await this.users.loginWithCredentials(login ?? email ?? '', password);
     res.cookie(SESSION_COOKIE, signSession(result.user.id), sessionCookieOptions());
     return result;
   }
@@ -477,9 +479,10 @@ export class PagesController {
     @Body('displayName') displayName: string,
     @Body('email') email: string,
     @Body('password') password: string,
+    @Body('username') username?: string,
     @Body('mustChangePassword') mustChangePassword?: boolean,
   ) {
-    return this.users.adminCreateUser(adminId, { displayName, email, password, mustChangePassword });
+    return this.users.adminCreateUser(adminId, { displayName, email, password, username, mustChangePassword });
   }
 
   @Patch('admin/users/:id')
@@ -488,8 +491,9 @@ export class PagesController {
     @Body('adminId') adminId: string,
     @Body('displayName') displayName?: string,
     @Body('email') email?: string,
+    @Body('username') username?: string | null,
   ) {
-    return this.users.adminUpdateUser(adminId, id, { displayName, email });
+    return this.users.adminUpdateUser(adminId, id, { displayName, email, username });
   }
 
   @Post('admin/users/:id/reset-password')
@@ -560,17 +564,18 @@ export class PagesController {
     return this.workspaces.listWorkspaceMembers(userId, workspaceId, adminId);
   }
 
-  // Add or update a member by email (role optional, defaults to EDITOR)
+  // Add or update a member by email or username (role optional, defaults to EDITOR)
   @Post('workspaces/:id/members')
   addWorkspaceMember(
     @Param('id') workspaceId: string,
+    @Body('login') login?: string,
     @Body('email') email?: string,
     @Body('userId') userId?: string,
     @Body('role') role?: any,
     @Query('userId') requesterId?: string,
     @Query('adminId') adminId?: string,
   ) {
-    return this.workspaces.addWorkspaceMember(requesterId, workspaceId, { email, userId, role }, adminId);
+    return this.workspaces.addWorkspaceMember(requesterId, workspaceId, { login: login ?? email, userId, role }, adminId);
   }
 
   // Admin: change role
