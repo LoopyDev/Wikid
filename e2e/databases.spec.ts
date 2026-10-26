@@ -112,4 +112,75 @@ test.describe('databases', () => {
     await rowNames(alice).nth(0).blur();
     await expect(bobsCell).toHaveCount(0);
   });
+
+  test('a saved view filters and sorts rows, and keeps its settings', async ({ alice: page, workspaceId }) => {
+    await openPage(page, await createPage(page, workspaceId));
+    const id = await newDatabaseFromSidebar(page, unique('Fruit'));
+    for (const name of ['Banana', 'Apple', 'Cherry']) await addNamedRow(page, id, name);
+    const views = async () => (await (await page.request.get(`/api/pages/${id}/database`)).json()).views ?? [];
+
+    await main(page).getByRole('button', { name: 'Create form view' }).click();
+    await page.locator('.block-menu__item', { hasText: 'Filter & sort rows' }).click();
+    await expect.poll(async () => (await views()).map((v: any) => v.name)).toEqual(['Table 1']);
+
+    // Filter: Name is Banana.
+    await main(page).getByRole('button', { name: 'Filter', exact: true }).click();
+    const config = page.locator('.db-view-config-menu');
+    await config.getByRole('button', { name: '+ Add filter' }).click();
+    await config.getByPlaceholder('Value').fill('Banana');
+    await expect(rowNames(page)).toHaveCount(1);
+    await expect(rowNames(page).nth(0)).toHaveValue('Banana');
+    await config.getByRole('button', { name: 'Remove filter' }).click();
+    await expect(rowNames(page)).toHaveCount(3);
+    await page.keyboard.press('Escape');
+    await page.mouse.click(5, 5);
+
+    // Sort: Name, descending.
+    await main(page).getByRole('button', { name: 'Sort', exact: true }).click();
+    await config.getByRole('button', { name: '+ Add sort' }).click();
+    await config.locator('select').nth(1).selectOption('desc');
+    const shown = async () => Promise.all((await rowNames(page).all()).map((input) => input.inputValue()));
+    await expect.poll(shown).toEqual(['Cherry', 'Banana', 'Apple']);
+
+    // The sort is saved with the view.
+    await expect.poll(async () => (await views())[0]?.config?.sorts?.[0]?.direction).toBe('desc');
+  });
+
+  test('select, checkbox and number cells show and save their values', async ({ alice: page, workspaceId }) => {
+    await openPage(page, await createPage(page, workspaceId));
+    const id = await newDatabaseFromSidebar(page, unique('Typed'));
+    await addNamedRow(page, id, 'First');
+    const addField = async (data: Record<string, unknown>) => {
+      const res = await page.request.post(`/api/pages/${id}/database/fields`, { data });
+      expect(res.status()).toBe(201);
+    };
+    await addField({ name: 'Tags', type: 'MULTI_SELECT', options: { choices: [{ value: 'Red' }, { value: 'Blue' }] } });
+    await addField({ name: 'Done', type: 'CHECKBOX' });
+    await addField({ name: 'Count', type: 'NUMBER' });
+    await page.reload();
+    const row = main(page).locator('tbody tr').first();
+
+    // Multi-select: pick an option from the cell's menu; it shows as a pill.
+    await row.locator('.db-multi-cell').click();
+    await page.locator('.db-multi-select-menu .db-multi-option', { hasText: 'Blue' }).click();
+    await page.keyboard.press('Escape');
+    await expect(row.locator('.db-multi-pill', { hasText: 'Blue' })).toBeVisible();
+
+    // Checkbox.
+    await row.locator('td input[type="checkbox"]').last().check();
+
+    // Number: only digits are kept.
+    const number = row.locator('input[inputmode="decimal"]');
+    await number.focus();
+    await page.keyboard.type('4x2', { delay: 50 });
+    await page.keyboard.press('Enter');
+    await expect(number).toHaveValue('42');
+
+    // All three are still there after reopening the page.
+    await page.waitForTimeout(1000);
+    await page.reload();
+    await expect(row.locator('.db-multi-pill', { hasText: 'Blue' })).toBeVisible();
+    await expect(row.locator('td input[type="checkbox"]').last()).toBeChecked();
+    await expect(number).toHaveValue('42');
+  });
 });
