@@ -300,7 +300,7 @@ onBeforeUnmount(() => {
   transition: border-color 0.15s;
 }
 .gs-node--selected {
-  border-color: var(--color-accent, #3b82f6);
+  border-color: var(--accent);
 }
 .gs-viewer {
   position: relative;
@@ -334,14 +334,14 @@ onBeforeUnmount(() => {
   justify-content: center;
   gap: 8px;
   padding: 2.5rem;
-  border: 2px dashed var(--color-border, #333);
+  border: 2px dashed var(--surface-border);
   border-radius: 8px;
-  color: var(--color-text-secondary, #888);
+  color: var(--text-muted);
   cursor: pointer;
   transition: border-color 0.15s, background 0.15s;
 }
 .gs-upload:hover {
-  border-color: var(--color-accent, #3b82f6);
+  border-color: var(--accent);
   background: rgba(59, 130, 246, 0.05);
 }
 .gs-upload__input {
@@ -355,7 +355,7 @@ onBeforeUnmount(() => {
   font-size: 0.8rem;
 }
 .gs-upload__loading {
-  color: var(--color-accent, #3b82f6);
+  color: var(--accent);
   font-size: 0.8rem;
 }
 </style>
