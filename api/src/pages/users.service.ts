@@ -96,7 +96,10 @@ export class UsersService {
     return users.map((u) => this.stripPassword(u));
   }
 
-  async adminCreateUser(adminId: string, payload: { displayName: string; email: string; password: string }) {
+  async adminCreateUser(
+    adminId: string,
+    payload: { displayName: string; email: string; password: string; mustChangePassword?: boolean },
+  ) {
     assertSystemAdmin(adminId);
     const { displayName, email, password } = payload;
     if (!displayName?.trim()) throw new BadRequestException('displayName is required');
@@ -110,6 +113,7 @@ export class UsersService {
         email: email.toLowerCase().trim(),
         displayName: displayName.trim(),
         passwordHash,
+        mustChangePassword: payload.mustChangePassword !== false,
       },
     });
     await this.access.ensureDefaultWorkspaces(user.id, user.displayName);
@@ -134,13 +138,13 @@ export class UsersService {
     return this.stripPassword(updated);
   }
 
-  async adminResetPassword(adminId: string, userId: string, newPassword: string) {
+  async adminResetPassword(adminId: string, userId: string, newPassword: string, mustChangePassword = true) {
     assertSystemAdmin(adminId);
     if (!newPassword) throw new BadRequestException('newPassword is required');
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new NotFoundException('User not found');
     const passwordHash = await hashPassword(newPassword);
-    await this.prisma.user.update({ where: { id: userId }, data: { passwordHash } });
+    await this.prisma.user.update({ where: { id: userId }, data: { passwordHash, mustChangePassword: mustChangePassword !== false } });
     return { ok: true };
   }
 
@@ -199,8 +203,9 @@ export class UsersService {
     const valid = await verifyPassword(currentPassword, user.passwordHash);
     // Not 401: the web app treats 401 as an expired session and logs the user out.
     if (!valid) throw new BadRequestException('Current password is incorrect');
+    if (newPassword === currentPassword) throw new BadRequestException('Choose a password different from the current one');
     const passwordHash = await hashPassword(newPassword);
-    await this.prisma.user.update({ where: { id: userId }, data: { passwordHash } });
+    await this.prisma.user.update({ where: { id: userId }, data: { passwordHash, mustChangePassword: false } });
     return { ok: true };
   }
 }

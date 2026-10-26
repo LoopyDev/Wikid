@@ -21,11 +21,12 @@ import ExportModal from './components/ExportModal.vue';
 import CreateWorkspaceModal from './components/CreateWorkspaceModal.vue';
 import MoveToWorkspaceModal from './components/MoveToWorkspaceModal.vue';
 import LoginPage from './components/LoginPage.vue';
+import ChooseNewPassword from './components/ChooseNewPassword.vue';
 import UserMenu from './components/UserMenu.vue';
 import DeletePageModal from './components/DeletePageModal.vue';
 import BinModal from './components/BinModal.vue';
 import PageTree from './components/PageTree';
-import { api, AUTH_EXPIRED_EVENT } from './api/client';
+import { api, AUTH_EXPIRED_EVENT, PASSWORD_CHANGE_REQUIRED_EVENT } from './api/client';
 import { editorDocToMarkdown, editorDocToMarkdownAsync, fallbackDoc } from './utils/editorDoc';
 import { SYSTEM_ADMIN_ID } from './constants/system-admin';
 import { CHEVRON_RIGHT } from './constants/icons';
@@ -719,6 +720,7 @@ onMounted(() => {
   window.addEventListener('hashchange', focusBlockFromHash);
   window.addEventListener('wikid:api-status', handleApiStatus);
   window.addEventListener(AUTH_EXPIRED_EVENT, handleAuthExpired);
+  window.addEventListener(PASSWORD_CHANGE_REQUIRED_EVENT, handlePasswordChangeRequired);
   window.addEventListener('wikid:page-title-updated', handleExternalTitleUpdated);
   window.addEventListener('offline', handleBrowserOffline);
   setTimeout(() => focusBlockFromHash(), 120);
@@ -792,6 +794,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('hashchange', focusBlockFromHash);
   window.removeEventListener('wikid:api-status', handleApiStatus);
   window.removeEventListener(AUTH_EXPIRED_EVENT, handleAuthExpired);
+  window.removeEventListener(PASSWORD_CHANGE_REQUIRED_EVENT, handlePasswordChangeRequired);
   window.removeEventListener('wikid:page-title-updated', handleExternalTitleUpdated);
   window.removeEventListener('offline', handleBrowserOffline);
   stopResizing();
@@ -1225,6 +1228,7 @@ const handleLogout = () => {
 const handleAuthExpired = () => {
   if (workspace.activeUserId) workspace.logout();
 };
+const handlePasswordChangeRequired = () => workspace.requirePasswordChange();
 const openAdminView = (view) => {
   closeMenu();
   showUserMenu.value = false;
@@ -1952,6 +1956,7 @@ if (typeof window !== 'undefined') {
     </section>
   </div>
   <LoginPage v-else-if="!activeUser" />
+  <ChooseNewPassword v-else-if="workspace.mustChangePassword" />
   <div v-else class="app-shell" :class="{ 'app-shell--sidebar-hidden': isSidebarHidden }" :style="appShellStyle">
     <div v-if="showNotConnected" class="not-connected-overlay" role="status" aria-live="polite">
       <div class="not-connected-card">

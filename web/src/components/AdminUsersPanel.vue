@@ -9,11 +9,12 @@ const props = defineProps({
 
 const users = ref([]);
 const showCreateForm = ref(false);
-const createDraft = ref({ displayName: '', email: '', password: '' });
+const createDraft = ref({ displayName: '', email: '', password: '', mustChangePassword: true });
 const editingId = ref(null);
 const editDraft = ref({ displayName: '', email: '' });
 const resetId = ref(null);
 const resetPassword = ref('');
+const resetMustChange = ref(true);
 const deleteId = ref(null);
 
 const { loading, error, execute: loadUsers } = useApiMutation(async () => {
@@ -22,7 +23,7 @@ const { loading, error, execute: loadUsers } = useApiMutation(async () => {
 
 const { loading: createLoading, error: createError, execute: createUser } = useApiMutation(async () => {
   await api.createUser(props.adminId, createDraft.value);
-  createDraft.value = { displayName: '', email: '', password: '' };
+  createDraft.value = { displayName: '', email: '', password: '', mustChangePassword: true };
   showCreateForm.value = false;
   await loadUsers();
 });
@@ -34,9 +35,10 @@ const { loading: editLoading, error: editError, execute: saveEdit } = useApiMuta
 });
 
 const { loading: resetLoading, error: resetError, execute: submitReset } = useApiMutation(async (userId) => {
-  await api.resetUserPassword(props.adminId, userId, resetPassword.value);
+  await api.resetUserPassword(props.adminId, userId, resetPassword.value, { mustChangePassword: resetMustChange.value });
   resetId.value = null;
   resetPassword.value = '';
+  await loadUsers();
 });
 
 const { loading: deleteLoading, error: deleteError, execute: confirmDelete } = useApiMutation(async (userId) => {
@@ -54,6 +56,7 @@ function startEdit(user) {
 function startReset(userId) {
   resetId.value = userId;
   resetPassword.value = '';
+  resetMustChange.value = true;
   resetError.value = '';
 }
 
@@ -79,6 +82,10 @@ onMounted(loadUsers);
         <input v-model="createDraft.email" class="login-input" type="email" placeholder="Email" />
         <input v-model="createDraft.password" class="login-input" type="password" placeholder="Password" />
       </div>
+      <label class="admin-users-check">
+        <input v-model="createDraft.mustChangePassword" type="checkbox" />
+        Ask them to choose their own password when they first log in
+      </label>
       <p v-if="createError" class="login-error">{{ createError }}</p>
       <div class="admin-users-form-actions">
         <button class="ghost-btn ghost-btn-background" type="button" :disabled="createLoading" @click="createUser">
@@ -109,6 +116,10 @@ onMounted(loadUsers);
           <div class="admin-user-reset">
             <span class="admin-user-name">{{ user.displayName }}</span>
             <input v-model="resetPassword" class="login-input" type="password" placeholder="New password" />
+            <label class="admin-users-check">
+              <input v-model="resetMustChange" type="checkbox" />
+              Ask them to choose their own password when they next log in
+            </label>
             <p v-if="resetError" class="login-error">{{ resetError }}</p>
             <div class="admin-user-edit-actions">
               <button class="ghost-btn ghost-btn-background" type="button" :disabled="resetLoading" @click="submitReset(user.id)">
@@ -134,6 +145,7 @@ onMounted(loadUsers);
           <div class="admin-user-info">
             <span class="admin-user-name">{{ user.displayName }}</span>
             <span class="admin-user-email muted">{{ user.email }}</span>
+            <span v-if="user.mustChangePassword" class="admin-user-badge">Must choose a new password</span>
           </div>
           <div class="admin-user-row-actions">
             <button class="ghost-btn ghost-btn-background" type="button" @click="startEdit(user)">Edit</button>
@@ -148,6 +160,22 @@ onMounted(loadUsers);
 </template>
 
 <style scoped>
+.admin-users-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+}
+
+.admin-user-badge {
+  align-self: flex-start;
+  font-size: 0.75rem;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--text-color-orange);
+  color: var(--text-primary);
+}
+
 .admin-users-form {
   background: var(--surface-raised, #f8fafc);
   border: 1px solid var(--border, #e2e8f0);

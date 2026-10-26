@@ -1,6 +1,8 @@
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 const API_STATUS_EVENT = 'wikid:api-status';
 export const AUTH_EXPIRED_EVENT = 'wikid:auth-expired';
+// The API refused a request because an admin set this user's password: they must choose their own.
+export const PASSWORD_CHANGE_REQUIRED_EVENT = 'wikid:password-change-required';
 
 const notifyApiStatus = (status) => {
   if (typeof window === 'undefined' || typeof window.dispatchEvent !== 'function') return;
@@ -32,6 +34,17 @@ function errorMessageFrom(raw, res) {
 async function apiFetch(path, options = {}) {
   const res = await fetch(`${API_BASE}${path}`, { credentials: 'include', ...options });
   if (res.status === 401 && path !== '/auth/login') notifyAuthExpired();
+  if (res.status === 403) {
+    res
+      .clone()
+      .json()
+      .then((body) => {
+        if (body?.code === 'PASSWORD_CHANGE_REQUIRED' && typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent(PASSWORD_CHANGE_REQUIRED_EVENT));
+        }
+      })
+      .catch(() => {});
+  }
   return res;
 }
 
@@ -299,10 +312,10 @@ export const api = {
   async listUsers(adminId) {
     return request(`/admin/users?adminId=${encodeURIComponent(adminId)}`);
   },
-  async createUser(adminId, { displayName, email, password }) {
+  async createUser(adminId, { displayName, email, password, mustChangePassword = true }) {
     return request(`/admin/users`, {
       method: 'POST',
-      body: JSON.stringify({ adminId, displayName, email, password }),
+      body: JSON.stringify({ adminId, displayName, email, password, mustChangePassword }),
     });
   },
   async updateUser(adminId, userId, { displayName, email } = {}) {
@@ -311,10 +324,10 @@ export const api = {
       body: JSON.stringify({ adminId, displayName, email }),
     });
   },
-  async resetUserPassword(adminId, userId, newPassword) {
+  async resetUserPassword(adminId, userId, newPassword, { mustChangePassword = true } = {}) {
     return request(`/admin/users/${userId}/reset-password`, {
       method: 'POST',
-      body: JSON.stringify({ adminId, newPassword }),
+      body: JSON.stringify({ adminId, newPassword, mustChangePassword }),
     });
   },
   async deleteUser(adminId, userId) {

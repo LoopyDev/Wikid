@@ -12,7 +12,7 @@ import { UsersService } from './users.service';
 import { PdfService } from '../pdf/pdf.service';
 import { HtmlExportService } from '../export/html-export.service';
 import { AuthUser, CurrentUser } from '../auth/auth.guard';
-import { Public } from '../auth/public.decorator';
+import { AllowPendingPasswordChange, Public } from '../auth/public.decorator';
 import { SESSION_COOKIE, sessionCookieOptions, signSession } from '../auth/session.util';
 
 function pickDefined(source: Record<string, any>, keys: string[]): Record<string, any> {
@@ -454,6 +454,7 @@ export class PagesController {
   }
 
   @Put('users/:id/password')
+  @AllowPendingPasswordChange()
   changePassword(
     @Param('id') id: string,
     @Body('currentPassword') currentPassword: string,
@@ -476,8 +477,9 @@ export class PagesController {
     @Body('displayName') displayName: string,
     @Body('email') email: string,
     @Body('password') password: string,
+    @Body('mustChangePassword') mustChangePassword?: boolean,
   ) {
-    return this.users.adminCreateUser(adminId, { displayName, email, password });
+    return this.users.adminCreateUser(adminId, { displayName, email, password, mustChangePassword });
   }
 
   @Patch('admin/users/:id')
@@ -495,8 +497,9 @@ export class PagesController {
     @Param('id') id: string,
     @Body('adminId') adminId: string,
     @Body('newPassword') newPassword: string,
+    @Body('mustChangePassword') mustChangePassword?: boolean,
   ) {
-    return this.users.adminResetPassword(adminId, id, newPassword);
+    return this.users.adminResetPassword(adminId, id, newPassword, mustChangePassword);
   }
 
   @Delete('admin/users/:id')

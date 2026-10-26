@@ -43,6 +43,8 @@ export const useWorkspaceStore = defineStore('workspace', {
     pendingTitleSave: null,
     savingHold: null,
     deletingCascade: false,
+    // An admin set this user's password; they choose their own before using the app.
+    mustChangePassword: false,
     // Set when someone moves the open page (or a page it's inside) to the Bin:
     // { openPageId, pageId, pageTitle, pageIds, byName, byMe }. Only shown while that page is still open.
     remoteDeletion: null,
@@ -138,6 +140,7 @@ export const useWorkspaceStore = defineStore('workspace', {
       }
     },
     async loadInitial() {
+      if (this.activeUser && this.mustChangePassword) return;
       if (!this.activeUser) {
         this.pages = [];
         this.binPages = [];
@@ -434,6 +437,7 @@ export const useWorkspaceStore = defineStore('workspace', {
       this.activeUserId = null;
       this.activeUserName = null;
       this.activeUserEmail = null;
+      this.mustChangePassword = false;
       this.userPreferences = {};
       this.activePageId = null;
       this.activePageWorkspaceId = null;
@@ -456,13 +460,9 @@ export const useWorkspaceStore = defineStore('workspace', {
         this.activeUserId = res.user.id;
         this.activeUserName = res.user.displayName;
         this.activeUserEmail = res.user.email;
+        this.mustChangePassword = !!res.user.mustChangePassword;
         this.setUserPreferences(res.user?.preferences || {});
-        if (typeof localStorage !== 'undefined') {
-          localStorage.setItem(
-            'wikid:user',
-            JSON.stringify({ id: res.user.id, name: res.user.displayName, email: res.user.email }),
-          );
-        }
+        this.saveUserToStorage();
         await this.loadInitial();
       } catch (err) {
         console.warn('Login failed', err);
@@ -472,6 +472,29 @@ export const useWorkspaceStore = defineStore('workspace', {
     },
     async changePassword(currentPassword, newPassword) {
       await api.changePassword(this.activeUserId, currentPassword, newPassword);
+      if (this.mustChangePassword) {
+        this.mustChangePassword = false;
+        this.saveUserToStorage();
+        await this.loadInitial();
+      }
+    },
+    // The API said this user must choose a new password (e.g. an admin reset it meanwhile).
+    requirePasswordChange() {
+      if (!this.activeUserId || this.mustChangePassword) return;
+      this.mustChangePassword = true;
+      this.saveUserToStorage();
+    },
+    saveUserToStorage() {
+      if (typeof localStorage === 'undefined' || !this.activeUserId) return;
+      localStorage.setItem(
+        'wikid:user',
+        JSON.stringify({
+          id: this.activeUserId,
+          name: this.activeUserName,
+          email: this.activeUserEmail,
+          mustChangePassword: this.mustChangePassword,
+        }),
+      );
     },
     restoreUserFromStorage() {
       if (typeof localStorage === 'undefined') return;
@@ -482,6 +505,7 @@ export const useWorkspaceStore = defineStore('workspace', {
           this.activeUserId = entry.id;
           this.activeUserName = entry.name || entry.id;
           this.activeUserEmail = entry.email || null;
+          this.mustChangePassword = !!entry.mustChangePassword;
         }
       } catch {
         // ignore

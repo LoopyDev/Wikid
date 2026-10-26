@@ -3,9 +3,9 @@ import { DEMO_PASSWORD, Session, USERS, loginAs, unique } from './helpers';
 
 const MISSING_ID = '00000000-0000-4000-8000-000000000000';
 
-async function createTempUser(admin: Session, password: string) {
+async function createTempUser(admin: Session, password: string, { mustChangePassword = false } = {}) {
   const email = `${unique('user').replace(/\s/g, '-').toLowerCase()}@example.com`;
-  const res = await admin.post('/admin/users', { adminId: 'x', displayName: 'Temp User', email, password });
+  const res = await admin.post('/admin/users', { adminId: 'x', displayName: 'Temp User', email, password, mustChangePassword });
   expect(res.status).toBe(201);
   expect(res.body).toMatchObject({ email, displayName: 'Temp User' });
   expect(res.body.passwordHash).toBeUndefined();
@@ -128,6 +128,40 @@ describe('admin user management and passwords', () => {
     expect((await admin.post(`/admin/users/${userId}/reset-password`, { adminId: 'x', newPassword: 'second-pass' })).status).toBe(201);
     expect((await new Session().login(email, 'first-pass')).status).toBe(401);
     expect((await new Session().login(email, 'second-pass')).status).toBe(201);
+  });
+
+  it('makes a user the admin set a password for choose their own before anything else', async () => {
+    const admin = await loginAs(USERS.admin.email);
+    const { id: userId, email } = await createTempUser(admin, 'given-pass', { mustChangePassword: true });
+    expect((await admin.get('/admin/users?adminId=x')).body.find((u: any) => u.id === userId).mustChangePassword).toBe(true);
+
+    const user = new Session();
+    const login = await user.login(email, 'given-pass');
+    expect(login.status).toBe(201);
+    expect(login.body.user.mustChangePassword).toBe(true);
+    const blocked = await user.get('/workspaces');
+    expect(blocked.status).toBe(403);
+    expect(blocked.body.code).toBe('PASSWORD_CHANGE_REQUIRED');
+
+    // Keeping the same password doesn't count.
+    expect((await user.put(`/users/${userId}/password`, { currentPassword: 'given-pass', newPassword: 'given-pass' })).status).toBe(400);
+    expect((await user.put(`/users/${userId}/password`, { currentPassword: 'given-pass', newPassword: 'own-pass' })).status).toBe(200);
+    expect((await user.get('/workspaces')).status).toBe(200);
+
+    // An admin reset asks again, unless the admin says not to.
+    await admin.post(`/admin/users/${userId}/reset-password`, { adminId: 'x', newPassword: 'reset-pass' });
+    expect((await user.get('/workspaces')).body.code).toBe('PASSWORD_CHANGE_REQUIRED');
+    await admin.post(`/admin/users/${userId}/reset-password`, { adminId: 'x', newPassword: 'reset-pass', mustChangePassword: false });
+    expect((await user.get('/workspaces')).status).toBe(200);
+    await admin.delete(`/admin/users/${userId}?adminId=x`);
+  });
+
+  it('asks new users to choose their own password unless the admin says not to', async () => {
+    const admin = await loginAs(USERS.admin.email);
+    const email = `${unique('default').replace(/\s/g, '-').toLowerCase()}@example.com`;
+    const created = await admin.post('/admin/users', { adminId: 'x', displayName: 'Default', email, password: 'p' });
+    expect(created.body.mustChangePassword).toBe(true);
+    await admin.delete(`/admin/users/${created.body.id}?adminId=x`);
   });
 
   it('refuses to delete the system admin or a user that does not exist', async () => {
