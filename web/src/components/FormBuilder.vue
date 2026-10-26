@@ -1910,7 +1910,6 @@ watch(
     </div>
   </div>
   <div v-else-if="formBuilderTab === 'layout'" class="db-form-layout">
-    <div class="db-form-layout__hint muted">Preview only. Submissions are disabled.</div>
     <DatabaseFormPage v-if="activeForm?.id" :form-id="activeForm.id" embedded preview />
   </div>
 </template>

@@ -92,7 +92,7 @@ test.describe('databases', () => {
 
     // The layout tab previews the form as people will fill it in.
     await builder.getByRole('button', { name: 'Layout' }).click();
-    await expect(builder.getByText('Preview only. Submissions are disabled.')).toBeVisible();
+    await expect(builder.locator('form').getByText('Preview only. Submissions are disabled.')).toBeVisible();
   });
 
   test("shows which cell someone else is editing", async ({ alice, bob, workspaceId }) => {
@@ -182,5 +182,32 @@ test.describe('databases', () => {
     await expect(row.locator('.db-multi-pill', { hasText: 'Blue' })).toBeVisible();
     await expect(row.locator('td input[type="checkbox"]').last()).toBeChecked();
     await expect(number).toHaveValue('42');
+  });
+
+  test("a change survives someone else opening the table, and a reload", async ({ alice, bob, workspaceId }) => {
+    // Opening a table used to add the rows it loaded to the live document before syncing with the
+    // server, competing with the server's copy of the same row; about half the time that wiped
+    // recent changes for everyone.
+    const id = await createPage(alice, workspaceId, { title: unique('Shared table'), kind: 'DATABASE' });
+    const db = await (await alice.request.get(`/api/pages/${id}/database`)).json();
+    const name = db.fields.find((f: any) => f.name === 'Name').id;
+    await alice.request.post(`/api/pages/${id}/database/fields`, { data: { name: 'Tags', type: 'MULTI_SELECT', options: { choices: [{ value: 'Red' }, { value: 'Blue' }] } } });
+    await alice.request.post(`/api/pages/${id}/database/rows`, { data: { data: { [name]: 'Row' } } });
+
+    await alice.goto(`/doc/${id}`);
+    const row = main(alice).locator('tbody tr').first();
+    await row.locator('.db-multi-cell').click();
+    await alice.locator('.db-multi-select-menu .db-multi-option', { hasText: 'Blue' }).click();
+    await alice.keyboard.press('Escape');
+    await expect(row.locator('.db-multi-pill', { hasText: 'Blue' })).toBeVisible();
+    await alice.waitForTimeout(1000);
+
+    await bob.goto(`/doc/${id}`);
+    const bobRow = main(bob).locator('tbody tr').first();
+    await expect(bobRow.locator('.db-multi-pill', { hasText: 'Blue' })).toBeVisible();
+    await alice.reload();
+    await expect(row.locator('.db-multi-pill', { hasText: 'Blue' })).toBeVisible();
+    await bob.waitForTimeout(1500);
+    await expect(bobRow.locator('.db-multi-pill', { hasText: 'Blue' })).toBeVisible();
   });
 });

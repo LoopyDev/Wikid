@@ -207,7 +207,12 @@ export function useDatabaseCollab({ props, workspace, fields, rows, sorting, col
     collabSeeded.value = true;
     scheduleCollabApply();
   };
+  // Writes made before the document has synced with the server go into a local copy that doesn't
+  // have the server's rows yet: creating a row's map there would compete with the server's map for
+  // the same row, and Yjs keeps only one of them, dropping the other's values for everyone. So
+  // these wait until the document has synced (writesAfterSync below).
   const syncCollabRowsFromSnapshot = (snapshot) => {
+    if (!collabSynced.value) return;
     if (!snapshot?.rows?.length) return;
     if (!isCollabEnabled.value || !collabDoc.value) return;
     if (!collabRowsMap.value || !collabRowOrder.value) return;
@@ -245,6 +250,7 @@ export function useDatabaseCollab({ props, workspace, fields, rows, sorting, col
     }, 'db-row-sync');
   };
   const syncCollabFieldsFromSnapshot = (snapshot) => {
+    if (!collabSynced.value) return;
     if (!snapshot?.fields?.length) return;
     if (!isCollabEnabled.value || !collabDoc.value) return;
     if (!collabFieldsMap.value || !collabFieldOrder.value) return;
@@ -315,7 +321,14 @@ export function useDatabaseCollab({ props, workspace, fields, rows, sorting, col
     maybeSeedCollab();
     syncCollabFieldsFromSnapshot(lastLoadedSnapshot.value);
     syncCollabRowsFromSnapshot(lastLoadedSnapshot.value);
+    writesAfterSync.splice(0).forEach((write) => write());
     scheduleCollabApply();
+  };
+  // Runs a write to the document now if it has synced, or as soon as it has (see above).
+  const writesAfterSync = [];
+  const whenCollabSynced = (write) => {
+    if (collabSynced.value) write();
+    else writesAfterSync.push(write);
   };
   const teardownCollabProvider = (options = {}) => {
     if (collabProvider.value) {
@@ -405,5 +418,6 @@ export function useDatabaseCollab({ props, workspace, fields, rows, sorting, col
     return rowMap;
   };
 
-  return { collabDoc, collabProvider, collabFieldOrder, collabFieldsMap, collabRowOrder, collabRowsMap, ensureCollabDoc, ensureCollabFieldMap, ensureCollabRowMap, isCollabEnabled, maybeSeedCollab, setupCollabProvider, teardownCollabProvider, syncCollabFieldsFromSnapshot, syncCollabRowsFromSnapshot, collabContext };
+  return { collabDoc, whenCollabSynced, collabProvider, collabFieldOrder, collabFieldsMap, collabRowOrder, collabRowsMap, ensureCollabDoc, ensureCollabFieldMap, ensureCollabRowMap, isCollabEnabled, maybeSeedCollab, setupCollabProvider, teardownCollabProvider, syncCollabFieldsFromSnapshot, syncCollabRowsFromSnapshot, collabContext };
 }
+

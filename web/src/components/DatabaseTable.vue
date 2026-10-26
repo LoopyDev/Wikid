@@ -1257,7 +1257,7 @@ const closeColumnsMenu = () => {
   columnsMenu.value = { open: false, x: 0, y: 0 };
 };
 
-const { collabDoc, collabProvider, collabFieldOrder, collabFieldsMap, collabRowOrder, collabRowsMap, ensureCollabDoc, ensureCollabFieldMap, ensureCollabRowMap, isCollabEnabled, maybeSeedCollab, setupCollabProvider, teardownCollabProvider, syncCollabFieldsFromSnapshot, syncCollabRowsFromSnapshot, collabContext } = useDatabaseCollab({ props, workspace, fields, rows, sorting, columnSizing, tableWrapRef, lastLoadedSnapshot, isComplianceDatabase, syncComplianceStatusCache });
+const { collabDoc, collabProvider, whenCollabSynced, collabFieldOrder, collabFieldsMap, collabRowOrder, collabRowsMap, ensureCollabDoc, ensureCollabFieldMap, ensureCollabRowMap, isCollabEnabled, maybeSeedCollab, setupCollabProvider, teardownCollabProvider, syncCollabFieldsFromSnapshot, syncCollabRowsFromSnapshot, collabContext } = useDatabaseCollab({ props, workspace, fields, rows, sorting, columnSizing, tableWrapRef, lastLoadedSnapshot, isComplianceDatabase, syncComplianceStatusCache });
 const { attachAwarenessListener, caretLeftForCell, clearLocalCellCursor, getCellPresence, handleCaretMouse, handleCaretNavigate, markCellBlur, markCellFocus, markCellTyping, onTableFocusOut, presenceUser, setCellInputRef, updateAwarenessUser } = useCellPresence({ emit, activeUser, collabProvider, isCollabEnabled, tableWrapRef, flushPendingEnsureRowPages, scheduleSortRefresh });
 
 const { savedViews, normalizeSavedView, createSavedView, deleteSavedView, renameSavedView, patchActiveViewConfig, activeViewFilters, activeViewSorts, activeFilterCount, setFilterMatch, addFilterRule, updateFilterRule, changeFilterRuleField, removeFilterRule, addSortRule, updateSortRule, removeSortRule, setBoardGroupField, setGalleryCardField, fieldChoices, filterMenu, filterMenuRef, filterMenuStyle, openFilterMenu, closeFilterMenu, sortMenu, sortMenuRef, sortMenuStyle, openSortMenu, closeSortMenu } = useSavedViews({ props, workspace, fields, fieldById, activeViewId, activeSavedView, hasApi, activeUser, error, canCreateForms, runWithSavingIndicator, closeFormMenu, closeColumnsMenu, getChoiceLabel, databaseRootRef });
@@ -1412,17 +1412,18 @@ const updateCell = (row, field, rawValue, options = {}) => {
     const rowId = row?.id;
     const fieldId = field?.id;
     if (!rowId || !fieldId) return;
-    const rowMap = ensureCollabRowMap(rowId);
-    const dataMap = ensureCollabRowDataMap(rowMap);
-    if (!rowMap || !dataMap) return;
-    const doc = ensureCollabDoc();
-    doc.transact(() => {
-      if (clearing) {
-        dataMap.delete(fieldId);
-      } else {
-        dataMap.set(fieldId, value);
-      }
-    }, 'db-cell-update');
+    whenCollabSynced(() => {
+      const rowMap = ensureCollabRowMap(rowId);
+      const dataMap = ensureCollabRowDataMap(rowMap);
+      if (!rowMap || !dataMap) return;
+      ensureCollabDoc().transact(() => {
+        if (clearing) {
+          dataMap.delete(fieldId);
+        } else {
+          dataMap.set(fieldId, value);
+        }
+      }, 'db-cell-update');
+    });
     if (clearing) {
       delete row.data[fieldId];
     } else {
