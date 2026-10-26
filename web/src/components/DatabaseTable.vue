@@ -724,33 +724,26 @@ const syncRowTitleFromPage = (pageId, title) => {
   const fieldId = pageTitleFieldId.value;
   if (!pageId || !fieldId) return;
   const nextTitle = typeof title === 'string' ? title : title == null ? '' : String(title);
-  let changed = false;
-  const updateRow = (row) => {
+  const changedRowIds = [];
+  rows.value.forEach((row) => {
     if (rowPageId(row) !== pageId) return;
     const data = row?.data && typeof row.data === 'object' ? { ...row.data } : {};
     if (data[fieldId] === nextTitle) return;
     data[fieldId] = nextTitle;
     row.data = data;
-    changed = true;
-    if (isCollabEnabled.value) {
-      const rowMap = ensureCollabRowMap(row.id);
-      const dataMap = ensureCollabRowDataMap(rowMap);
-      if (dataMap) {
-        dataMap.set(fieldId, nextTitle);
-      }
-    }
-  };
-  if (isCollabEnabled.value) {
-    const doc = ensureCollabDoc();
-    doc.transact(() => {
-      rows.value.forEach(updateRow);
+    changedRowIds.push(row.id);
+  });
+  if (!changedRowIds.length) return;
+  scheduleSortRefresh();
+  if (!isCollabEnabled.value) return;
+  whenCollabSynced(() => {
+    ensureCollabDoc().transact(() => {
+      changedRowIds.forEach((rowId) => {
+        const dataMap = ensureCollabRowDataMap(ensureCollabRowMap(rowId));
+        dataMap?.set(fieldId, nextTitle);
+      });
     }, 'db-row-title-sync');
-  } else {
-    rows.value.forEach(updateRow);
-  }
-  if (changed) {
-    scheduleSortRefresh();
-  }
+  });
 };
 
 const handlePageTitleUpdated = (event) => {
@@ -768,16 +761,17 @@ const applyRowDataUpdate = (rowId, nextData) => {
   row.updatedAt = new Date().toISOString();
   scheduleSortRefresh();
   if (!isCollabEnabled.value) return;
-  const rowMap = ensureCollabRowMap(rowId);
-  const dataMap = ensureCollabRowDataMap(rowMap);
-  if (!rowMap || !dataMap) return;
-  const doc = ensureCollabDoc();
-  doc.transact(() => {
-    Array.from(dataMap.keys()).forEach((key) => dataMap.delete(key));
-    Object.entries(data).forEach(([key, value]) => {
-      dataMap.set(key, value);
-    });
-  }, 'db-row-props');
+  whenCollabSynced(() => {
+    const rowMap = ensureCollabRowMap(rowId);
+    const dataMap = ensureCollabRowDataMap(rowMap);
+    if (!rowMap || !dataMap) return;
+    ensureCollabDoc().transact(() => {
+      Array.from(dataMap.keys()).forEach((key) => dataMap.delete(key));
+      Object.entries(data).forEach(([key, value]) => {
+        dataMap.set(key, value);
+      });
+    }, 'db-row-props');
+  });
 };
 
 const handleRowPropertiesUpdated = (event) => {
@@ -990,26 +984,28 @@ const cleanupMultiSelectOptions = (field, nextOptions, options = {}) => {
     scheduleSortRefresh();
   }
   if (!isCollabEnabled.value || options.skipCollab) return;
-  const doc = ensureCollabDoc();
-  const rowsMap = collabRowsMap.value || doc.getMap('rows');
-  collabRowsMap.value = rowsMap;
-  doc.transact(() => {
-    rowsMap.forEach((entry) => {
-      if (!(entry instanceof Y.Map)) return;
-      const dataMap = ensureCollabRowDataMap(entry);
-      if (!dataMap) return;
-      const raw = dataMap.get(field.id);
-      const current = getMultiSelectValuesFromRaw(raw);
-      if (!current.length) return;
-      const next = pruneMultiSelectValues(current, allowedValues);
-      if (next.length === current.length) return;
-      if (!next.length) {
-        dataMap.delete(field.id);
-      } else {
-        dataMap.set(field.id, next);
-      }
-    });
-  }, 'db-option-cleanup');
+  whenCollabSynced(() => {
+    const doc = ensureCollabDoc();
+    const rowsMap = collabRowsMap.value || doc.getMap('rows');
+    collabRowsMap.value = rowsMap;
+    doc.transact(() => {
+      rowsMap.forEach((entry) => {
+        if (!(entry instanceof Y.Map)) return;
+        const dataMap = ensureCollabRowDataMap(entry);
+        if (!dataMap) return;
+        const raw = dataMap.get(field.id);
+        const current = getMultiSelectValuesFromRaw(raw);
+        if (!current.length) return;
+        const next = pruneMultiSelectValues(current, allowedValues);
+        if (next.length === current.length) return;
+        if (!next.length) {
+          dataMap.delete(field.id);
+        } else {
+          dataMap.set(field.id, next);
+        }
+      });
+    }, 'db-option-cleanup');
+  });
 };
 
 // Queue of pending ensureRowPage calls deferred while focus is in the table.
@@ -1048,23 +1044,27 @@ const ensureRowPage = async (row, options = {}) => {
         row.data[k] = v;
       }
       if (isCollabEnabled.value) {
-        const rowMap = ensureCollabRowMap(rowId);
-        const dataMap = ensureCollabRowDataMap(rowMap);
-        if (dataMap && nextRow.data.__pageId) {
-          dataMap.set('__pageId', nextRow.data.__pageId);
-        }
+        whenCollabSynced(() => {
+          const rowMap = ensureCollabRowMap(rowId);
+          const dataMap = ensureCollabRowDataMap(rowMap);
+          if (dataMap && nextRow.data.__pageId) {
+            dataMap.set('__pageId', nextRow.data.__pageId);
+          }
+        });
       }
     }
     if (nextRow?.pageId) {
       row.pageId = nextRow.pageId;
       if (isCollabEnabled.value) {
-        const rowMap = ensureCollabRowMap(rowId);
-        const doc = ensureCollabDoc();
-        if (rowMap && doc) {
-          doc.transact(() => {
-            rowMap.set('pageId', nextRow.pageId);
-          }, 'db-row-page');
-        }
+        whenCollabSynced(() => {
+          const rowMap = ensureCollabRowMap(rowId);
+          const doc = ensureCollabDoc();
+          if (rowMap && doc) {
+            doc.transact(() => {
+              rowMap.set('pageId', nextRow.pageId);
+            }, 'db-row-page');
+          }
+        });
       }
     }
     if (nextRow?.updatedAt) {
@@ -2180,23 +2180,25 @@ const deleteField = async (field) => {
   const confirmed = window.confirm(`Delete column "${field.name || 'Untitled'}"? This will remove its data.`);
   if (!confirmed) return;
   if (isCollabEnabled.value) {
-    const doc = ensureCollabDoc();
-    const fieldsMap = collabFieldsMap.value || doc.getMap('fields');
-    const fieldOrder = collabFieldOrder.value || doc.getArray('fieldOrder');
-    const rowsMap = collabRowsMap.value || doc.getMap('rows');
-    const order = readCollabOrder(fieldOrder);
-    const index = order.findIndex((id) => id === field.id);
-    doc.transact(() => {
-      if (index >= 0) {
-        fieldOrder.delete(index, 1);
-      }
-      fieldsMap.delete(field.id);
-      rowsMap.forEach((entry) => {
-        if (!(entry instanceof Y.Map)) return;
-        const dataMap = ensureCollabRowDataMap(entry);
-        dataMap?.delete(field.id);
-      });
-    }, 'db-field-delete');
+    whenCollabSynced(() => {
+      const doc = ensureCollabDoc();
+      const fieldsMap = collabFieldsMap.value || doc.getMap('fields');
+      const fieldOrder = collabFieldOrder.value || doc.getArray('fieldOrder');
+      const rowsMap = collabRowsMap.value || doc.getMap('rows');
+      const order = readCollabOrder(fieldOrder);
+      const index = order.findIndex((id) => id === field.id);
+      doc.transact(() => {
+        if (index >= 0) {
+          fieldOrder.delete(index, 1);
+        }
+        fieldsMap.delete(field.id);
+        rowsMap.forEach((entry) => {
+          if (!(entry instanceof Y.Map)) return;
+          const dataMap = ensureCollabRowDataMap(entry);
+          dataMap?.delete(field.id);
+        });
+      }, 'db-field-delete');
+    });
     sorting.value = sorting.value.filter((sort) => sort.id !== field.id);
     columnSizing.value = Object.fromEntries(Object.entries(columnSizing.value).filter(([key]) => key !== field.id));
     closeFieldMenu();
@@ -2402,24 +2404,26 @@ const createFieldWithType = async (type) => {
     void loadRelationOptions(targetId);
   }
   if (isCollabEnabled.value) {
-    const doc = ensureCollabDoc();
-    const fieldsMap = collabFieldsMap.value || doc.getMap('fields');
-    const fieldOrder = collabFieldOrder.value || doc.getArray('fieldOrder');
-    const id = generateId();
-    const fieldMap = new Y.Map();
-    fieldMap.set('name', name);
-    fieldMap.set('type', type);
-    if (type === 'SELECT' || type === 'MULTI_SELECT') {
-      fieldMap.set('options', normalizeFieldOptions({ options }));
-    } else if (type === 'RELATION') {
-      fieldMap.set('options', { ...options });
-    } else {
-      fieldMap.set('options', {});
-    }
-    doc.transact(() => {
-      fieldsMap.set(id, fieldMap);
-      fieldOrder.push([id]);
-    }, 'db-field-add');
+    whenCollabSynced(() => {
+      const doc = ensureCollabDoc();
+      const fieldsMap = collabFieldsMap.value || doc.getMap('fields');
+      const fieldOrder = collabFieldOrder.value || doc.getArray('fieldOrder');
+      const id = generateId();
+      const fieldMap = new Y.Map();
+      fieldMap.set('name', name);
+      fieldMap.set('type', type);
+      if (type === 'SELECT' || type === 'MULTI_SELECT') {
+        fieldMap.set('options', normalizeFieldOptions({ options }));
+      } else if (type === 'RELATION') {
+        fieldMap.set('options', { ...options });
+      } else {
+        fieldMap.set('options', {});
+      }
+      doc.transact(() => {
+        fieldsMap.set(id, fieldMap);
+        fieldOrder.push([id]);
+      }, 'db-field-add');
+    });
     closeAddFieldMenu();
     return;
   }
@@ -2455,9 +2459,7 @@ const updateField = async (field, changes) => {
   const nextType = nextChanges.type || field?.type;
   const shouldCleanupMultiSelect = 'options' in nextChanges && nextType === 'MULTI_SELECT' && !isMembersField(field);
   if (isCollabEnabled.value) {
-    const fieldMap = ensureCollabFieldMap(field?.id);
-    if (!fieldMap) return;
-    const doc = ensureCollabDoc();
+    if (!field?.id) return;
     let nextOptions = null;
     if ('options' in nextChanges) {
       const rawOptions =
@@ -2467,17 +2469,21 @@ const updateField = async (field, changes) => {
       const shouldNormalize = nextType === 'SELECT' || nextType === 'MULTI_SELECT';
       nextOptions = shouldNormalize ? normalizeFieldOptions({ options: rawOptions }) : rawOptions;
     }
-    doc.transact(() => {
-      if ('name' in nextChanges) {
-        fieldMap.set('name', nextChanges.name ?? '');
-      }
-      if ('type' in nextChanges && nextChanges.type) {
-        fieldMap.set('type', nextChanges.type);
-      }
-      if ('options' in nextChanges) {
-        fieldMap.set('options', nextOptions || {});
-      }
-    }, 'db-field-update');
+    whenCollabSynced(() => {
+      const fieldMap = ensureCollabFieldMap(field.id);
+      if (!fieldMap) return;
+      ensureCollabDoc().transact(() => {
+        if ('name' in nextChanges) {
+          fieldMap.set('name', nextChanges.name ?? '');
+        }
+        if ('type' in nextChanges && nextChanges.type) {
+          fieldMap.set('type', nextChanges.type);
+        }
+        if ('options' in nextChanges) {
+          fieldMap.set('options', nextOptions || {});
+        }
+      }, 'db-field-update');
+    });
     const updatedField = {
       ...field,
       ...nextChanges,
@@ -2520,19 +2526,21 @@ const deleteRow = async (row) => {
     selectedRowIds.value = next;
   }
   if (isCollabEnabled.value) {
-    const doc = ensureCollabDoc();
-    const rowsMap = collabRowsMap.value || doc.getMap('rows');
-    const rowOrder = collabRowOrder.value || doc.getArray('rowOrder');
-    collabRowsMap.value = rowsMap;
-    collabRowOrder.value = rowOrder;
-    const order = readCollabOrder(rowOrder);
-    const index = order.findIndex((id) => id === rowId);
-    doc.transact(() => {
-      if (index >= 0) {
-        rowOrder.delete(index, 1);
-      }
-      rowsMap.delete(rowId);
-    }, 'db-row-delete');
+    whenCollabSynced(() => {
+      const doc = ensureCollabDoc();
+      const rowsMap = collabRowsMap.value || doc.getMap('rows');
+      const rowOrder = collabRowOrder.value || doc.getArray('rowOrder');
+      collabRowsMap.value = rowsMap;
+      collabRowOrder.value = rowOrder;
+      const order = readCollabOrder(rowOrder);
+      const index = order.findIndex((id) => id === rowId);
+      doc.transact(() => {
+        if (index >= 0) {
+          rowOrder.delete(index, 1);
+        }
+        rowsMap.delete(rowId);
+      }, 'db-row-delete');
+    });
     rows.value = rows.value.filter((item) => item.id !== rowId);
   }
   if (!hasApi.value || !activeUser.value) return;
@@ -2577,23 +2585,25 @@ const deleteSelectedRows = async () => {
   if (!confirmed) return;
   const idSet = new Set(ids);
   if (isCollabEnabled.value) {
-    const doc = ensureCollabDoc();
-    const rowsMap = collabRowsMap.value || doc.getMap('rows');
-    const rowOrder = collabRowOrder.value || doc.getArray('rowOrder');
-    collabRowsMap.value = rowsMap;
-    collabRowOrder.value = rowOrder;
-    doc.transact(() => {
-      const order = readCollabOrder(rowOrder);
-      // Delete from order in reverse to keep indices valid
-      for (let i = order.length - 1; i >= 0; i--) {
-        if (idSet.has(order[i])) {
-          rowOrder.delete(i, 1);
+    whenCollabSynced(() => {
+      const doc = ensureCollabDoc();
+      const rowsMap = collabRowsMap.value || doc.getMap('rows');
+      const rowOrder = collabRowOrder.value || doc.getArray('rowOrder');
+      collabRowsMap.value = rowsMap;
+      collabRowOrder.value = rowOrder;
+      doc.transact(() => {
+        const order = readCollabOrder(rowOrder);
+        // Delete from order in reverse to keep indices valid
+        for (let i = order.length - 1; i >= 0; i--) {
+          if (idSet.has(order[i])) {
+            rowOrder.delete(i, 1);
+          }
         }
-      }
-      for (const id of ids) {
-        rowsMap.delete(id);
-      }
-    }, 'db-row-delete');
+        for (const id of ids) {
+          rowsMap.delete(id);
+        }
+      }, 'db-row-delete');
+    });
     rows.value = rows.value.filter((item) => !idSet.has(item.id));
     selectedRowIds.value = new Set();
   }
@@ -2644,27 +2654,29 @@ const addRow = async () => {
       } else {
         rows.value = [...rows.value, hydrated];
       }
-      const doc = ensureCollabDoc();
-      const rowMap = ensureCollabRowMap(hydrated.id);
-      const dataMap = ensureCollabRowDataMap(rowMap);
-      const rowOrder = collabRowOrder.value || doc.getArray('rowOrder');
-      collabRowOrder.value = rowOrder;
-      const data = hydrated?.data && typeof hydrated.data === 'object' ? hydrated.data : {};
-      doc.transact(() => {
-        if (dataMap) {
-          clearYMap(dataMap);
-          Object.entries(data).forEach(([key, value]) => {
-            dataMap.set(key, value);
-          });
-        }
-        if (hydrated.pageId) {
-          rowMap?.set('pageId', hydrated.pageId);
-        }
-        const order = readCollabOrder(rowOrder);
-        if (!order.includes(hydrated.id)) {
-          rowOrder.push([hydrated.id]);
-        }
-      }, 'db-row-add');
+      whenCollabSynced(() => {
+        const doc = ensureCollabDoc();
+        const rowMap = ensureCollabRowMap(hydrated.id);
+        const dataMap = ensureCollabRowDataMap(rowMap);
+        const rowOrder = collabRowOrder.value || doc.getArray('rowOrder');
+        collabRowOrder.value = rowOrder;
+        const data = hydrated?.data && typeof hydrated.data === 'object' ? hydrated.data : {};
+        doc.transact(() => {
+          if (dataMap) {
+            clearYMap(dataMap);
+            Object.entries(data).forEach(([key, value]) => {
+              dataMap.set(key, value);
+            });
+          }
+          if (hydrated.pageId) {
+            rowMap?.set('pageId', hydrated.pageId);
+          }
+          const order = readCollabOrder(rowOrder);
+          if (!order.includes(hydrated.id)) {
+            rowOrder.push([hydrated.id]);
+          }
+        }, 'db-row-add');
+      });
     } catch (err) {
       console.warn('Create row failed', err);
       error.value = err?.message || 'Failed to create row';
@@ -2672,16 +2684,18 @@ const addRow = async () => {
     return;
   }
   if (isCollabEnabled.value) {
-    const doc = ensureCollabDoc();
-    const rowsMap = collabRowsMap.value || doc.getMap('rows');
-    const rowOrder = collabRowOrder.value || doc.getArray('rowOrder');
-    const id = generateId();
-    const rowMap = new Y.Map();
-    rowMap.set('data', new Y.Map());
-    doc.transact(() => {
-      rowsMap.set(id, rowMap);
-      rowOrder.push([id]);
-    }, 'db-row-add');
+    whenCollabSynced(() => {
+      const doc = ensureCollabDoc();
+      const rowsMap = collabRowsMap.value || doc.getMap('rows');
+      const rowOrder = collabRowOrder.value || doc.getArray('rowOrder');
+      const id = generateId();
+      const rowMap = new Y.Map();
+      rowMap.set('data', new Y.Map());
+      doc.transact(() => {
+        rowsMap.set(id, rowMap);
+        rowOrder.push([id]);
+      }, 'db-row-add');
+    });
     return;
   }
   try {

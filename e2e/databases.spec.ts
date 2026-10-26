@@ -210,4 +210,32 @@ test.describe('databases', () => {
     await bob.waitForTimeout(1500);
     await expect(bobRow.locator('.db-multi-pill', { hasText: 'Blue' })).toBeVisible();
   });
+
+  test("a change survives someone else opening the row's page", async ({ alice, bob, workspaceId }) => {
+    // The properties at the top of a row's page connect to the same live document as the table,
+    // and had the same problem as above.
+    const id = await createPage(alice, workspaceId, { title: unique('Shared table'), kind: 'DATABASE' });
+    const db = await (await alice.request.get(`/api/pages/${id}/database`)).json();
+    const name = db.fields.find((f: any) => f.name === 'Name').id;
+    await alice.request.post(`/api/pages/${id}/database/fields`, { data: { name: 'Tags', type: 'MULTI_SELECT', options: { choices: [{ value: 'Red' }, { value: 'Blue' }] } } });
+    const created = await (await alice.request.post(`/api/pages/${id}/database/rows`, { data: { data: { [name]: 'Row' } } })).json();
+    const ensured = await (await alice.request.post(`/api/database-rows/${created.id}/page`, { data: { pageId: id } })).json();
+    const rowPageId = ensured.page?.id ?? ensured.row?.pageId;
+    expect(rowPageId).toBeTruthy();
+
+    await alice.goto(`/doc/${id}`);
+    const row = main(alice).locator('tbody tr').first();
+    await row.locator('.db-multi-cell').click();
+    await alice.locator('.db-multi-select-menu .db-multi-option', { hasText: 'Blue' }).click();
+    await alice.keyboard.press('Escape');
+    await expect(row.locator('.db-multi-pill', { hasText: 'Blue' })).toBeVisible();
+    await alice.waitForTimeout(1000);
+
+    await bob.goto(`/doc/${rowPageId}`);
+    const tags = bob.locator('.page-properties__row', { hasText: 'Tags' });
+    await expect(tags).toContainText('Blue');
+    await bob.waitForTimeout(1500);
+    await alice.reload();
+    await expect(row.locator('.db-multi-pill', { hasText: 'Blue' })).toBeVisible();
+  });
 });

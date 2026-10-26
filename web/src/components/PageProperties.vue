@@ -475,7 +475,11 @@ const maybeSeedCollab = () => {
   scheduleCollabApply();
 };
 
+// Like the table (useDatabaseCollab.js), this waits for the document to sync before writing to it:
+// a row's map created in the unsynced local copy would compete with the server's map for the same
+// row, and Yjs would keep only one of them.
 const syncCollabRowsFromSnapshot = (snapshot) => {
+  if (!collabSynced.value) return;
   if (!snapshot?.rows?.length) return;
   if (!isCollabEnabled.value || !collabDoc.value) return;
   if (!collabRowsMap.value || !collabRowOrder.value) return;
@@ -619,7 +623,16 @@ const handleCollabSynced = (synced) => {
   if (!synced) return;
   collabSynced.value = true;
   maybeSeedCollab();
+  syncCollabRowsFromSnapshot(lastLoadedSnapshot.value);
+  writesAfterSync.splice(0).forEach((write) => write());
   scheduleCollabApply();
+};
+
+// Runs a write to the document now if it has synced, or as soon as it has.
+const writesAfterSync = [];
+const whenCollabSynced = (write) => {
+  if (collabSynced.value) write();
+  else writesAfterSync.push(write);
 };
 
 const ensureCollabProvider = () => {
@@ -856,20 +869,22 @@ const handleFieldChange = (field, rawValue) => {
     const rowId = row.value?.id;
     const fieldId = field?.id;
     if (!rowId || !fieldId) return;
-    const rowMap = ensureCollabRowMap(rowId);
-    const dataMap = ensureCollabRowDataMap(rowMap);
-    if (!rowMap || !dataMap) return;
-    const doc = ensureCollabDoc();
-    doc.transact(() => {
-      if (shouldClearCell(value)) {
-        dataMap.delete(fieldId);
-      } else {
-        dataMap.set(fieldId, value);
-      }
-      if (row.value?.pageId && !rowMap.get('pageId')) {
-        rowMap.set('pageId', row.value.pageId);
-      }
-    }, 'db-cell-update');
+    const pageId = row.value?.pageId;
+    whenCollabSynced(() => {
+      const rowMap = ensureCollabRowMap(rowId);
+      const dataMap = ensureCollabRowDataMap(rowMap);
+      if (!rowMap || !dataMap) return;
+      ensureCollabDoc().transact(() => {
+        if (shouldClearCell(value)) {
+          dataMap.delete(fieldId);
+        } else {
+          dataMap.set(fieldId, value);
+        }
+        if (pageId && !rowMap.get('pageId')) {
+          rowMap.set('pageId', pageId);
+        }
+      }, 'db-cell-update');
+    });
     return;
   }
   scheduleRowUpdate(data);
