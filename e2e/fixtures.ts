@@ -1,4 +1,4 @@
-import { test as base, expect, type BrowserContext, type Page } from '@playwright/test';
+import { test as base, expect, type Browser, type BrowserContext, type Page } from '@playwright/test';
 
 // Demo users seeded by the Docker stack (password "wikid"), all owners of the demo workspace.
 export const USERS = {
@@ -117,17 +117,29 @@ export const test = base.extend<Fixtures>({
     await alice.request.delete(`/api/workspaces/${id}`);
   },
   alice: async ({ browser }, use) => {
-    const context = await browser.newContext();
-    await signIn(context, USERS.alice.email);
-    await use(await context.newPage());
-    await context.close();
+    await usePageAs(browser, USERS.alice.email, use);
   },
   bob: async ({ browser }, use) => {
-    const context = await browser.newContext();
-    await signIn(context, USERS.bob.email);
-    await use(await context.newPage());
-    await context.close();
+    await usePageAs(browser, USERS.bob.email, use);
   },
 });
+
+/**
+ * A logged-in page for the test. Afterwards, fails the test if the app hit a coding error (an
+ * undefined name or a call on undefined), even one Vue caught and only logged: those can quietly
+ * break a feature while the page still looks fine.
+ */
+async function usePageAs(browser: Browser, email: string, use: (page: Page) => Promise<void>) {
+  const context = await browser.newContext();
+  await signIn(context, email);
+  const page = await context.newPage();
+  const errors: string[] = [];
+  const isCodingError = (text: string) => /\b(ReferenceError|TypeError|SyntaxError)\b/.test(text);
+  page.on('pageerror', (err) => isCodingError(`${err.name}: ${err.message}`) && errors.push(`${err.name}: ${err.message}`));
+  page.on('console', (msg) => msg.type() === 'error' && isCodingError(msg.text()) && errors.push(msg.text()));
+  await use(page);
+  await context.close();
+  expect(errors, `JavaScript errors in ${email}'s browser`).toEqual([]);
+}
 
 export { expect };

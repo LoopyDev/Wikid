@@ -62,4 +62,54 @@ test.describe('databases', () => {
     await addNamedRow(alice, id, 'Added by Alice');
     await expect(rowNames(bob).nth(0)).toHaveValue('Added by Alice');
   });
+
+  test('builds a form: a required field, a success message, and a preview', async ({ alice: page, workspaceId }) => {
+    await openPage(page, await createPage(page, workspaceId));
+    const id = await newDatabaseFromSidebar(page, unique('Sign-ups'));
+    const forms = async () => (await (await page.request.get(`/api/pages/${id}/database`)).json()).forms ?? [];
+
+    await main(page).getByRole('button', { name: /^Forms/ }).click();
+    // "Form name" (prompt), then "Generate form fields from current database columns?" (confirm).
+    page.on('dialog', (dialog) => dialog.accept(dialog.type() === 'prompt' ? 'Sign-up form' : undefined));
+    await main(page).getByRole('button', { name: 'New form' }).click();
+    await expect.poll(async () => (await forms()).map((f: any) => f.name)).toEqual(['Sign-up form']);
+
+    const builder = main(page).locator('.db-form-builder');
+    const nameField = builder.locator('.db-form-field', { hasText: 'Name' });
+    await expect(nameField).toBeVisible();
+    await nameField.getByLabel('Required').check();
+    const message = builder.getByPlaceholder('Thanks! Your response has been saved.');
+    await message.fill('Thanks for signing up');
+    await message.press('Tab');
+
+    const stored = async () => {
+      const [form] = await forms();
+      const fields = Array.isArray(form?.fields) ? form.fields : form?.fields?.fields ?? [];
+      const config = form?.config ?? form?.fields?.config ?? {};
+      return { required: fields.some((f: any) => f.required), message: config.successMessage };
+    };
+    await expect.poll(stored).toEqual({ required: true, message: 'Thanks for signing up' });
+
+    // The layout tab previews the form as people will fill it in.
+    await builder.getByRole('button', { name: 'Layout' }).click();
+    await expect(builder.getByText('Preview only. Submissions are disabled.')).toBeVisible();
+  });
+
+  test("shows which cell someone else is editing", async ({ alice, bob, workspaceId }) => {
+    await openPage(alice, await createPage(alice, workspaceId));
+    const id = await newDatabaseFromSidebar(alice, unique('Busy table'));
+    await addNamedRow(alice, id, 'Row one');
+    await bob.goto(`/doc/${id}`);
+    await expect(rowNames(bob).nth(0)).toHaveValue('Row one');
+
+    await rowNames(alice).nth(0).focus();
+    await alice.keyboard.press('End');
+    const bobsCell = main(bob).locator('tbody .db-cell--presence');
+    await expect(bobsCell).toHaveCount(1);
+    await expect(bobsCell.locator('.db-cell-input')).toHaveValue('Row one');
+
+    // When Alice leaves the cell, it's no longer marked for Bob.
+    await rowNames(alice).nth(0).blur();
+    await expect(bobsCell).toHaveCount(0);
+  });
 });
