@@ -146,7 +146,7 @@ Issues and pull requests are welcome. For larger changes, please open an issue f
 
 ## License
 
-Wikid is licensed under the [GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0-only).
+Wikid is licensed under the [GNU Affero General Public License](LICENSE), version 3 or (at your option) any later version (AGPL-3.0-or-later).
 
 In plain words: you can use, self-host, modify and share Wikid, including inside a company. If you run a modified version as a network service, you must make your source changes available to its users under the same license.
 

@@ -5,7 +5,3 @@
 ## How it was tested
 
 <!-- e.g. npm test / npm run typecheck / npm run build, manual steps in the app -->
-
-## Contributor License Agreement
-
-- [ ] I have read and agree to the [Contributor License Agreement](https://github.com/LoopyDev/Wikid/blob/main/CONTRIBUTING.md#contributor-license-agreement).
