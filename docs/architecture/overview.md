@@ -42,7 +42,7 @@
 - `api/prisma/seed.ts` seeds demo users and a starter workspace.
 
 ## Frontend (Vite + Vue 3)
-- `web/src/App.vue` is the main shell (sidebar, page tree, context menus); `web/src/stores/workspace.js` (Pinia) holds API calls, autosave, and page state; `web/src/api/client.js` wraps every endpoint.
+- `web/src/App.vue` is the main shell (sidebar, page area, split view); the sidebar's page tree is `components/PageTree.js`, and its dialogs are components of their own (`SettingsPopup`, `UserMenu`, `ExportModal`, `ComplianceSetupModal`, `CreateWorkspaceModal`, `MoveToWorkspaceModal`, `DeletePageModal`, `BinModal`, `LoginPage`); `web/src/stores/workspace.js` (Pinia) holds API calls, autosave, and page state; `web/src/api/client.js` wraps every endpoint.
 - `web/src/components/TiptapEditor.vue` wires up the editor: slash commands, callouts, columns, toggle headings, inline database views and forms, page links, draw.io diagrams, Gaussian splat embeds, table of contents, and AI actions.
 - `web/src/PrintApp.vue` is a stripped-down shell used for PDF rendering.
 - Env: `VITE_API_URL` (default `http://localhost:3000`) and `VITE_COLLAB_URL` (default `ws://localhost:1234`).

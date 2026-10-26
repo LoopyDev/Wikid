@@ -1,5 +1,5 @@
 <script setup>
-import { computed, defineComponent, Fragment, h, nextTick, onBeforeUnmount, onMounted, provide, ref, Teleport, watch, watchEffect } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, provide, ref, watch, watchEffect } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useWorkspaceStore } from './stores/workspace';
 import TiptapEditor from './components/TiptapEditor.vue';
@@ -15,11 +15,21 @@ import PageProperties from './components/PageProperties.vue';
 import DatabaseFormPage from './components/DatabaseFormPage.vue';
 import AiSidePanel from './components/AiSidePanel.vue';
 import SecondaryPane from './components/SecondaryPane.vue';
+import SettingsPopup from './components/SettingsPopup.vue';
+import ComplianceSetupModal from './components/ComplianceSetupModal.vue';
+import ExportModal from './components/ExportModal.vue';
+import CreateWorkspaceModal from './components/CreateWorkspaceModal.vue';
+import MoveToWorkspaceModal from './components/MoveToWorkspaceModal.vue';
+import LoginPage from './components/LoginPage.vue';
+import UserMenu from './components/UserMenu.vue';
+import DeletePageModal from './components/DeletePageModal.vue';
+import BinModal from './components/BinModal.vue';
+import PageTree from './components/PageTree';
 import { api, AUTH_EXPIRED_EVENT } from './api/client';
 import { editorDocToMarkdown, editorDocToMarkdownAsync, fallbackDoc } from './utils/editorDoc';
 import { SYSTEM_ADMIN_ID } from './constants/system-admin';
+import { CHEVRON_RIGHT } from './constants/icons';
 
-const CHEVRON_RIGHT = 'M4.646 1.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1 0 .708l-6 6a.5.5 0 0 1-.708-.708L10.293 8 4.646 2.354a.5.5 0 0 1 0-.708z';
 const UNTITLED_PAGE_LABEL = 'Untitled page';
 
 const isDevMode = computed(() => typeof window !== 'undefined' && window.location?.pathname === '/dev');
@@ -82,7 +92,6 @@ const remoteDeletionMessage = computed(() => {
   const parent = deletion.pageTitle ? `"${deletion.pageTitle}"` : 'a page above this one';
   return `${who} moved ${parent} to the Bin, with this page inside it.`;
 });
-const isWorkspaceOwner = computed(() => activeWorkspaceRole.value === 'OWNER');
 const isAdminUser = computed(() => activeUser.value?.id === SYSTEM_ADMIN_ID);
 const activeView = ref('page');
 const activeFormId = ref(null);
@@ -182,13 +191,6 @@ const devDoc = ref({
     },
   ],
 });
-const userInitials = computed(() => {
-  const name = activeUser.value?.name?.trim() || '';
-  if (!name) return '?';
-  const parts = name.split(/\s+/);
-  const initials = parts.map((part) => part?.[0]?.toUpperCase()).filter(Boolean).join('');
-  return initials.slice(0, 2) || name.charAt(0).toUpperCase();
-});
 const showUserMenu = ref(false);
 const showAiPanel = ref(false);
 const aiPageContext = ref('');
@@ -214,172 +216,28 @@ const handleAiSuggestions = (changes) => {
   tiptapEditorRef.value?.applyAiSuggestions?.(changes);
 };
 const getSerializedBlocksForAi = async () => await tiptapEditorRef.value?.serializeBlocksForAi?.() ?? [];
-// Move to workspace modal
-const showMoveWorkspaceModal = ref(false);
-const moveWorkspacePage = ref(null);    // root page being moved
-const moveWorkspaceSubtree = ref([]);   // [root, ...descendants] ordered breadth-first
-const moveWorkspaceTargetId = ref(null);
-const moveWorkspaceLoading = ref(false);
-const moveWorkspaceError = ref('');
-
-const buildMoveSubtree = (rootPage) => {
-  if (!rootPage) return [];
-  const allPages = pages.value;
-  const childrenOf = (parentId) => allPages.filter((p) => p.parentId === parentId && !p.isDeleted && !p.isHidden);
-  const result = [];
-  const walk = (page, depth) => {
-    result.push({ ...page, _depth: depth });
-    childrenOf(page.id).forEach((child) => walk(child, depth + 1));
-  };
-  walk(rootPage, 0);
-  return result;
-};
-
+// The "move to workspace" dialog: the page being moved, while open.
+const moveWorkspacePage = ref(null);
 const openMoveToWorkspaceModal = (page) => {
   moveWorkspacePage.value = page;
-  moveWorkspaceSubtree.value = buildMoveSubtree(page);
-  moveWorkspaceTargetId.value = null;
-  moveWorkspaceError.value = '';
-  showMoveWorkspaceModal.value = true;
   menuOpenFor.value = null;
-};
-const closeMoveWorkspaceModal = () => {
-  showMoveWorkspaceModal.value = false;
-  moveWorkspacePage.value = null;
-  moveWorkspaceSubtree.value = [];
-  moveWorkspaceTargetId.value = null;
-  moveWorkspaceError.value = '';
-};
-const confirmMoveToWorkspace = async () => {
-  if (!moveWorkspacePage.value || !moveWorkspaceTargetId.value) return;
-  moveWorkspaceLoading.value = true;
-  moveWorkspaceError.value = '';
-  try {
-    await workspace.movePageToWorkspace(moveWorkspacePage.value.id, moveWorkspaceTargetId.value);
-    closeMoveWorkspaceModal();
-  } catch (err) {
-    moveWorkspaceError.value = err?.message || 'Failed to move pages';
-  } finally {
-    moveWorkspaceLoading.value = false;
-  }
 };
 const otherWorkspaces = computed(() =>
   workspaces.value.filter((entry) => entry.workspace?.id && entry.workspace.id !== activeWorkspaceId.value)
 );
 
 const showCreateWorkspaceModal = ref(false);
-const newWorkspaceName = ref('');
-const createWsError = ref('');
-const createWsLoading = ref(false);
-const showExportModal = ref(false);
-const exportFormat = ref('html');
-const exportTheme = ref('light');
-const exportScale = ref(1);
+// The export dialog: { format, rootPageId } while open.
+const exportRequest = ref(null);
 const menuOpenFor = ref(null);
 const expanded = ref({});
 const showEmojiPicker = ref(false);
 const showSettingsPopup = ref(false);
-const settingsTab = ref('General');
 const showBinModal = ref(false);
-const members = ref([]);
-const membersLoading = ref(false);
-const membersError = ref('');
 const setupError = ref('');
 const setupSaving = ref(false);
 const setupAutoCompleteTriggered = ref(false);
 const setupSeedDoc = ref(null);
-const showComplianceSetupModal = ref(false);
-const complianceSetupAllowTitle = ref(false);
-const complianceSetupTitle = ref('');
-const complianceSetupTemplate = ref('inventory');
-const complianceSetupFields = ref([]);
-const complianceSetupTransitions = ref([]);
-const complianceSetupError = ref('');
-const complianceSetupResolver = ref(null);
-const complianceSetupFieldSeed = ref(0);
-const complianceSetupTransitionSeed = ref(0);
-const complianceFieldTypes = [
-  { id: 'TEXT', label: 'Text' },
-  { id: 'NUMBER', label: 'Number' },
-  { id: 'DATE', label: 'Date' },
-  { id: 'CHECKBOX', label: 'Checkbox' },
-  { id: 'ASSET_TAG', label: 'Asset Tag (QR)' },
-  { id: 'SELECT', label: 'Select' },
-  { id: 'MULTI_SELECT', label: 'Multi-select' },
-  { id: 'RELATION', label: 'Relation' },
-  { id: 'URL', label: 'URL' },
-];
-const complianceStatuses = [
-  { id: 'draft', label: 'Draft' },
-  { id: 'submitted', label: 'Submitted' },
-  { id: 'review', label: 'In Review' },
-  { id: 'closed', label: 'Closed/Sealed' },
-  { id: 'archived', label: 'Archived' },
-];
-const complianceDatabaseOptions = computed(() =>
-  pages.value.filter(
-    (page) => page.kind === 'DATABASE' && page.databaseComplianceMode === true && !page.isDeleted && !page.isHidden
-  )
-);
-const inventoryTemplateFields = [
-  { name: 'Item Name', type: 'TEXT', isTitle: true },
-  { name: 'Asset Tag', type: 'ASSET_TAG' },
-  { name: 'SKU', type: 'TEXT' },
-  { name: 'Category', type: 'SELECT', choices: ['Raw Materials', 'Components', 'Finished Goods', 'Consumables', 'Tools'] },
-  { name: 'Location', type: 'TEXT' },
-  { name: 'Quantity On Hand', type: 'NUMBER' },
-  { name: 'Unit', type: 'SELECT', choices: ['ea', 'box', 'kg', 'L', 'm'] },
-  { name: 'Reorder Point', type: 'NUMBER' },
-  { name: 'Supplier', type: 'TEXT' },
-  { name: 'Lot/Batch', type: 'TEXT' },
-  { name: 'Serial Number', type: 'TEXT' },
-  { name: 'Expiry Date', type: 'DATE' },
-  { name: 'Status', type: 'SELECT', choices: ['In Stock', 'Low', 'Out', 'Reserved', 'Discontinued'] },
-  { name: 'Notes', type: 'TEXT' },
-];
-const maintenanceTemplateFields = [
-  { name: 'Maintenance Summary', type: 'TEXT', isTitle: true },
-  { name: 'Item', type: 'RELATION' },
-  { name: 'Event Type', type: 'SELECT', choices: ['Inspection', 'Repair', 'Cleaning', 'Calibration', 'Upgrade', 'Other'] },
-  { name: 'Scheduled Date', type: 'DATE' },
-  { name: 'Completed Date', type: 'DATE' },
-  { name: 'Status', type: 'SELECT', choices: ['Planned', 'In Progress', 'Completed', 'Cancelled'] },
-  { name: 'Performed By', type: 'TEXT' },
-  { name: 'Vendor', type: 'TEXT' },
-  { name: 'Cost', type: 'NUMBER' },
-  { name: 'Downtime (hrs)', type: 'NUMBER' },
-  { name: 'Findings', type: 'TEXT' },
-  { name: 'Actions Taken', type: 'TEXT' },
-  { name: 'Parts Used', type: 'TEXT' },
-  { name: 'Notes', type: 'TEXT' },
-];
-const assignmentsTemplateFields = [
-  { name: 'Assignment Summary', type: 'TEXT', isTitle: true },
-  { name: 'Asset', type: 'RELATION' },
-  { name: 'Status', type: 'SELECT', choices: ['Open', 'In Progress', 'Blocked', 'Completed', 'Cancelled'] },
-  { name: 'Priority', type: 'SELECT', choices: ['Low', 'Medium', 'High', 'Urgent'] },
-  { name: 'Task Type', type: 'SELECT', choices: ['Inspection', 'Repair', 'Cleaning', 'Calibration', 'Move', 'Other'] },
-  { name: 'Assigned To', type: 'TEXT' },
-  { name: 'Requested By', type: 'TEXT' },
-  { name: 'Requested Date', type: 'DATE' },
-  { name: 'Due Date', type: 'DATE' },
-  { name: 'Completed Date', type: 'DATE' },
-  { name: 'Estimated Hours', type: 'NUMBER' },
-  { name: 'Actual Hours', type: 'NUMBER' },
-  { name: 'Work Order Ref', type: 'TEXT' },
-  { name: 'Notes', type: 'TEXT' },
-];
-const resolveComplianceTemplate = (template) => {
-  if (template === 'blank' || template === 'inventory' || template === 'maintenance' || template === 'assignments') {
-    return template;
-  }
-  return 'inventory';
-};
-const complianceTemplateFields = {
-  inventory: inventoryTemplateFields,
-  maintenance: maintenanceTemplateFields,
-  assignments: assignmentsTemplateFields,
-};
 const setupDebugEnabled = () =>
   typeof window !== 'undefined' && window.localStorage?.getItem('wikid:debug-setup') === '1';
 const logSetup = (...args) => {
@@ -387,9 +245,6 @@ const logSetup = (...args) => {
     console.log('[setup-flow]', ...args);
   }
 };
-const inviteEmail = ref('');
-const inviteRole = ref('EDITOR');
-const memberActionLoading = ref({});
 const collabStatusLabel = ref('');
 const collabStatusState = ref('');
 const collabConnectingVisible = ref(false);
@@ -888,15 +743,6 @@ watch(
   { immediate: true }
 );
 
-watch(settingsTab, (tab) => {
-  if (tab === 'Members' && activeWorkspaceId.value && showSettingsPopup.value) {
-    loadMembers();
-  }
-  if (tab === 'Workspace') {
-    renameWorkspaceDraft.value = activeWorkspaceName.value;
-    renameWorkspaceError.value = '';
-  }
-});
 
 watch(
   () => workspace.loadingDoc,
@@ -1152,47 +998,8 @@ const handleTitleEnter = (event) => {
   }
 };
 
-const exportMarkdown = async () => {
-  const title = workspace.currentPage?.title?.trim() || 'page';
-  const user = activeUser.value;
-  const markdown = await editorDocToMarkdownAsync(doc.value, (pageId) =>
-    api.getDatabase(pageId, { userId: user?.id, userName: user?.name }),
-  );
-  const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = `${title}.md`;
-  link.click();
-  URL.revokeObjectURL(url);
-};
-
 const openExportModal = (format) => {
-  exportFormat.value = format || 'html';
-  showExportModal.value = true;
-  if (exportFormat.value === 'html') {
-    const page = workspace.currentPage;
-    exportHtmlMode.value = 'scroll';
-    exportHtmlSelectRoot(page?.id || null);
-    scrollExportTreeToRoot(page?.id);
-  }
-};
-const closeExportModal = () => {
-  showExportModal.value = false;
-  exportHtmlRootIds.value = new Set();
-  exportHtmlChecked.value = new Set();
-  exportHtmlExporting.value = false;
-};
-const exportPdf = () => {
-  if (!workspace.currentPage?.id || !activeUser.value) return;
-  const url = api.exportPagePdfUrl(workspace.currentPage.id, {
-    userId: activeUser.value.id,
-    userName: activeUser.value.name,
-    theme: exportTheme.value,
-    scale: exportScale.value,
-  });
-  window.open(url, '_blank');
-  closeExportModal();
+  exportRequest.value = { format: format || 'html', rootPageId: workspace.currentPage?.id || null };
 };
 const exportWorkspaceData = () => {
   const fileSafeName = (activeWorkspaceName.value || 'workspace')
@@ -1427,79 +1234,16 @@ const openAdminView = (view) => {
 const openSettingsPopup = () => {
   closeMenu();
   showUserMenu.value = false;
-  settingsTab.value = 'General';
   showSettingsPopup.value = true;
 };
 const closeSettingsPopup = () => {
   showSettingsPopup.value = false;
-  settingsTab.value = 'General';
-  cpCurrent.value = '';
-  cpNew.value = '';
-  cpConfirm.value = '';
-  cpError.value = '';
-  cpSuccess.value = false;
-  membersError.value = '';
-  showDeleteWorkspaceConfirm.value = false;
-};
-const selectSettingsTab = (tab) => {
-  settingsTab.value = tab;
 };
 const toggleThemeMode = () => {
   isDarkTheme.value = !isDarkTheme.value;
   applyTheme(isDarkTheme.value);
   if (typeof localStorage !== 'undefined') {
     localStorage.setItem('wikid:theme', isDarkTheme.value ? 'dark' : 'light');
-  }
-};
-const loginEmail = ref('');
-const loginPassword = ref('');
-const loginError = ref('');
-const loginLoading = ref(false);
-const handleLogin = async () => {
-  loginError.value = '';
-  loginLoading.value = true;
-  try {
-    await workspace.login(loginEmail.value, loginPassword.value);
-    loginEmail.value = '';
-    loginPassword.value = '';
-  } catch (err) {
-    loginError.value = err?.message || 'Invalid email or password';
-  } finally {
-    loginLoading.value = false;
-  }
-};
-const cpCurrent = ref('');
-const cpNew = ref('');
-const cpConfirm = ref('');
-const cpError = ref('');
-const cpSuccess = ref(false);
-const cpLoading = ref(false);
-const openChangePassword = () => {
-  cpCurrent.value = '';
-  cpNew.value = '';
-  cpConfirm.value = '';
-  cpError.value = '';
-  cpSuccess.value = false;
-  showUserMenu.value = false;
-  settingsTab.value = 'Password';
-  showSettingsPopup.value = true;
-};
-const handleChangePassword = async () => {
-  cpError.value = '';
-  cpSuccess.value = false;
-  if (!cpNew.value) { cpError.value = 'New password is required'; return; }
-  if (cpNew.value !== cpConfirm.value) { cpError.value = 'Passwords do not match'; return; }
-  cpLoading.value = true;
-  try {
-    await workspace.changePassword(cpCurrent.value, cpNew.value);
-    cpSuccess.value = true;
-    cpCurrent.value = '';
-    cpNew.value = '';
-    cpConfirm.value = '';
-  } catch (err) {
-    cpError.value = err?.message || 'Failed to change password';
-  } finally {
-    cpLoading.value = false;
   }
 };
 const selectWorkspace = async (workspaceId) => {
@@ -1513,26 +1257,7 @@ const selectWorkspaceFromMenu = async (workspaceId) => {
 };
 const openCreateWorkspaceModal = () => {
   showUserMenu.value = false;
-  newWorkspaceName.value = '';
-  createWsError.value = '';
   showCreateWorkspaceModal.value = true;
-};
-const closeCreateWorkspaceModal = () => {
-  showCreateWorkspaceModal.value = false;
-};
-const submitCreateWorkspace = async () => {
-  const name = newWorkspaceName.value.trim();
-  if (!name) return;
-  createWsLoading.value = true;
-  createWsError.value = '';
-  try {
-    await workspace.createWorkspace(name);
-    closeCreateWorkspaceModal();
-  } catch (err) {
-    createWsError.value = err?.message || 'Failed to create workspace';
-  } finally {
-    createWsLoading.value = false;
-  }
 };
 // keep old name so the "Create workspace" button in the empty-state still works
 const createWorkspace = openCreateWorkspaceModal;
@@ -1547,181 +1272,26 @@ const createSetupPage = async (visibility) => {
     setupError.value = err?.message || 'Failed to create page';
   }
 };
-const createComplianceField = (overrides = {}) => ({
-  id: `csf-${(complianceSetupFieldSeed.value += 1)}`,
-  name: '',
-  type: 'TEXT',
-  choices: '',
-  relationPageId: '',
-  isTitle: false,
-  ...overrides,
-});
-const createComplianceTransition = (overrides = {}) => ({
-  id: `cst-${(complianceSetupTransitionSeed.value += 1)}`,
-  from: 'draft',
-  to: 'submitted',
-  guards: { reviewer: false, approval: false, reason: false },
-  ...overrides,
-});
-const choicesToText = (choices) => (Array.isArray(choices) ? choices.join('\n') : '');
-const parseChoicesText = (raw) => {
-  if (typeof raw !== 'string') return [];
-  return raw
-    .split(/[\n,]+/)
-    .map((entry) => entry.trim())
-    .filter(Boolean);
-};
-const applyComplianceTemplate = (template) => {
-  const templateFields = complianceTemplateFields[template];
-  const nextFields = Array.isArray(templateFields)
-    ? templateFields.map((field) =>
-        createComplianceField({
-          name: field.name,
-          type: field.type,
-          choices: choicesToText(field.choices),
-          isTitle: !!field.isTitle,
-        })
-      )
-    : [createComplianceField({ name: 'Name', type: 'TEXT', isTitle: true })];
-  complianceSetupFields.value = nextFields;
-};
-const resetComplianceTransitions = () => {
-  complianceSetupTransitions.value = [
-    createComplianceTransition({ from: 'draft', to: 'submitted' }),
-    createComplianceTransition({ from: 'submitted', to: 'review', guards: { reviewer: true, approval: false, reason: false } }),
-    createComplianceTransition({ from: 'review', to: 'closed', guards: { reviewer: true, approval: true, reason: false } }),
-    createComplianceTransition({ from: 'closed', to: 'review', guards: { reviewer: false, approval: true, reason: true } }),
-  ];
-};
-const addComplianceField = () => {
-  const isFirst = complianceSetupFields.value.length === 0;
-  const field = createComplianceField({ isTitle: isFirst });
-  complianceSetupFields.value = [...complianceSetupFields.value, field];
-};
-const removeComplianceField = (fieldId) => {
-  const next = complianceSetupFields.value.filter((field) => field.id !== fieldId);
-  if (next.length && !next.some((field) => field.isTitle)) {
-    next[0] = { ...next[0], isTitle: true, type: 'TEXT' };
-  }
-  complianceSetupFields.value = next;
-};
-const clearComplianceFields = () => {
-  complianceSetupFields.value = [];
-};
-const setComplianceTitleField = (fieldId) => {
-  complianceSetupFields.value = complianceSetupFields.value.map((field) => {
-    const isTitle = field.id === fieldId;
-    return {
-      ...field,
-      isTitle,
-      type: isTitle ? 'TEXT' : field.type,
+// The compliance setup dialog, opened by requestComplianceSetup; resolves with its result, or null.
+const complianceSetupRequest = ref(null);
+const requestComplianceSetup = (options = {}) => {
+  if (!canEditWorkspace.value) return Promise.resolve(null);
+  complianceSetupRequest.value?.resolve(null);
+  return new Promise((resolve) => {
+    complianceSetupRequest.value = {
+      resolve,
+      options: {
+        allowTitle: options.allowTitle === true,
+        defaultTitle: typeof options.defaultTitle === 'string' ? options.defaultTitle : 'Untitled database',
+        template: options.template,
+      },
     };
   });
 };
-const addComplianceTransition = () => {
-  const transition = createComplianceTransition({ from: 'submitted', to: 'review' });
-  complianceSetupTransitions.value = [...complianceSetupTransitions.value, transition];
-};
-const removeComplianceTransition = (transitionId) => {
-  complianceSetupTransitions.value = complianceSetupTransitions.value.filter((entry) => entry.id !== transitionId);
-};
-const buildComplianceFieldsPayload = () => {
-  const trimmed = complianceSetupFields.value
-    .map((field) => ({
-      ...field,
-      name: typeof field.name === 'string' ? field.name.trim() : '',
-    }))
-    .filter((field) => field.name);
-  if (!trimmed.length) {
-    complianceSetupError.value = 'Add at least one field before creating the database.';
-    return null;
-  }
-  const missingRelation = trimmed.some(
-    (field) => field.type === 'RELATION' && (!field.relationPageId || !String(field.relationPageId).trim())
-  );
-  if (missingRelation) {
-    complianceSetupError.value = 'Choose a target database for each relation field.';
-    return null;
-  }
-  let titleIndex = trimmed.findIndex((field) => field.isTitle);
-  if (titleIndex < 0) titleIndex = 0;
-  return trimmed.map((field, index) => {
-    const options = {};
-    let type = field.isTitle || index === titleIndex ? 'TEXT' : field.type;
-    if (type === 'ASSET_TAG') {
-      type = 'TEXT';
-      options.source = 'assetTag';
-      options.readonly = true;
-    }
-    if (field.isTitle || index === titleIndex) {
-      options.source = 'page';
-    }
-    if (type === 'RELATION') {
-      const targetId = typeof field.relationPageId === 'string' ? field.relationPageId.trim() : '';
-      if (targetId) {
-        options.relation = { pageId: targetId, allowMultiple: false };
-      }
-    }
-    if (type === 'SELECT' || type === 'MULTI_SELECT') {
-      const choices = parseChoicesText(field.choices);
-      if (choices.length) options.choices = choices;
-    }
-    return { name: field.name, type, options };
-  });
-};
-const buildComplianceWorkflowPayload = () => {
-  const transitions = complianceSetupTransitions.value
-    .filter((entry) => entry.from && entry.to)
-    .map((entry) => {
-      const guards = [];
-      if (entry.guards?.reviewer) guards.push({ type: 'role', value: 'reviewer' });
-      if (entry.guards?.approval) guards.push({ type: 'approval' });
-      if (entry.guards?.reason) guards.push({ type: 'reason' });
-      return { from: entry.from, to: entry.to, guards };
-    });
-  return {
-    states: complianceStatuses.map((state) => ({ id: state.id, label: state.label })),
-    transitions,
-  };
-};
-const requestComplianceSetup = (options = {}) => {
-  if (!canEditWorkspace.value) return Promise.resolve(null);
-  const allowTitle = options.allowTitle === true;
-  const defaultTitle = typeof options.defaultTitle === 'string' ? options.defaultTitle : 'Untitled database';
-  const template = resolveComplianceTemplate(options.template);
-  complianceSetupAllowTitle.value = allowTitle;
-  complianceSetupTitle.value = defaultTitle;
-  complianceSetupTemplate.value = template;
-  complianceSetupError.value = '';
-  complianceSetupFieldSeed.value = 0;
-  complianceSetupTransitionSeed.value = 0;
-  applyComplianceTemplate(template);
-  resetComplianceTransitions();
-  showComplianceSetupModal.value = true;
-  return new Promise((resolve) => {
-    complianceSetupResolver.value = resolve;
-  });
-};
-const closeComplianceSetupModal = () => {
-  showComplianceSetupModal.value = false;
-  const resolver = complianceSetupResolver.value;
-  complianceSetupResolver.value = null;
-  if (resolver) resolver(null);
-};
-const submitComplianceSetupModal = () => {
-  complianceSetupError.value = '';
-  const fields = buildComplianceFieldsPayload();
-  if (!fields) return;
-  const workflow = buildComplianceWorkflowPayload();
-  const result = { database: { fields, workflow } };
-  if (complianceSetupAllowTitle.value) {
-    const title = complianceSetupTitle.value.trim();
-    if (title) result.title = title;
-  }
-  showComplianceSetupModal.value = false;
-  const resolver = complianceSetupResolver.value;
-  complianceSetupResolver.value = null;
-  if (resolver) resolver(result);
+const finishComplianceSetup = (result) => {
+  const request = complianceSetupRequest.value;
+  complianceSetupRequest.value = null;
+  request?.resolve(result);
 };
 const handleComplianceSetup = async () => {
   if (!workspace.currentPage || !canEditPage.value) return;
@@ -1764,118 +1334,6 @@ const chooseSetupKind = async (kind, options = {}) => {
   logSetup('setup-kind-finish', { kind, success });
   return success;
 };
-const loadMembers = async () => {
-  if (!activeWorkspaceId.value || !activeUser.value) return;
-  membersLoading.value = true;
-  membersError.value = '';
-  try {
-    const data = await api.listWorkspaceMembers(activeWorkspaceId.value, { userId: activeUser.value.id });
-    members.value = Array.isArray(data) ? data : [];
-  } catch (err) {
-    membersError.value = err?.message || 'Failed to load members';
-  } finally {
-    membersLoading.value = false;
-  }
-};
-const openMembersModal = async () => {
-  closeMenu();
-  showUserMenu.value = false;
-  settingsTab.value = 'Members';
-  showSettingsPopup.value = true;
-  await loadMembers();
-};
-const closeMembersModal = () => {
-  closeSettingsPopup();
-};
-const showDeleteWorkspaceConfirm = ref(false);
-const deletingWorkspace = ref(false);
-const renameWorkspaceDraft = ref('');
-const renamingWorkspace = ref(false);
-const renameWorkspaceError = ref('');
-const handleRenameWorkspace = async () => {
-  const name = renameWorkspaceDraft.value.trim();
-  if (!name || name === activeWorkspaceName.value) return;
-  renamingWorkspace.value = true;
-  renameWorkspaceError.value = '';
-  try {
-    await workspace.renameWorkspace(activeWorkspaceId.value, name);
-  } catch (err) {
-    renameWorkspaceError.value = err?.message || 'Failed to rename workspace';
-  } finally {
-    renamingWorkspace.value = false;
-  }
-};
-const handleDeleteWorkspace = async () => {
-  if (!activeWorkspaceId.value) return;
-  deletingWorkspace.value = true;
-  try {
-    await workspace.deleteWorkspace(activeWorkspaceId.value);
-    showDeleteWorkspaceConfirm.value = false;
-    closeMembersModal();
-  } catch (err) {
-    membersError.value = err?.message || 'Failed to delete workspace';
-  } finally {
-    deletingWorkspace.value = false;
-  }
-};
-const inviteMember = async () => {
-  if (!activeWorkspaceId.value || !activeUser.value || !isWorkspaceOwner.value) return;
-  const email = inviteEmail.value.trim();
-  if (!email) {
-    membersError.value = 'Enter the email address of the person to add.';
-    return;
-  }
-  memberActionLoading.value = { ...memberActionLoading.value, invite: true };
-  membersError.value = '';
-  try {
-    await api.addWorkspaceMember(
-      activeWorkspaceId.value,
-      { email, role: inviteRole.value },
-      { userId: activeUser.value.id }
-    );
-    inviteEmail.value = '';
-    await loadMembers();
-  } catch (err) {
-    membersError.value = err?.message || 'Failed to invite member';
-  } finally {
-    const next = { ...memberActionLoading.value };
-    delete next.invite;
-    memberActionLoading.value = next;
-  }
-};
-const updateMemberRole = async (memberId, role) => {
-  if (!activeWorkspaceId.value || !activeUser.value || !isWorkspaceOwner.value) return;
-  memberActionLoading.value = { ...memberActionLoading.value, [memberId]: true };
-  membersError.value = '';
-  try {
-    await api.updateWorkspaceMember(activeWorkspaceId.value, memberId, { role }, { userId: activeUser.value.id });
-    await loadMembers();
-  } catch (err) {
-    membersError.value = err?.message || 'Failed to update role';
-  } finally {
-    const next = { ...memberActionLoading.value };
-    delete next[memberId];
-    memberActionLoading.value = next;
-  }
-};
-const removeMember = async (memberId) => {
-  if (!activeWorkspaceId.value || !activeUser.value || !isWorkspaceOwner.value) return;
-  const confirmed = window.confirm('Remove this member from the workspace?');
-  if (!confirmed) return;
-  memberActionLoading.value = { ...memberActionLoading.value, [memberId]: true };
-  membersError.value = '';
-  try {
-    await api.removeWorkspaceMember(activeWorkspaceId.value, memberId, { userId: activeUser.value.id });
-    await loadMembers();
-  } catch (err) {
-    membersError.value = err?.message || 'Failed to remove member';
-  } finally {
-    const next = { ...memberActionLoading.value };
-    delete next[memberId];
-    memberActionLoading.value = next;
-  }
-};
-
 const toggleMenu = (pageId) => {
   menuOpenFor.value = menuOpenFor.value === pageId ? null : pageId;
 };
@@ -1973,152 +1431,9 @@ const deletePage = (page) => {
   closeMenu();
   confirmDeletePage(page);
 };
-// HTML export state
-const exportHtmlMode = ref('scroll');
-const exportHtmlRootIds = ref(new Set()); // empty = whole workspace
-const exportHtmlChecked = ref(new Set());
-const exportHtmlExporting = ref(false);
-
-const exportHtmlFullTree = computed(() => {
-  const allPages = pages.value.filter((p) => !p.isDeleted && !p.isHidden);
-  const childrenOf = (parentId) => allPages.filter((p) => p.parentId === parentId);
-  const result = [];
-  const walk = (page, depth) => {
-    result.push({ ...page, _depth: depth });
-    childrenOf(page.id).forEach((child) => walk(child, depth + 1));
-  };
-  allPages.filter((p) => !p.parentId).forEach((root) => walk(root, 0));
-  return result;
-});
-
-const exportHtmlSubtreeIds = computed(() => {
-  const roots = exportHtmlRootIds.value;
-  if (!roots.size) return new Set(exportHtmlFullTree.value.map((p) => p.id));
-  const allPages = pages.value.filter((p) => !p.isDeleted && !p.isHidden);
-  const childrenOf = (parentId) => allPages.filter((p) => p.parentId === parentId);
-  const ids = new Set();
-  const walk = (id) => {
-    ids.add(id);
-    childrenOf(id).forEach((child) => walk(child.id));
-  };
-  for (const rootId of roots) walk(rootId);
-  return ids;
-});
-
-const exportHtmlCheckedCount = computed(() => {
-  let count = 0;
-  for (const entry of exportHtmlFullTree.value) {
-    if (exportHtmlChecked.value.has(entry.id)) count++;
-  }
-  return count;
-});
-
-const getSubtreeIds = (pageId) => {
-  const allPages = pages.value.filter((p) => !p.isDeleted && !p.isHidden);
-  const childrenOf = (parentId) => allPages.filter((p) => p.parentId === parentId);
-  const ids = new Set();
-  const walk = (id) => { ids.add(id); childrenOf(id).forEach((c) => walk(c.id)); };
-  walk(pageId);
-  return ids;
-};
-
-const exportHtmlSelectRoot = (pageId) => {
-  if (pageId) {
-    exportHtmlRootIds.value = new Set([pageId]);
-    exportHtmlChecked.value = getSubtreeIds(pageId);
-  } else {
-    exportHtmlRootIds.value = new Set();
-    const allPages = pages.value.filter((p) => !p.isDeleted && !p.isHidden);
-    exportHtmlChecked.value = new Set(allPages.map((p) => p.id));
-  }
-};
-
-const exportHtmlToggleCheck = (pageId) => {
-  if (!exportHtmlSubtreeIds.value.has(pageId)) return;
-  const allPages = pages.value.filter((p) => !p.isDeleted && !p.isHidden);
-  const childrenOf = (parentId) => allPages.filter((p) => p.parentId === parentId);
-  const descendants = [];
-  const walk = (id) => { descendants.push(id); childrenOf(id).forEach((c) => walk(c.id)); };
-  walk(pageId);
-  const next = new Set(exportHtmlChecked.value);
-  const excluding = next.has(pageId);
-  for (const id of descendants) {
-    if (excluding) next.delete(id); else next.add(id);
-  }
-  exportHtmlChecked.value = next;
-};
-
-const exportHtmlRowClick = (pageId, event) => {
-  if (event.shiftKey) {
-    if (exportHtmlSubtreeIds.value.has(pageId)) {
-      exportHtmlToggleCheck(pageId);
-    } else {
-      // Add this tree to the selection
-      const nextRoots = new Set(exportHtmlRootIds.value);
-      nextRoots.add(pageId);
-      exportHtmlRootIds.value = nextRoots;
-      const nextChecked = new Set(exportHtmlChecked.value);
-      for (const id of getSubtreeIds(pageId)) nextChecked.add(id);
-      exportHtmlChecked.value = nextChecked;
-    }
-  } else {
-    exportHtmlSelectRoot(pageId);
-  }
-};
-
-const exportHtmlTreeRef = ref(null);
-const scrollExportTreeToRoot = (pageId) => {
-  if (!pageId) return;
-  nextTick(() => {
-    const container = exportHtmlTreeRef.value;
-    if (!container) return;
-    const row = container.querySelector(`[data-page-id="${pageId}"]`);
-    if (row) row.scrollIntoView({ block: 'center', behavior: 'instant' });
-  });
-};
 const exportPageHtml = (page) => {
   closeMenu();
-  exportFormat.value = 'html';
-  exportHtmlMode.value = 'scroll';
-  showExportModal.value = true;
-  exportHtmlSelectRoot(page?.id || null);
-  scrollExportTreeToRoot(page?.id);
-};
-
-const confirmExportHtml = async () => {
-  exportHtmlExporting.value = true;
-  try {
-    // Brief delay to let any in-flight WebSocket syncs (cell edits, typing) reach the collab server
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    const roots = exportHtmlRootIds.value;
-    const allIds = new Set(exportHtmlFullTree.value.map((p) => p.id));
-    const excludeIds = [];
-    for (const id of allIds) {
-      if (!exportHtmlChecked.value.has(id)) excludeIds.push(id);
-    }
-    const params = {
-      mode: exportHtmlMode.value,
-      excludeIds: excludeIds.length ? excludeIds : undefined,
-    };
-    if (roots.size === 1) {
-      params.rootPageId = [...roots][0];
-    } else {
-      params.workspaceId = workspace.activeWorkspaceId;
-    }
-    const { blob, filename } = await api.exportHtml(params);
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-    closeExportModal();
-  } catch (err) {
-    console.warn('Export failed', err);
-    exportHtmlExporting.value = false;
-  }
+  exportRequest.value = { format: 'html', rootPageId: page?.id || null };
 };
 const addChildPage = async (page) => {
   await workspace.addChildPage(page);
@@ -2601,388 +1916,10 @@ const closeBin = () => {
   showBinModal.value = false;
   workspace.clearBinState();
 };
-const restoreFromBin = async (page) => {
-  await workspace.restorePageFromBin(page);
-  await workspace.loadBinPages();
-};
-const destroyBin = async () => {
-  if (!workspace.binPages.length) {
-    closeBin();
-    return;
-  }
-  const ids = workspace.binPages.map((p) => p.id);
-  await workspace.destroyBin(ids);
-  await workspace.loadBinPages();
-  closeBin();
-};
 
 if (typeof window !== 'undefined') {
   window.addEventListener('wikid:open-bin', openBin);
 }
-
-const PageTree = defineComponent({
-  name: 'PageTree',
-  props: {
-    pages: { type: Array, required: true },
-    parentId: { type: String, default: null },
-    depth: { type: Number, default: 0 },
-    activeId: { type: String, default: null },
-    menuOpenFor: { type: [String, null], default: null },
-    canEdit: { type: Boolean, default: true },
-    isExpanded: { type: Function, required: true },
-    toggleExpand: { type: Function, required: true },
-    select: { type: Function, required: true },
-    toggleMenu: { type: Function, required: true },
-    duplicate: { type: Function, required: true },
-    rename: { type: Function, required: true },
-    moveVisibility: { type: Function, required: true },
-    remove: { type: Function, required: true },
-    exportHtml: { type: Function, required: false },
-    addChild: { type: Function, required: true },
-    toggleTree: { type: Function, required: true },
-    convertToWiki: { type: Function, required: false },
-    openInSplit: { type: Function, required: false },
-    openInMoveWorkspace: { type: Function, required: false },
-    onReorder: { type: Function, required: false },
-  },
-  setup(props) {
-    const suppressClickUntil = ref(0);
-    const suppressClickAfterDrag = () => {
-      suppressClickUntil.value = Date.now() + 300;
-    };
-    const shouldSuppressClick = () => Date.now() < suppressClickUntil.value;
-    const childrenMap = computed(() => {
-      const map = new Map();
-      props.pages.forEach((page) => {
-        const parentId = page.parentId ?? null;
-        if (!map.has(parentId)) {
-          map.set(parentId, []);
-        }
-        map.get(parentId).push(page);
-      });
-      // keep children ordered by their position so tree reflects reorder immediately
-      for (const [key, list] of map.entries()) {
-        map.set(
-          key,
-          [...list].sort((a, b) => Number(a.position ?? 0) - Number(b.position ?? 0))
-        );
-      }
-      return map;
-    });
-
-    const childrenOf = (parentId) => childrenMap.value.get(parentId ?? null) ?? [];
-
-    const collectDescendants = (rootId) => {
-      const stack = [rootId];
-      const descendants = [];
-      while (stack.length) {
-        const currentId = stack.pop();
-        const children = childrenOf(currentId);
-        children.forEach((child) => {
-          descendants.push(child.id);
-          stack.push(child.id);
-        });
-      }
-      return descendants;
-    };
-
-    const isSubtreeFullyExpanded = (rootId) => {
-      const descendants = collectDescendants(rootId);
-      return descendants.length > 0 && descendants.every((id) => props.isExpanded(id));
-    };
-
-    const renderNode = (page, depth) => {
-          const isOpen = props.isExpanded(page.id);
-          const children = childrenOf(page.id);
-          const subtreeFullyExpanded = isSubtreeFullyExpanded(page.id);
-          const treeActionLabel = subtreeFullyExpanded ? 'Collapse all' : 'Expand all';
-      const isDragging = ref(false);
-      const isDragOver = ref(false);
-      const dropMode = ref('none'); // 'into' or 'above'
-          const handleTreeAction = (event) => {
-            event.stopPropagation();
-            props.toggleTree(page, props.pages, subtreeFullyExpanded);
-          };
-
-      const handleDragStart = (event) => {
-        if (!props.canEdit || !props.onReorder) return;
-        event.dataTransfer.effectAllowed = 'move';
-        event.dataTransfer.setData('application/json', JSON.stringify({ id: page.id, parentId: page.parentId ?? null }));
-        isDragging.value = true;
-    };
-
-      const handleDragEnd = () => {
-        isDragging.value = false;
-        isDragOver.value = false;
-        if (typeof document !== 'undefined') {
-          document.querySelectorAll('.drag-over').forEach((el) => {
-            el.classList.remove('drag-over');
-            el.removeAttribute('data-dragover');
-            el.removeAttribute('data-drop-mode');
-          });
-        }
-      };
-
-      const handleDragOver = (event) => {
-        if (!props.onReorder || !props.canEdit) return;
-        event.preventDefault();
-        event.dataTransfer.dropEffect = 'move';
-        isDragOver.value = true;
-        if (event.currentTarget) {
-          event.currentTarget.classList.add('drag-over');
-          event.currentTarget.setAttribute('data-dragover', 'true');
-          const rect = event.currentTarget.getBoundingClientRect();
-          const offsetY = event.clientY - rect.top;
-          const ratio = rect.height ? offsetY / rect.height : 0.5;
-          // top edge = above, everything else = into (prevents bottom edge misclassifying as above)
-          const nextMode = ratio <= 0.2 ? 'above' : 'into';
-          dropMode.value = nextMode;
-          event.currentTarget.setAttribute('data-drop-mode', nextMode);
-        }
-      };
-
-      const clearDragVisual = (targetEl) => {
-        if (targetEl?.classList) {
-          targetEl.classList.remove('drag-over');
-        }
-        if (targetEl?.removeAttribute) {
-          targetEl.removeAttribute('data-dragover');
-          targetEl.removeAttribute('data-drop-mode');
-        }
-      };
-
-      const handleDragLeave = (event) => {
-        isDragOver.value = false;
-        dropMode.value = 'none';
-        clearDragVisual(event?.currentTarget);
-      };
-
-      const handleDrop = (event) => {
-        if (!props.onReorder || !props.canEdit) return;
-        event.preventDefault();
-        // Recompute mode on drop in case dragleave fired before drop
-        const el = event.currentTarget;
-        if (el) {
-          const rect = el.getBoundingClientRect();
-          const offsetY = event.clientY - rect.top;
-          const ratio = rect.height ? offsetY / rect.height : 0.5;
-          const nextMode = ratio <= 0.2 ? 'above' : 'into';
-          dropMode.value = nextMode;
-          el.setAttribute('data-drop-mode', nextMode);
-        }
-        try {
-          const data = JSON.parse(event.dataTransfer.getData('application/json'));
-        if (data?.id && data.id !== page.id) {
-          props.onReorder({
-            draggedId: data.id,
-            targetId: page.id,
-            targetParentId: page.parentId ?? null,
-            dropMode: dropMode.value === 'into' ? 'into' : 'above',
-          });
-        }
-        } catch {
-          // ignore malformed drops
-        }
-        suppressClickAfterDrag();
-        isDragOver.value = false;
-        dropMode.value = 'none';
-        clearDragVisual(event?.currentTarget);
-      };
-
-      const row = h(
-        'div',
-        {
-          class: ['sidebar__item', { active: page.id === props.activeId, 'menu-open': props.menuOpenFor === page.id }],
-          'data-depth': depth,
-          'data-dragging': isDragging.value ? 'true' : 'false',
-          'data-dragover': isDragOver.value ? 'true' : 'false',
-          'data-drop-mode': dropMode.value,
-          onClick: () => {
-            if (shouldSuppressClick()) return;
-            props.select(page);
-          },
-          style: { '--sidebar-item-indent': `${depth * indentStep.value}px` },
-          draggable: !!props.onReorder,
-          ...(props.canEdit ? {} : { draggable: false }),
-          onDragstart: handleDragStart,
-          onDragend: handleDragEnd,
-          onDragover: handleDragOver,
-          onDragleave: handleDragLeave,
-          onDrop: handleDrop,
-          onMouseenter: (e) => {
-            const itemEl = e.currentTarget;
-            if (itemEl._collapseTimer) {
-              clearTimeout(itemEl._collapseTimer);
-              itemEl._collapseTimer = null;
-            }
-            // highlight all items in the same tree branch
-            const itemDepth = parseInt(itemEl.dataset.depth) || 0;
-            const treeItems = [];
-            let root = itemDepth === 0 ? itemEl : null;
-            if (!root) {
-              let sib = itemEl.previousElementSibling;
-              while (sib) {
-                if (sib.classList.contains('sidebar__item') && (parseInt(sib.dataset.depth) || 0) === 0) {
-                  root = sib;
-                  break;
-                }
-                sib = sib.previousElementSibling;
-              }
-            }
-            if (root) {
-              if (root !== itemEl) treeItems.push(root);
-              let sib = root.nextElementSibling;
-              while (sib && sib.classList.contains('sidebar__item')) {
-                if ((parseInt(sib.dataset.depth) || 0) === 0) break;
-                if (sib !== itemEl) treeItems.push(sib);
-                sib = sib.nextElementSibling;
-              }
-            }
-            treeItems.forEach(el => el.classList.add('tree-hovered'));
-            itemEl._treeHoveredItems = treeItems;
-          },
-          onMouseleave: (e) => {
-            const itemEl = e.currentTarget;
-            itemEl._collapseTimer = setTimeout(() => {
-              (itemEl._treeHoveredItems || []).forEach(el => el.classList.remove('tree-hovered'));
-              itemEl._treeHoveredItems = null;
-              itemEl._collapseTimer = null;
-            }, 300);
-          },
-        },
-        [
-          h(
-            'div',
-            { class: 'page-icon-slot' },
-            [
-              h(PageIcon, { class: 'page-icon', icon: page.icon, fallback: '📄', 'aria-hidden': 'true' }),
-            h(
-              'button',
-              {
-                class: ['page-chevron', { open: isOpen }],
-                onClick: (e) => {
-                  e.stopPropagation();
-                  props.toggleExpand(page.id);
-                },
-              },
-              h(
-                'svg',
-                {
-                  class: 'chevron-icon',
-                  viewBox: '0 0 16 16',
-                  width: 16,
-                  height: 16,
-                  fill: 'currentColor',
-                  'aria-hidden': 'true',
-                },
-                [h('path', { 'fill-rule': 'evenodd', d: CHEVRON_RIGHT })]
-              )
-            ),
-          ]),
-          h('div', { class: 'sidebar__title' }, page.title || 'Untitled page'),
-          props.canEdit
-            ? h('div', { class: 'page-actions' }, [
-                h('button', {
-                  class: 'page-add-btn',
-                  onClick: (e) => {
-                    e.stopPropagation();
-                    props.addChild(page);
-                    e.currentTarget?.blur?.();
-                  },
-                }, '+'),
-                h('div', { class: 'page-menu-wrapper', 'data-menu-for': page.id }, [
-                  h('button', {
-                    class: 'page-menu-btn',
-                    onClick: (e) => {
-                      e.stopPropagation();
-                      props.toggleMenu(page.id);
-                      e.currentTarget?.blur?.();
-                    },
-                  }, '...'),
-                  // Drawn on <body>, next to the button: the sidebar scrolls, so it would clip the menu.
-                  props.menuOpenFor === page.id
-                    ? h(Teleport, { to: 'body' }, h('div', {
-                        class: 'page-menu context-menu',
-                        onVnodeMounted(vnode) {
-                          const el = vnode.el;
-                          const button = document.querySelector(`.page-menu-wrapper[data-menu-for="${page.id}"]`);
-                          if (!el || !button) return;
-                          const anchor = button.getBoundingClientRect();
-                          const menu = el.getBoundingClientRect();
-                          const margin = 8;
-                          const left = Math.min(anchor.right + 6, window.innerWidth - menu.width - margin);
-                          const top = Math.min(anchor.bottom + margin, window.innerHeight - menu.height - margin);
-                          el.style.left = `${Math.max(margin, left)}px`;
-                          el.style.top = `${Math.max(margin, top)}px`;
-                        },
-                      }, [
-                        h('button', { type: 'button', class: 'context-menu__item', onClick: (e) => { e.stopPropagation(); props.duplicate(page); } }, 'Duplicate'),
-                        h('button', { type: 'button', class: 'context-menu__item', onClick: (e) => { e.stopPropagation(); props.rename(page); } }, 'Rename'),
-                        props.openInSplit
-                          ? h('button', { type: 'button', class: 'context-menu__item', onClick: (e) => { e.stopPropagation(); props.openInSplit(page.id); props.toggleMenu(null); } }, 'Open in split')
-                          : null,
-                        props.openInMoveWorkspace
-                          ? h('button', { type: 'button', class: 'context-menu__item', onClick: (e) => { e.stopPropagation(); props.openInMoveWorkspace(page); props.toggleMenu(null); } }, 'Move to workspace…')
-                          : null,
-                        props.convertToWiki && page.kind !== 'DATABASE' && !page.isHidden && page.wikiHomeId !== page.id
-                          ? h('button', { type: 'button', class: 'context-menu__item', onClick: (e) => { e.stopPropagation(); props.convertToWiki(page); } }, 'Turn into wiki')
-                          : null,
-                        h(
-                          'button',
-                          {
-                            type: 'button',
-                            class: 'context-menu__item',
-                            onClick: (e) => {
-                              e.stopPropagation();
-                              props.moveVisibility(page);
-                            },
-                          },
-                          page.visibility === 'PRIVATE' ? 'Move to public' : 'Move to private'
-                        ),
-                        h('button', { type: 'button', class: 'context-menu__item', onClick: (e) => { e.stopPropagation(); props.exportHtml(page); } }, 'Export'),
-                        h('button', { type: 'button', class: 'context-menu__item', onClick: (e) => { e.stopPropagation(); props.remove(page); } }, 'Delete'),
-                        h('button', { type: 'button', class: 'context-menu__item', onClick: handleTreeAction }, treeActionLabel),
-                      ]))
-                    : null,
-                ]),
-              ])
-            : null,
-        ]
-      );
-
-      const childrenNodes = isOpen
-        ? children.length
-          ? children.map((child) => renderNode(child, depth + 1))
-          : [h('div', { class: 'page-empty', style: { paddingLeft: `${(depth + 1) * 12}px` } }, 'No pages inside')]
-        : [];
-
-      return h(Fragment, null, [row, ...childrenNodes]);
-    };
-
-    return () => childrenOf(props.parentId).map((page) => renderNode(page, props.depth));
-  },
-});
-
-const DeleteTreeBranch = defineComponent({
-  name: 'DeleteTreeBranch',
-  props: {
-    nodes: { type: Array, required: true },
-  },
-  setup(props) {
-    const renderBranch = (nodes) =>
-      h(
-        'ul',
-        { class: 'delete-tree-children' },
-        nodes.map((node) =>
-          h('li', { key: node.id }, [
-            h('span', { class: 'delete-tree-title' }, node.title || 'Untitled page'),
-            node.children?.length ? renderBranch(node.children) : null,
-          ])
-        )
-      );
-    return () => renderBranch(props.nodes || []);
-  },
-});
 </script>
 
 <template>
@@ -3014,33 +1951,7 @@ const DeleteTreeBranch = defineComponent({
       </div>
     </section>
   </div>
-  <div v-else-if="!activeUser" class="login-page">
-    <div class="login-card">
-      <h1>Wikid</h1>
-      <form class="login-form" @submit.prevent="handleLogin">
-        <input
-          v-model="loginEmail"
-          class="login-input"
-          type="email"
-          placeholder="Email"
-          autocomplete="email"
-          required
-        />
-        <input
-          v-model="loginPassword"
-          class="login-input"
-          type="password"
-          placeholder="Password"
-          autocomplete="current-password"
-          required
-        />
-        <p v-if="loginError" class="login-error">{{ loginError }}</p>
-        <button class="ghost-btn login-submit-btn" type="submit" :disabled="loginLoading">
-          {{ loginLoading ? 'Signing in…' : 'Sign in' }}
-        </button>
-      </form>
-    </div>
-  </div>
+  <LoginPage v-else-if="!activeUser" />
   <div v-else class="app-shell" :class="{ 'app-shell--sidebar-hidden': isSidebarHidden }" :style="appShellStyle">
     <div v-if="showNotConnected" class="not-connected-overlay" role="status" aria-live="polite">
       <div class="not-connected-card">
@@ -3137,6 +2048,7 @@ const DeleteTreeBranch = defineComponent({
             :open-in-move-workspace="otherWorkspaces.length ? openMoveToWorkspaceModal : null"
             :add-child="addChildPage"
             :on-reorder="canEditWorkspace ? reorderPages : null"
+            :indent-step="indentStep"
             :can-edit="canEditWorkspace"
           />
         </div>
@@ -3176,6 +2088,7 @@ const DeleteTreeBranch = defineComponent({
             :open-in-move-workspace="otherWorkspaces.length ? openMoveToWorkspaceModal : null"
             :add-child="addChildPage"
             :on-reorder="canEditWorkspace ? reorderPages : null"
+            :indent-step="indentStep"
             :can-edit="canEditWorkspace"
           />
         </div>
@@ -3589,600 +2502,53 @@ const DeleteTreeBranch = defineComponent({
         />
       </Transition>
 
-      <div v-if="showComplianceSetupModal" class="modal-backdrop" @click.self="closeComplianceSetupModal">
-        <div class="modal-card compliance-setup-modal">
-          <h3>Create compliance database</h3>
-          <p class="muted">Define the data model and compliance workflow for this database.</p>
-          <div class="compliance-setup__body">
-            <div v-if="complianceSetupAllowTitle" class="form-field">
-              <div class="form-field__label-row">
-                <label class="form-field__label">Title</label>
-              </div>
-              <input v-model="complianceSetupTitle" class="form-input" type="text" placeholder="Inventory database" />
-            </div>
-            <div class="form-field compliance-template-field">
-              <div class="form-field__label-row">
-                <label class="form-field__label">Template</label>
-              </div>
-              <div class="compliance-template__row">
-                <select v-model="complianceSetupTemplate" class="form-input">
-                  <option value="inventory">Inventory template</option>
-                  <option value="maintenance">Maintenance log template</option>
-                  <option value="assignments">Assignments template</option>
-                  <option value="blank">Blank</option>
-                </select>
-                <button class="ghost-btn" type="button" @click="applyComplianceTemplate(complianceSetupTemplate)">
-                  Apply template
-                </button>
-              </div>
-              <div class="form-field__note muted">Applying a template replaces the current field list.</div>
-            </div>
-            <div class="compliance-setup__section">
-              <div class="compliance-setup__section-header">
-                <h4 class="compliance-setup__section-title">Fields</h4>
-                <span class="muted">The compliance schema stored with each revision.</span>
-              </div>
-              <div v-if="!complianceSetupFields.length" class="muted">No fields yet. Add one below.</div>
-              <div v-for="field in complianceSetupFields" :key="field.id" class="compliance-field">
-                <div class="compliance-field__row">
-                  <input
-                    v-model="field.name"
-                    class="form-input compliance-field__name"
-                    type="text"
-                    placeholder="Field name"
-                  />
-                  <select v-model="field.type" class="form-input compliance-field__type" :disabled="field.isTitle">
-                    <option v-for="type in complianceFieldTypes" :key="type.id" :value="type.id">
-                      {{ type.label }}
-                    </option>
-                  </select>
-                  <label class="compliance-field__title">
-                    <input
-                      type="radio"
-                      name="compliance-title-field"
-                      :checked="field.isTitle"
-                      @change="setComplianceTitleField(field.id)"
-                    />
-                    Title field
-                  </label>
-                  <button class="ghost-btn compliance-field__remove" type="button" @click="removeComplianceField(field.id)">
-                    Remove
-                  </button>
-                </div>
-                <div v-if="field.type === 'SELECT' || field.type === 'MULTI_SELECT'" class="compliance-field__choices">
-                  <label class="form-field__label">Choices</label>
-                  <textarea
-                    v-model="field.choices"
-                    class="form-input form-input--multi"
-                    placeholder="One choice per line"
-                  ></textarea>
-                </div>
-                <div v-if="field.type === 'RELATION'" class="compliance-field__choices">
-                  <label class="form-field__label">Target database</label>
-                  <select
-                    v-model="field.relationPageId"
-                    class="form-input"
-                    :disabled="!complianceDatabaseOptions.length"
-                  >
-                    <option value="">Select a compliance database...</option>
-                    <option v-for="page in complianceDatabaseOptions" :key="page.id" :value="page.id">
-                      {{ page.title || 'Untitled database' }}
-                    </option>
-                  </select>
-                  <div class="form-field__note muted">
-                    Relations can only target other compliance databases.
-                  </div>
-                </div>
-              </div>
-              <div class="compliance-setup__actions">
-                <button class="ghost-btn" type="button" @click="addComplianceField">Add field</button>
-                <button class="ghost-btn" type="button" @click="clearComplianceFields">Clear fields</button>
-              </div>
-            </div>
-            <div class="compliance-setup__section">
-              <div class="compliance-setup__section-header">
-                <h4 class="compliance-setup__section-title">Workflow transitions</h4>
-                <span class="muted">Guards are enforced when statuses change.</span>
-              </div>
-              <div v-for="transition in complianceSetupTransitions" :key="transition.id" class="compliance-transition">
-                <div class="compliance-transition__row">
-                  <select v-model="transition.from" class="form-input compliance-transition__select">
-                    <option v-for="state in complianceStatuses" :key="state.id" :value="state.id">
-                      {{ state.label }}
-                    </option>
-                  </select>
-                  <span class="compliance-transition__arrow">-&gt;</span>
-                  <select v-model="transition.to" class="form-input compliance-transition__select">
-                    <option v-for="state in complianceStatuses" :key="state.id" :value="state.id">
-                      {{ state.label }}
-                    </option>
-                  </select>
-                  <button
-                    class="ghost-btn compliance-transition__remove"
-                    type="button"
-                    @click="removeComplianceTransition(transition.id)"
-                  >
-                    Remove
-                  </button>
-                </div>
-                <div class="compliance-transition__guards">
-                  <label class="compliance-transition__guard">
-                    <input type="checkbox" v-model="transition.guards.reviewer" />
-                    Reviewer
-                  </label>
-                  <label class="compliance-transition__guard">
-                    <input type="checkbox" v-model="transition.guards.approval" />
-                    Approval
-                  </label>
-                  <label class="compliance-transition__guard">
-                    <input type="checkbox" v-model="transition.guards.reason" />
-                    Reason
-                  </label>
-                </div>
-              </div>
-              <div class="compliance-setup__actions">
-                <button class="ghost-btn" type="button" @click="addComplianceTransition">Add transition</button>
-                <button class="ghost-btn" type="button" @click="resetComplianceTransitions">Reset defaults</button>
-              </div>
-            </div>
-          </div>
-          <span v-if="complianceSetupError" class="alert">{{ complianceSetupError }}</span>
-          <div class="modal-actions">
-            <button class="ghost-btn" type="button" @click="submitComplianceSetupModal">Create</button>
-            <button class="ghost-btn" type="button" @click="closeComplianceSetupModal">Cancel</button>
-          </div>
-        </div>
-      </div>
+      <ComplianceSetupModal
+        v-if="complianceSetupRequest"
+        v-bind="complianceSetupRequest.options"
+        @submit="finishComplianceSetup"
+        @cancel="finishComplianceSetup(null)"
+      />
 
-      <div v-if="showCreateWorkspaceModal" class="modal-backdrop" @click.self="closeCreateWorkspaceModal">
-        <div class="modal-card">
-          <h3>New workspace</h3>
-          <form @submit.prevent="submitCreateWorkspace">
-            <input
-              v-model="newWorkspaceName"
-              class="modal-text-input"
-              type="text"
-              placeholder="Workspace name"
-              maxlength="80"
-              autofocus
-            />
-            <p v-if="createWsError" class="modal-error">{{ createWsError }}</p>
-            <div class="modal-actions">
-              <button class="ghost-btn ghost-btn-background" type="submit" :disabled="!newWorkspaceName.trim() || createWsLoading">
-                {{ createWsLoading ? 'Creating…' : 'Create' }}
-              </button>
-              <button class="ghost-btn" type="button" @click="closeCreateWorkspaceModal">Cancel</button>
-            </div>
-          </form>
-        </div>
-      </div>
+      <CreateWorkspaceModal v-if="showCreateWorkspaceModal" @close="showCreateWorkspaceModal = false" />
 
       <!-- Move to workspace modal -->
-      <div v-if="showMoveWorkspaceModal" class="modal-backdrop" @click.self="closeMoveWorkspaceModal">
-        <div class="modal-card move-workspace-modal">
-          <h3>Move to workspace</h3>
-          <p class="muted">The following pages will be moved out of this workspace.</p>
-          <div class="move-workspace-modal__body">
-            <div class="move-workspace-modal__col move-workspace-modal__col--pages">
-              <div class="move-workspace-modal__col-label">Moving</div>
-              <div class="move-workspace-modal__page-list">
-                <div
-                  v-for="entry in moveWorkspaceSubtree"
-                  :key="entry.id"
-                  class="move-workspace-modal__page-row"
-                  :style="{ paddingLeft: `${entry._depth * 16 + 8}px` }"
-                >
-                  <span class="move-workspace-modal__page-icon" aria-hidden="true">
-                    <PageIcon :icon="entry.icon" fallback="📄" />
-                  </span>
-                  <span class="move-workspace-modal__page-title">{{ entry.title || 'Untitled page' }}</span>
-                </div>
-              </div>
-            </div>
-            <div class="move-workspace-modal__arrow" aria-hidden="true">
-              <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <line x1="5" y1="12" x2="19" y2="12" />
-                <polyline points="12 5 19 12 12 19" />
-              </svg>
-            </div>
-            <div class="move-workspace-modal__col move-workspace-modal__col--target">
-              <div class="move-workspace-modal__col-label">Destination</div>
-              <div class="move-workspace-modal__workspace-list">
-                <button
-                  v-for="entry in otherWorkspaces"
-                  :key="entry.workspace?.id"
-                  type="button"
-                  class="move-workspace-modal__workspace-btn"
-                  :class="{ 'move-workspace-modal__workspace-btn--selected': moveWorkspaceTargetId === entry.workspace?.id }"
-                  @click="moveWorkspaceTargetId = entry.workspace?.id"
-                >
-                  <span class="move-workspace-modal__ws-icon" aria-hidden="true">🗂️</span>
-                  <span class="move-workspace-modal__ws-name">{{ entry.workspace?.name || 'Workspace' }}</span>
-                  <span v-if="moveWorkspaceTargetId === entry.workspace?.id" class="move-workspace-modal__ws-check" aria-hidden="true">✓</span>
-                </button>
-                <div v-if="!otherWorkspaces.length" class="muted" style="padding: 8px;">No other workspaces available.</div>
-              </div>
-            </div>
-          </div>
-          <p v-if="moveWorkspaceError" class="modal-error">{{ moveWorkspaceError }}</p>
-          <div class="modal-actions">
-            <button
-              class="ghost-btn ghost-btn-background"
-              type="button"
-              :disabled="!moveWorkspaceTargetId || moveWorkspaceLoading"
-              @click="confirmMoveToWorkspace"
-            >
-              {{ moveWorkspaceLoading ? 'Moving…' : `Move ${moveWorkspaceSubtree.length} page${moveWorkspaceSubtree.length !== 1 ? 's' : ''}` }}
-            </button>
-            <button class="ghost-btn" type="button" @click="closeMoveWorkspaceModal">Cancel</button>
-          </div>
-        </div>
-      </div>
+      <MoveToWorkspaceModal
+        v-if="moveWorkspacePage"
+        :page="moveWorkspacePage"
+        :workspaces="otherWorkspaces"
+        @close="moveWorkspacePage = null"
+      />
 
-      <div v-if="showExportModal" class="modal-backdrop" @click.self="closeExportModal">
-        <div class="modal-card export-html-modal">
-          <h3>Export</h3>
-          <div class="export-format-bar">
-            <button type="button" :class="['export-format-btn', { active: exportFormat === 'html' }]" @click="exportFormat = 'html'">HTML</button>
-            <button type="button" :class="['export-format-btn', { active: exportFormat === 'pdf' }]" @click="exportFormat = 'pdf'">PDF</button>
-            <button type="button" :class="['export-format-btn', { active: exportFormat === 'markdown' }]" @click="exportFormat = 'markdown'">Markdown</button>
-          </div>
-
-          <template v-if="exportFormat === 'html'">
-            <p class="muted">Click to select root. Shift+click to exclude pages.</p>
-            <div ref="exportHtmlTreeRef" class="export-html-modal__tree">
-              <div
-                class="export-html-modal__row export-html-modal__row--root"
-                :class="{ 'export-html-modal__row--selected': exportHtmlRootIds.size === 0 }"
-                @click="exportHtmlSelectRoot(null)"
-              >
-                <span class="export-html-modal__icon" aria-hidden="true">🗂️</span>
-                <span class="export-html-modal__title">Entire workspace</span>
-              </div>
-              <div
-                v-for="entry in exportHtmlFullTree"
-                :key="entry.id"
-                :data-page-id="entry.id"
-                class="export-html-modal__row"
-                :class="{
-                  'export-html-modal__row--selected': exportHtmlRootIds.has(entry.id),
-                  'export-html-modal__row--outside': !exportHtmlSubtreeIds.has(entry.id),
-                  'export-html-modal__row--excluded': exportHtmlSubtreeIds.has(entry.id) && !exportHtmlChecked.has(entry.id),
-                }"
-                :style="{ paddingLeft: `${entry._depth * 16 + 28}px` }"
-                @click="exportHtmlRowClick(entry.id, $event)"
-              >
-                <span class="export-html-modal__icon" aria-hidden="true">
-                  <PageIcon :icon="entry.icon" :fallback="entry.kind === 'DATABASE' ? '🗂️' : '📄'" />
-                </span>
-                <span class="export-html-modal__title">{{ entry.title || 'Untitled page' }}</span>
-                <span v-if="entry.kind === 'DATABASE'" class="export-html-modal__badge">Database</span>
-              </div>
-            </div>
-            <div class="export-html-modal__options">
-              <span class="export-html-modal__label">Layout</span>
-              <div class="export-theme-toggle">
-                <button type="button" :class="['export-theme-btn', { active: exportHtmlMode === 'scroll' }]" @click="exportHtmlMode = 'scroll'">Single page</button>
-                <button type="button" :class="['export-theme-btn', { active: exportHtmlMode === 'pages' }]" @click="exportHtmlMode = 'pages'">Multi-page</button>
-              </div>
-            </div>
-            <p class="muted export-html-modal__hint">{{ exportHtmlMode === 'scroll' ? 'All pages combined into one scrollable document.' : 'Navigate between pages like a website.' }}</p>
-            <div class="modal-actions">
-              <button
-                class="ghost-btn ghost-btn-background"
-                type="button"
-                :disabled="exportHtmlExporting || exportHtmlCheckedCount === 0"
-                @click="confirmExportHtml"
-              >
-                {{ exportHtmlExporting ? 'Exporting...' : `Export ${exportHtmlCheckedCount} page${exportHtmlCheckedCount !== 1 ? 's' : ''}` }}
-              </button>
-              <button class="ghost-btn" type="button" @click="closeExportModal">Cancel</button>
-            </div>
-          </template>
-
-          <template v-if="exportFormat === 'pdf'">
-            <p class="muted">Export the current page as a PDF document.</p>
-            <div class="export-option-row">
-              <span class="export-option-label">Theme</span>
-              <div class="export-theme-toggle">
-                <button type="button" :class="['export-theme-btn', { active: exportTheme === 'light' }]" @click="exportTheme = 'light'">Light</button>
-                <button type="button" :class="['export-theme-btn', { active: exportTheme === 'dark' }]" @click="exportTheme = 'dark'">Dark</button>
-              </div>
-            </div>
-            <div class="export-option-row">
-              <span class="export-option-label">Scale <span class="export-scale-value">{{ Math.round(exportScale * 100) }}%</span></span>
-              <input type="range" class="export-scale-slider" min="0.5" max="2" step="0.05" v-model.number="exportScale" />
-            </div>
-            <div class="modal-actions">
-              <button class="ghost-btn ghost-btn-background" type="button" @click="exportPdf">Download PDF</button>
-              <button class="ghost-btn" type="button" @click="closeExportModal">Cancel</button>
-            </div>
-          </template>
-
-          <template v-if="exportFormat === 'markdown'">
-            <p class="muted">Export the current page as a Markdown file.</p>
-            <div class="modal-actions">
-              <button class="ghost-btn ghost-btn-background" type="button" @click="exportMarkdown">Download Markdown</button>
-              <button class="ghost-btn" type="button" @click="closeExportModal">Cancel</button>
-            </div>
-          </template>
-        </div>
-      </div>
-      <div v-if="showUserMenu" class="popover-backdrop left" @click.self="toggleUserMenu($event)">
-        <div class="popover-card context-menu">
-          <div class="user-menu-header">
-            <div class="user-menu-avatar">{{ userInitials }}</div>
-            <div class="user-menu-info">
-              <p class="user-menu-name">{{ activeUser?.name }}</p>
-              <p class="user-menu-hint">Signed in</p>
-            </div>
-          </div>
-          <button class="user-menu__item context-menu__item" type="button" @click="openSettingsPopup">Settings</button>
-          <button class="user-menu__item context-menu__item" type="button" @click="handleLogout">Log out</button>
-          <div class="user-menu-separator" role="separator"></div>
-          <div v-if="!loadingPages" class="user-menu-section">
-            <div class="user-menu-section-title">
-              <span>Workspaces</span>
-              <button
-                class="user-menu-action"
-                type="button"
-                title="Create workspace"
-                aria-label="Create workspace"
-                @click="openCreateWorkspaceModal"
-              >
-                +
-              </button>
-            </div>
-            <button
-              v-for="entry in workspaces"
-              :key="entry.workspace?.id"
-              class="user-menu__item context-menu__item user-menu__workspace"
-              :class="{ active: entry.workspace?.id === activeWorkspaceId }"
-              type="button"
-              @click="selectWorkspaceFromMenu(entry.workspace?.id)"
-            >
-              <span class="user-menu-workspace-left">
-                <span class="user-menu-workspace-icon" aria-hidden="true">🗂️</span>
-                <span class="user-menu-workspace-name">{{ entry.workspace?.name || 'Workspace' }}</span>
-              </span>
-              <span class="user-menu-workspace-badges">
-                <span class="workspace-doc-count">{{ entry.workspace?._count?.pages ?? 0 }}</span>
-                <span class="workspace-role-pill workspace-role-pill--menu">{{ entry.role }}</span>
-              </span>
-            </button>
-            <div v-if="!workspaces.length" class="user-menu-empty">No workspaces yet.</div>
-          </div>
-        </div>
-      </div>
-      <div v-if="showSettingsPopup" class="settings-popup-backdrop" @click.self="closeSettingsPopup">
-        <div class="settings-popup-card">
-          <button class="settings-close-btn" type="button" aria-label="Close settings" @click="closeSettingsPopup">×</button>
-          <div class="settings-popup-nav">
-            <span class="settings-nav-section-label">Account</span>
-            <button
-              class="settings-tab"
-              :class="{ 'settings-tab--active': settingsTab === 'General' }"
-              type="button"
-              @click="selectSettingsTab('General')"
-            >
-              General
-            </button>
-            <button
-              class="settings-tab"
-              :class="{ 'settings-tab--active': settingsTab === 'Password' }"
-              type="button"
-              @click="selectSettingsTab('Password')"
-            >
-              Password
-            </button>
-            <template v-if="activeWorkspaceId">
-              <span class="settings-nav-section-label settings-nav-section-label--workspace">{{ activeWorkspaceName }}</span>
-              <button
-                class="settings-tab"
-                :class="{ 'settings-tab--active': settingsTab === 'Workspace' }"
-                type="button"
-                @click="selectSettingsTab('Workspace')"
-              >
-                Workspace
-              </button>
-              <button
-                class="settings-tab"
-                :class="{ 'settings-tab--active': settingsTab === 'Members' }"
-                type="button"
-                @click="selectSettingsTab('Members')"
-              >
-                Members
-              </button>
-              <button
-                class="settings-tab"
-                :class="{ 'settings-tab--active': settingsTab === 'Export' }"
-                type="button"
-                @click="selectSettingsTab('Export')"
-              >
-                Export
-              </button>
-            </template>
-          </div>
-          <div class="settings-popup-content">
-            <div v-if="settingsTab === 'General'">
-              <h3>General</h3>
-              <div class="settings-theme-row">
-                <span>Color mode</span>
-                <button class="ghost-btn ghost-btn-background" type="button" @click="toggleThemeMode">{{ themeModeLabel }}</button>
-              </div>
-            </div>
-            <div v-else-if="settingsTab === 'Password'">
-              <h3>Change password</h3>
-              <div class="change-password-fields">
-                <input v-model="cpCurrent" class="login-input" type="password" placeholder="Current password" autocomplete="current-password" />
-                <input v-model="cpNew" class="login-input" type="password" placeholder="New password" autocomplete="new-password" />
-                <input v-model="cpConfirm" class="login-input" type="password" placeholder="Confirm new password" autocomplete="new-password" />
-              </div>
-              <p v-if="cpError" class="login-error">{{ cpError }}</p>
-              <p v-if="cpSuccess" class="login-success">Password changed successfully.</p>
-              <div class="modal-actions">
-                <button class="ghost-btn ghost-btn-background" type="button" :disabled="cpLoading" @click="handleChangePassword">
-                  {{ cpLoading ? 'Saving…' : 'Change password' }}
-                </button>
-              </div>
-            </div>
-            <div v-else-if="settingsTab === 'Workspace'">
-              <h3>Workspace</h3>
-              <div class="settings-workspace-info">
-                <div class="settings-workspace-row">
-                  <span class="muted">Name</span>
-                  <div class="settings-rename-row">
-                    <input
-                      v-model="renameWorkspaceDraft"
-                      class="login-input settings-rename-input"
-                      type="text"
-                      placeholder="Workspace name"
-                      @keydown.enter="handleRenameWorkspace"
-                    />
-                    <button
-                      class="ghost-btn ghost-btn-background"
-                      type="button"
-                      :disabled="renamingWorkspace || !renameWorkspaceDraft.trim() || renameWorkspaceDraft.trim() === activeWorkspaceName"
-                      @click="handleRenameWorkspace"
-                    >
-                      {{ renamingWorkspace ? 'Saving…' : 'Rename' }}
-                    </button>
-                  </div>
-                </div>
-                <p v-if="renameWorkspaceError" class="login-error">{{ renameWorkspaceError }}</p>
-                <div class="settings-workspace-row">
-                  <span class="muted">Pages</span>
-                  <span>{{ workspace.pages.length }}</span>
-                </div>
-              </div>
-              <div v-if="isWorkspaceOwner" class="settings-danger-zone">
-                <p class="settings-danger-zone__title">Danger zone</p>
-                <div v-if="!showDeleteWorkspaceConfirm">
-                  <p class="muted">Permanently delete this workspace and all of its pages. This cannot be undone.</p>
-                  <button class="ghost-btn ghost-btn-danger" type="button" @click="showDeleteWorkspaceConfirm = true">Delete workspace</button>
-                </div>
-                <div v-else>
-                  <p>This will permanently delete <strong>{{ activeWorkspaceName }}</strong> and all its pages.</p>
-                  <div class="modal-actions">
-                    <button class="ghost-btn ghost-btn-danger" type="button" :disabled="deletingWorkspace" @click="handleDeleteWorkspace">
-                      {{ deletingWorkspace ? 'Deleting…' : 'Yes, delete workspace' }}
-                    </button>
-                    <button class="ghost-btn ghost-btn-background" type="button" @click="showDeleteWorkspaceConfirm = false">Cancel</button>
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div v-else-if="settingsTab === 'Members'">
-              <h3>Members</h3>
-              <span v-if="membersError" class="alert">{{ membersError }}</span>
-              <div v-if="membersLoading" class="muted">Loading members...</div>
-              <div v-else-if="members.length" class="members-list">
-                <div v-for="member in members" :key="member.id" class="members-row">
-                  <div class="members-info">
-                    <span class="members-name">{{ member.user?.displayName || member.user?.id || 'User' }}</span>
-                    <span class="muted">{{ member.user?.email || member.user?.id }}</span>
-                  </div>
-                  <div class="members-role">
-                    <span v-if="!isWorkspaceOwner">{{ member.role }}</span>
-                    <template v-else>
-                      <select
-                        class="members-role-select"
-                        :value="member.role"
-                        :disabled="memberActionLoading[member.userId]"
-                        @change="updateMemberRole(member.userId, $event.target.value)"
-                      >
-                        <option value="OWNER">Owner</option>
-                        <option value="EDITOR">Editor</option>
-                        <option value="VIEWER">Viewer</option>
-                      </select>
-                      <button
-                        class="ghost-btn ghost-btn-background"
-                        type="button"
-                        :disabled="memberActionLoading[member.userId]"
-                        @click="removeMember(member.userId)"
-                      >
-                        Remove
-                      </button>
-                    </template>
-                  </div>
-                </div>
-              </div>
-              <div v-else-if="!membersLoading" class="muted">No members yet.</div>
-              <div v-if="isWorkspaceOwner" class="members-invite">
-                <h4>Invite member</h4>
-                <div class="members-invite-row">
-                  <input v-model="inviteEmail" class="members-input" type="email" placeholder="Email address" autocomplete="off" @keydown.enter="inviteMember" />
-                  <select v-model="inviteRole" class="members-role-select">
-                    <option value="OWNER">Owner</option>
-                    <option value="EDITOR">Editor</option>
-                    <option value="VIEWER">Viewer</option>
-                  </select>
-                  <button
-                    class="ghost-btn ghost-btn-background"
-                    type="button"
-                    :disabled="memberActionLoading.invite"
-                    @click="inviteMember"
-                  >
-                    {{ memberActionLoading.invite ? 'Inviting...' : 'Invite' }}
-                  </button>
-                </div>
-              </div>
-            </div>
-            <div v-else-if="settingsTab === 'Export'">
-              <h3>Export workspace</h3>
-              <p class="muted">Download a snapshot of every page you can access.</p>
-              <div class="settings-export-panel">
-                <button class="ghost-btn ghost-btn-background export-btn" type="button" @click="exportWorkspaceData">Download workspace (JSON)</button>
-                <button class="ghost-btn ghost-btn-background export-btn" type="button" @click="exportWorkspaceMarkdown">Download markdown ZIP</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-      <div v-if="deleteModalVisible" class="modal-backdrop" @click.self="cancelDeleteModal">
-        <div class="modal-card delete-modal-card">
-          <h3>Delete page</h3>
-          <p class="muted">
-            You are about to delete "{{ deleteModalTarget?.title || 'Untitled page' }}" and its sub-pages.
-          </p>
-          <div class="delete-tree" v-if="deleteModalSubtree">
-            <div class="delete-tree-node">
-              <span class="delete-tree-title">{{ deleteModalSubtree.title || 'Untitled page' }}</span>
-            </div>
-            <ul class="delete-tree-children" v-if="deleteModalSubtree.children?.length">
-              <li v-for="child in deleteModalSubtree.children" :key="child.id">
-                <span class="delete-tree-title">{{ child.title || 'Untitled page' }}</span>
-                <delete-tree-branch v-if="child.children?.length" :nodes="child.children" />
-              </li>
-            </ul>
-          </div>
-          <div class="modal-actions">
-            <button class="ghost-btn" type="button" @click="cancelDeleteModal">Cancel</button>
-            <button class="ghost-btn ghost-btn-background" type="button" @click="confirmDeleteModal">Delete</button>
-          </div>
-        </div>
-      </div>
-      <div v-if="showBinModal" class="modal-backdrop" @click.self="closeBin">
-        <div class="modal-card delete-modal-card">
-          <h3>Rubbish bin</h3>
-          <p class="muted">Recently deleted pages. Restore to bring them back into the workspace.</p>
-          <div class="delete-tree" v-if="workspace.binPages.length">
-            <ul class="delete-tree-children">
-              <li v-for="page in workspace.binPages" :key="page.id">
-                <div class="delete-tree-node">
-                  <span class="delete-tree-title">{{ page.title || 'Untitled page' }}</span>
-                  <button class="ghost-btn ghost-btn-background" type="button" @click="restoreFromBin(page)">Restore</button>
-                </div>
-              </li>
-            </ul>
-          </div>
-          <div v-else class="muted">Nothing in the bin.</div>
-          <div class="modal-actions">
-            <button class="ghost-btn" type="button" @click="closeBin">Close</button>
-            <button class="ghost-btn ghost-btn-background" type="button" @click="destroyBin" :disabled="!workspace.binPages.length">Delete all</button>
-          </div>
-        </div>
-      </div>
+      <ExportModal
+        v-if="exportRequest"
+        :format="exportRequest.format"
+        :root-page-id="exportRequest.rootPageId"
+        @close="exportRequest = null"
+      />
+      <UserMenu
+        v-if="showUserMenu"
+        @dismiss="toggleUserMenu"
+        @settings="openSettingsPopup"
+        @logout="handleLogout"
+        @create-workspace="openCreateWorkspaceModal"
+        @select-workspace="selectWorkspaceFromMenu"
+      />
+      <SettingsPopup
+        v-if="showSettingsPopup"
+        :theme-mode-label="themeModeLabel"
+        @close="closeSettingsPopup"
+        @toggle-theme="toggleThemeMode"
+        @export-json="exportWorkspaceData"
+        @export-markdown="exportWorkspaceMarkdown"
+      />
+      <DeletePageModal
+        v-if="deleteModalVisible"
+        :page="deleteModalTarget"
+        :subtree="deleteModalSubtree"
+        @cancel="cancelDeleteModal"
+        @confirm="confirmDeleteModal"
+      />
+      <BinModal v-if="showBinModal" @close="closeBin" />
     </main>
   </div>
 </template>
