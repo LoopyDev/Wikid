@@ -6,16 +6,19 @@ A self-hosted wiki and workspace with a block-based editor, structured databases
 
 ## Features
 
+How far along each feature is (stable, beta, experimental or planned) is in [docs/FEATURES.md](docs/FEATURES.md).
+
 **Pages and editor**
 - Nested pages in multiple workspaces, with emoji/icon picker and public/private visibility
+- Search across page titles, page text and database rows (⌘K / Ctrl+K)
 - Tiptap-based block editor with `/` slash commands
 - Callouts, toggle headings, multi-column layouts, tables, code blocks, table of contents
 - Page links, link previews, resizable images, draw.io diagrams, Gaussian splat embeds
-- HTML and PDF export
+- HTML, PDF and Markdown export
 
 **Databases**
 - Inline databases with Text, Number, Date, Checkbox, Select, Multi-select, URL, and Relation fields
-- Table view with inline editing, filtering, and sorting
+- Table, board and gallery views, with saved filters and sorts
 - Forms that submit rows straight into a database, each with its own QR code
 - Starter templates for inventory, maintenance, and assignments
 
@@ -25,13 +28,13 @@ A self-hosted wiki and workspace with a block-based editor, structured databases
 - Isolated attachment storage with hash verification on export
 
 **Collaboration and AI**
-- Real-time co-editing over Yjs and Hocuspocus, periodically written back to Postgres
-- Optional Claude-powered writing tools: generate with `/AI`, improve/summarise/shorten/expand a selection, change tone, or chat about the current page in a side panel
+- Real-time co-editing over Yjs and Hocuspocus, periodically written back to Postgres, with a live sidebar
+- Optional Claude-powered writing tools (hidden unless `ANTHROPIC_API_KEY` is set; the admin and each user can turn them off): generate with `/AI`, improve/summarise/shorten/expand a selection, change tone, or chat about the current page in a side panel
 - An MCP server (`mcp/`) so AI tools can read and create workspace pages (set `WIKID_API_URL`, `WIKID_EMAIL`, and `WIKID_PASSWORD`)
 
 **Administration**
-- Email + password login, self-service password change
-- Admin panels for users, workspaces, and collaboration state
+- Login with email or username, self-service password change; people the admin set a password for choose their own on first login
+- Admin panels for users, workspaces, collaboration state, and settings
 
 ## Stack
 
