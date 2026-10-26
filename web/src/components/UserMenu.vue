@@ -7,6 +7,9 @@ import { useWorkspaceStore } from '../stores/workspace';
 const emit = defineEmits(['dismiss', 'settings', 'logout', 'create-workspace', 'select-workspace']);
 const { activeUser, workspaces, activeWorkspaceId, loadingPages } = storeToRefs(useWorkspaceStore());
 
+// Wikid is AGPL: people using a server can get its source. Builds of a modified Wikid set VITE_SOURCE_URL to their fork.
+const sourceUrl = import.meta.env.VITE_SOURCE_URL || 'https://github.com/LoopyDev/Wikid';
+
 const userInitials = computed(() => {
   const name = activeUser.value?.name?.trim() || '';
   if (!name) return '?';
@@ -27,6 +30,9 @@ const userInitials = computed(() => {
         </div>
       </div>
       <button class="user-menu__item context-menu__item" type="button" @click="emit('settings')">Settings</button>
+      <a class="user-menu__item context-menu__item user-menu__link" :href="sourceUrl" target="_blank" rel="noopener noreferrer">
+        Source code <i class="bi bi-box-arrow-up-right" aria-hidden="true"></i>
+      </a>
       <button class="user-menu__item context-menu__item" type="button" @click="emit('logout')">Log out</button>
       <div class="user-menu-separator" role="separator"></div>
       <div v-if="!loadingPages" class="user-menu-section">

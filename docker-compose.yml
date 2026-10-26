@@ -136,6 +136,9 @@ services:
     build:
       context: .
       dockerfile: docker/web/Dockerfile
+      args:
+        # The app's "Source code" link; point it at your fork if you change Wikid (AGPL section 13)
+        VITE_SOURCE_URL: ${WIKID_SOURCE_URL:-}
     restart: unless-stopped
     ports:
       - "${WIKID_PORT:-8088}:80"

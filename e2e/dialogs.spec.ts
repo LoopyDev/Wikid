@@ -52,6 +52,8 @@ test.describe('dialogs', () => {
   test('creates a workspace from the user menu', async ({ alice: page, workspaceId }) => {
     await openPage(page, await createPage(page, workspaceId));
     await openUserMenu(page);
+    // The AGPL "Source code" link points at the repository (or a fork's, if the build says so).
+    await expect(page.locator('.popover-card').getByRole('link', { name: 'Source code' })).toHaveAttribute('href', /^https:\/\/github\.com\//);
     await page.locator('.popover-card').getByRole('button', { name: 'Create workspace' }).click();
     const name = unique('New workspace');
     await dialog(page, 'New workspace').getByPlaceholder('Workspace name').fill(name);

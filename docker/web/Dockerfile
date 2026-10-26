@@ -10,6 +10,8 @@ COPY web/ web/
 # Relative URLs: nginx serves the app, API and collab server from one origin
 ENV VITE_API_URL=/api \
     VITE_COLLAB_URL=/collab
+# Where the "Source code" link points; set it to your fork if you run a modified Wikid (AGPL)
+ARG VITE_SOURCE_URL=
 RUN npm run build -w web
 
 FROM nginx:1.30-alpine
