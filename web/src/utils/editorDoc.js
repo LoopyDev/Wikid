@@ -201,6 +201,9 @@ export const normalizeEditorDoc = (raw) => {
 
 const renderChecklistItem = (item) => `- [${item.checked ? 'x' : ' '}] ${item.text}`;
 
+// A Markdown table cell: escape backslashes first, then the pipes that would end the cell
+const escapeTableCell = (text) => String(text ?? '').replace(/\\/g, '\\\\').replace(/\|/g, '\\|');
+
 /**
  * Render a database API response (fields + rows) as a GitHub-flavoured markdown table.
  * @param {{ fields: Array<{id:string,name:string}>, rows: Array<{data:object}> }} db
@@ -218,10 +221,10 @@ export const renderDatabaseAsMarkdownTable = (db, fallbackTitle) => {
     if (val === null || val === undefined) return '';
     if (typeof val === 'boolean') return val ? 'Yes' : 'No';
     if (Array.isArray(val)) return val.join(', ');
-    return safeString(val).replace(/\|/g, '\\|').replace(/\n/g, ' ');
+    return escapeTableCell(safeString(val)).replace(/\n/g, ' ');
   };
 
-  const header = `| ${fields.map((f) => f.name.replace(/\|/g, '\\|')).join(' | ')} |`;
+  const header = `| ${fields.map((f) => escapeTableCell(f.name)).join(' | ')} |`;
   const separator = `| ${fields.map(() => '---').join(' | ')} |`;
   const dataRows = rows.map((row) => {
     const cells = fields.map((f) => cellValue(row?.data?.[f.id]));

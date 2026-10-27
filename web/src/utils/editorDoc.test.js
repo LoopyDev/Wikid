@@ -18,3 +18,16 @@ describe('renderDatabaseAsMarkdownTable', () => {
     expect(renderDatabaseAsMarkdownTable(db(''), 'Stored name')).toContain('Stored name');
   });
 });
+
+describe('Markdown table escaping', () => {
+  it('escapes pipes and backslashes so cells stay in their columns', () => {
+    const md = renderDatabaseAsMarkdownTable(
+      { title: 'T', fields: [{ id: 'f1', name: 'A|B' }], rows: [{ id: 'r1', data: { f1: 'x\\|y' } }] },
+      'T',
+    );
+    expect(md).toContain('| A\\|B |');
+    // the backslash is escaped too, so the pipe after it is still escaped rather than ending the cell
+    expect(md).toContain('| x\\\\\\|y |');
+  });
+});
+

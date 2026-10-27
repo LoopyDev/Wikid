@@ -9,12 +9,13 @@ const MAX_PAGE_BYTES = 2 * 1024 * 1024;
 @Controller('embeds')
 export class EmbedsController {
   private decodeHtml(value: string) {
+    // &amp; last, so "&amp;lt;" becomes "&lt;" rather than "<"
     return value
-      .replace(/&amp;/g, '&')
       .replace(/&lt;/g, '<')
       .replace(/&gt;/g, '>')
       .replace(/&quot;/g, '"')
-      .replace(/&#39;/g, "'");
+      .replace(/&#39;/g, "'")
+      .replace(/&amp;/g, '&');
   }
 
   private extractField(html: string, regex: RegExp) {
