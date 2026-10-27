@@ -1,7 +1,10 @@
 import { BadRequestException, Body, Controller, Get, Post, Query } from '@nestjs/common';
+import { safeFetch } from '../utils/safe-fetch.util';
 
 const USER_AGENT = 'Wikid Link Preview/1.0';
 const FETCH_TIMEOUT_MS = 5000;
+// Only the <head> matters for a preview
+const MAX_PAGE_BYTES = 2 * 1024 * 1024;
 
 @Controller('embeds')
 export class EmbedsController {
@@ -53,54 +56,23 @@ export class EmbedsController {
     return meta;
   }
 
-  private resolveUrl(rawUrl?: string) {
-    const url = rawUrl?.trim();
-    if (!url) {
+  private async handleLinkRequest(rawUrl?: string) {
+    const raw = rawUrl?.trim();
+    if (!raw) {
       throw new BadRequestException('url is required');
     }
-    let parsed: URL;
-    try {
-      parsed = new URL(url);
-    } catch {
-      // Try to salvage missing protocol
-      try {
-        parsed = new URL(`https://${url}`);
-      } catch {
-        throw new BadRequestException('Invalid URL');
-      }
-    }
-    if (!['http:', 'https:'].includes(parsed.protocol)) {
-      throw new BadRequestException('Only http/https URLs are allowed');
-    }
-    return parsed;
-  }
-
-  private async handleLinkRequest(rawUrl?: string) {
-    const parsed = this.resolveUrl(rawUrl);
-
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-    let res: any;
-    try {
-      res = await fetch(parsed.toString(), {
-        signal: controller.signal,
-        redirect: 'follow',
-        headers: { 'user-agent': USER_AGENT },
-      });
-    } catch (err) {
-      // Surface a clean error message to the client
-      throw new BadRequestException(`Failed to fetch URL: ${(err as Error)?.message || 'unknown error'}`);
-    } finally {
-      clearTimeout(timeout);
-    }
-
-    if (!res.ok) {
-      throw new BadRequestException(`Request failed with status ${res.status}`);
-    }
+    // Add a missing protocol, as people often paste "example.com"
+    const withProtocol = /^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : `https://${raw}`;
+    // Only public addresses: this runs on the server, which can reach Wikid's own services
+    const { url: parsed, response: res, body } = await safeFetch(withProtocol, {
+      maxBytes: MAX_PAGE_BYTES,
+      timeoutMs: FETCH_TIMEOUT_MS,
+      headers: { 'user-agent': USER_AGENT },
+    });
 
     const contentType = res.headers.get('content-type') || '';
     const isHtml = contentType.includes('text/html') || contentType.includes('text/plain');
-    const html = isHtml ? await res.text() : '';
+    const html = isHtml ? body.toString('utf8') : '';
     const meta = this.extractMeta(html, parsed.toString());
 
     return {

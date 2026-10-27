@@ -8,6 +8,9 @@ import { PageAccessService } from '../pages/page-access.service';
 import { assertSystemAdmin } from '../utils/assert-admin.util';
 
 import { AdminId, CurrentUserId, CurrentUserName } from '../auth/auth.guard';
+import { safeFetch } from '../utils/safe-fetch.util';
+
+const MAX_URL_IMAGE_BYTES = 10 * 1024 * 1024;
 @Controller('uploads')
 export class UploadsController {
   constructor(private readonly uploads: UploadsService, private readonly pageAccess: PageAccessService) {}
@@ -67,21 +70,12 @@ export class UploadsController {
     if (!pageId) throw new BadRequestException('pageId is required');
     if (!userId) throw new BadRequestException('userId is required');
     await this.pageAccess.ensurePageWriteAccess(pageId, { userId, userName });
-    let response: Response;
-    try {
-      response = await fetch(trimmed);
-    } catch (err) {
-      throw new BadRequestException(`Failed to fetch url: ${(err as Error)?.message || 'unknown error'}`);
-    }
-    if (!response.ok) {
-      throw new BadRequestException(`Fetch failed with status ${response.status}`);
-    }
+    // Only public addresses: this runs on the server, which can reach Wikid's own services
+    const { response, body: buffer } = await safeFetch(trimmed, { maxBytes: MAX_URL_IMAGE_BYTES });
     const contentType = response.headers.get('content-type') || '';
     if (!contentType.startsWith('image/')) {
       throw new BadRequestException('URL did not return an image');
     }
-    const arrayBuffer = await response.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
     const uploaded = await this.uploads.uploadImage({
       pageId,
       buffer,
