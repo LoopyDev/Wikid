@@ -137,7 +137,10 @@ const filterOpen = ref(false);
 const lastLoadedSnapshot = ref(null);
 const formViews = ref([]);
 const activeViewId = ref('table');
-const isReadonly = computed(() => props.readonly);
+// True while the table's live document isn't connected (set from useDatabaseCollab below): editing
+// pauses, as on pages, so changes aren't silently held back.
+const connectionPaused = ref(false);
+const isReadonly = computed(() => props.readonly || connectionPaused.value);
 const databasePage = computed(() => workspace.pages.find((page) => page.id === props.pageId) || null);
 const wikiHomeId = computed(() => databasePage.value?.wikiHomeId || null);
 const isWikiDatabase = computed(
@@ -1257,7 +1260,26 @@ const closeColumnsMenu = () => {
   columnsMenu.value = { open: false, x: 0, y: 0 };
 };
 
-const { collabDoc, collabProvider, whenCollabSynced, collabFieldOrder, collabFieldsMap, collabRowOrder, collabRowsMap, ensureCollabDoc, ensureCollabFieldMap, ensureCollabRowMap, isCollabEnabled, maybeSeedCollab, setupCollabProvider, teardownCollabProvider, syncCollabFieldsFromSnapshot, syncCollabRowsFromSnapshot, collabContext } = useDatabaseCollab({ props, workspace, fields, rows, sorting, columnSizing, tableWrapRef, lastLoadedSnapshot, isComplianceDatabase, syncComplianceStatusCache });
+const { collabDoc, collabProvider, whenCollabSynced, collabWaiting, collabEverSynced, collabFieldOrder, collabFieldsMap, collabRowOrder, collabRowsMap, ensureCollabDoc, ensureCollabFieldMap, ensureCollabRowMap, isCollabEnabled, maybeSeedCollab, setupCollabProvider, teardownCollabProvider, syncCollabFieldsFromSnapshot, syncCollabRowsFromSnapshot, collabContext } = useDatabaseCollab({ props, workspace, fields, rows, sorting, columnSizing, tableWrapRef, lastLoadedSnapshot, isComplianceDatabase, syncComplianceStatusCache });
+// Shown only if the wait lasts, so a normal load doesn't flash it
+const showConnectionNotice = ref(false);
+let connectionNoticeTimer = null;
+watch(
+  collabWaiting,
+  (waiting) => {
+    connectionPaused.value = waiting;
+    clearTimeout(connectionNoticeTimer);
+    if (!waiting) {
+      showConnectionNotice.value = false;
+      return;
+    }
+    connectionNoticeTimer = setTimeout(() => {
+      showConnectionNotice.value = true;
+    }, 800);
+  },
+  { immediate: true }
+);
+onBeforeUnmount(() => clearTimeout(connectionNoticeTimer));
 const { attachAwarenessListener, caretLeftForCell, clearLocalCellCursor, getCellPresence, handleCaretMouse, handleCaretNavigate, markCellBlur, markCellFocus, markCellTyping, onTableFocusOut, presenceUser, setCellInputRef, updateAwarenessUser } = useCellPresence({ emit, activeUser, collabProvider, isCollabEnabled, tableWrapRef, flushPendingEnsureRowPages, scheduleSortRefresh });
 
 const { savedViews, normalizeSavedView, createSavedView, deleteSavedView, renameSavedView, patchActiveViewConfig, activeViewFilters, activeViewSorts, activeFilterCount, setFilterMatch, addFilterRule, updateFilterRule, changeFilterRuleField, removeFilterRule, addSortRule, updateSortRule, removeSortRule, setBoardGroupField, setGalleryCardField, fieldChoices, filterMenu, filterMenuRef, filterMenuStyle, openFilterMenu, closeFilterMenu, sortMenu, sortMenuRef, sortMenuStyle, openSortMenu, closeSortMenu } = useSavedViews({ props, workspace, fields, fieldById, activeViewId, activeSavedView, hasApi, activeUser, error, canCreateForms, runWithSavingIndicator, closeFormMenu, closeColumnsMenu, getChoiceLabel, databaseRootRef });
@@ -2798,6 +2820,10 @@ onBeforeUnmount(() => {
 
 <template>
   <div ref="databaseRootRef" :class="['database-table', { 'database-table--embedded': embedded }]">
+    <div v-if="showConnectionNotice && !props.readonly" class="database-table__connection" role="status" aria-live="polite">
+      <strong>{{ collabEverSynced ? 'Reconnecting…' : 'Connecting…' }}</strong>
+      {{ collabEverSynced ? 'Editing is paused until the table reconnects.' : 'You can edit the table once it has connected.' }}
+    </div>
     <teleport v-if="toolbarTeleportTarget" :to="toolbarTeleportTarget">
       <div class="database-table__toolbar">
         <span v-if="error" class="alert database-table__alert">{{ error }}</span>
@@ -3074,7 +3100,7 @@ onBeforeUnmount(() => {
               >
                 <div class="db-header-cell" :class="{ 'db-header-cell--add': header.column.id === ADD_COLUMN_ID }">
                   <input
-                    v-if="headerIndex === 0 && selectedRowIds.size && !readonly"
+                    v-if="headerIndex === 0 && selectedRowIds.size && !isReadonly"
                     type="checkbox"
                     class="db-row-checkbox db-select-all-checkbox"
                     :checked="selectedRowIds.size === rows.length"
@@ -3085,7 +3111,7 @@ onBeforeUnmount(() => {
                     <button
                       class="db-add-column-btn"
                       type="button"
-                      :disabled="readonly"
+                      :disabled="isReadonly"
                       @click.stop="openAddFieldMenu"
                     >
                       {{ ADD_COLUMN_LABEL }}
@@ -3097,7 +3123,7 @@ onBeforeUnmount(() => {
                       class="db-header-button"
                       :class="{ 'db-header-button--sorted': !!header.column.getIsSorted() }"
                       type="button"
-                      :disabled="readonly"
+                      :disabled="isReadonly"
                       @click.stop="openFieldMenu(header.column.id, $event)"
                       @contextmenu.prevent.stop="openFieldMenu(header.column.id, $event)"
                     >
@@ -3174,7 +3200,7 @@ onBeforeUnmount(() => {
           <tfoot>
             <tr>
               <td class="db-add-row-cell" :colspan="visibleColumnCount">
-                <button class="db-add-row-btn" type="button" :disabled="readonly" @click="addRow">
+                <button class="db-add-row-btn" type="button" :disabled="isReadonly" @click="addRow">
                   {{ isWikiDatabase ? 'Add page' : 'Add row' }}
                 </button>
               </td>

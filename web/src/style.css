@@ -1735,6 +1735,15 @@ button {
   --audit-archived-bg: rgba(100, 116, 139, 0.22);
 }
 
+.database-table__connection {
+  margin: 0 0 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--surface-border);
+  border-radius: 8px;
+  color: var(--text-muted);
+  font-size: 0.9em;
+}
+
 .database-table__toolbar {
   display: flex;
   flex-wrap: wrap;
