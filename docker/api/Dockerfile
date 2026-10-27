@@ -15,8 +15,7 @@ WORKDIR /app/api
 COPY api/tsconfig.json api/tsconfig.build.json ./
 COPY api/prisma ./prisma
 COPY api/src ./src
-# Only the client generators; the ERD generator needs a browser and isn't needed at runtime
-RUN npx prisma generate --generator client \
+RUN npx prisma generate \
   && npx prisma generate --schema prisma/compliance/schema.prisma \
   && npm run build \
   && cp -r prisma/generated dist/prisma/generated
@@ -43,7 +42,7 @@ RUN npm ci -w api --omit=dev
 WORKDIR /app/api
 # The schemas and migrations, for "prisma migrate deploy" at startup
 COPY api/prisma ./prisma
-RUN npx prisma generate --generator client
+RUN npx prisma generate
 COPY --from=build /app/api/dist ./dist
 
 COPY docker/api/entrypoint.sh /usr/local/bin/entrypoint.sh
