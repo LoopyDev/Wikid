@@ -1,0 +1,45 @@
+# Dependabot: keeps dependencies current with a few grouped PRs a week instead of one per package.
+# Security fixes still come straight away (grouped the same way); this file sets how they're bundled.
+version: 2
+updates:
+  - package-ecosystem: npm
+    # The root lockfile covers every workspace (api, collab, web, mcp)
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      # Tiptap's packages must all be on the same version, so they always move together. The root
+      # package.json pins some of them in "overrides"; a Tiptap PR has to update those to match.
+      tiptap:
+        applies-to: version-updates
+        patterns: ["@tiptap/*"]
+      tiptap-security:
+        applies-to: security-updates
+        patterns: ["@tiptap/*"]
+      # Everything else that shouldn't break anything, in one weekly PR. Major versions still come
+      # one PR each, since they usually need code changes.
+      minor-and-patch:
+        applies-to: version-updates
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      actions:
+        patterns: ["*"]
+
+  # Base images (node, nginx). Updates within a tag (security fixes) come from rebuilding with
+  # --pull; this proposes new tags.
+  - package-ecosystem: docker
+    directories: [/docker/api, /docker/web, /docker/collab]
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      base-images:
+        patterns: ["*"]
