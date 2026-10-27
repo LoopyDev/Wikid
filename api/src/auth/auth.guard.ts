@@ -12,9 +12,8 @@ type AuthedRequest = Request & { authUser?: AuthUser };
 /**
  * Global guard: every route requires a valid session cookie unless marked @Public().
  *
- * Existing handlers read the acting user from `userId` / `userName` / `adminId` params. Rather
- * than trusting what the client sends, the guard overwrites those params with the session user,
- * so the service-layer permission checks act on the real identity.
+ * It puts the session user on the request; routes read it with the decorators below, never from
+ * what the client sends, so the service-layer permission checks act on the real identity.
  *
  * A user whose password an admin set must choose their own before doing anything else; until
  * then only routes marked @AllowPendingPasswordChange() are open to them.
@@ -46,17 +45,6 @@ export class SessionGuard implements CanActivate {
     }
 
     req.authUser = { id: user.id, displayName: user.displayName, email: user.email };
-    // Routes read who's acting from the query, so it's always overwritten with the logged-in user:
-    // a request can't act as someone else by naming them. Express 5 re-parses req.query from the URL
-    // on every read, so the request gets its own copy that keeps these values.
-    const query: Record<string, unknown> = { ...(req.query as Record<string, unknown>) };
-    query.userId = user.id;
-    query.userName = user.displayName;
-    if ('adminId' in query) query.adminId = user.id;
-    Object.defineProperty(req, 'query', { value: query, writable: true, enumerable: true, configurable: true });
-    if (req.body && typeof req.body === 'object' && 'adminId' in req.body) {
-      req.body.adminId = user.id;
-    }
     return true;
   }
 }
@@ -64,4 +52,26 @@ export class SessionGuard implements CanActivate {
 /** The logged-in user, as resolved by SessionGuard. */
 export const CurrentUser = createParamDecorator((_data: unknown, context: ExecutionContext): AuthUser => {
   return context.switchToHttp().getRequest<AuthedRequest>().authUser as AuthUser;
+});
+
+/** The logged-in user's id. Routes take who's acting from here, never from the request. */
+export const CurrentUserId = createParamDecorator((_data: unknown, context: ExecutionContext): string | undefined => {
+  return context.switchToHttp().getRequest<AuthedRequest>().authUser?.id;
+});
+
+/** The logged-in user's display name, for "last edited by" and similar. */
+export const CurrentUserName = createParamDecorator((_data: unknown, context: ExecutionContext): string | undefined => {
+  return context.switchToHttp().getRequest<AuthedRequest>().authUser?.displayName;
+});
+
+/**
+ * The logged-in user's id when the request asks to act as an admin (it sends `adminId`, in the query
+ * or the body), otherwise undefined. The services check that the user really is an admin.
+ */
+export const AdminId = createParamDecorator((_data: unknown, context: ExecutionContext): string | undefined => {
+  const req = context.switchToHttp().getRequest<AuthedRequest>();
+  const asksForAdmin =
+    (req.query && typeof req.query === 'object' && 'adminId' in req.query) ||
+    (req.body && typeof req.body === 'object' && 'adminId' in req.body);
+  return asksForAdmin ? req.authUser?.id : undefined;
 });

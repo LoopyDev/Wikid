@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEMO_PASSWORD, Session, USERS, loginAs, unique } from './helpers';
+import { DEMO_PASSWORD, Session, USERS, addMember, createPage, createWorkspace, loginAs, unique } from './helpers';
 
 const MISSING_ID = '00000000-0000-4000-8000-000000000000';
 
@@ -87,6 +87,24 @@ describe('login and sessions', () => {
     expect(me.body.id).toBe(USERS.bob.id);
     // Pretending to be the admin doesn't unlock admin routes.
     expect((await bob.get(`/admin/users?adminId=${USERS.admin.id}`)).status).toBe(403);
+  });
+
+  it("can't edit or manage someone else's things by naming them in the request", async () => {
+    const alice = await loginAs(USERS.alice.email);
+    const bob = await loginAs(USERS.bob.email);
+    const workspaceId = await createWorkspace(alice);
+    await addMember(alice, workspaceId, USERS.bob.email, 'VIEWER');
+    const page = await createPage(alice, workspaceId, { title: unique('Alice page') });
+
+    // Bob is only a viewer: naming Alice as the acting user changes nothing.
+    expect((await bob.patch(`/pages/${page.id}?userId=${USERS.alice.id}&userName=Alice`, { title: 'Hijacked' })).status).toBe(403);
+    expect((await alice.get(`/pages/${page.id}`)).body.title).toBe(page.title);
+    const invite = await bob.post(`/workspaces/${workspaceId}/members?userId=${USERS.alice.id}`, { login: USERS.admin.email, role: 'OWNER' });
+    expect(invite.status).toBe(403);
+
+    // Nor does claiming to be the admin, in the query or the body.
+    expect((await bob.get(`/collab/admin/docs?adminId=${USERS.admin.id}`)).status).toBe(403);
+    expect((await bob.post(`/admin/users`, { adminId: USERS.admin.id, displayName: 'x', email: `${unique('x').replace(/\W/g, '')}@wikid.local`, password: 'password1' })).status).toBe(403);
   });
 });
 

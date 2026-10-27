@@ -3,6 +3,7 @@ import { Public } from '../auth/public.decorator';
 import { CollabService } from './collab.service';
 import { assertSystemAdmin } from '../utils/assert-admin.util';
 
+import { AdminId } from '../auth/auth.guard';
 @Controller('collab')
 export class CollabController {
   constructor(private readonly collabService: CollabService) {}
@@ -61,13 +62,13 @@ export class CollabController {
   }
 
   @Get('admin/docs')
-  async listDocs(@Query('adminId') adminId?: string) {
+  async listDocs(@AdminId() adminId?: string) {
     assertSystemAdmin(adminId);
     return this.collabService.listDocs();
   }
 
   @Post('admin/materialize')
-  async requestAdminMaterialize(@Body('documentName') documentName: string, @Query('adminId') adminId?: string) {
+  async requestAdminMaterialize(@Body('documentName') documentName: string, @AdminId() adminId?: string) {
     assertSystemAdmin(adminId);
     if (!documentName || typeof documentName !== 'string') {
       throw new BadRequestException('documentName is required');
@@ -77,7 +78,7 @@ export class CollabController {
   }
 
   @Post('admin/purge')
-  async purgeAllDocs(@Body('confirm') confirm: string, @Query('adminId') adminId?: string) {
+  async purgeAllDocs(@Body('confirm') confirm: string, @AdminId() adminId?: string) {
     assertSystemAdmin(adminId);
     if (!confirm || typeof confirm !== 'string') {
       throw new BadRequestException('confirm is required');
