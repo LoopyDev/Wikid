@@ -46,10 +46,14 @@ export class SessionGuard implements CanActivate {
     }
 
     req.authUser = { id: user.id, displayName: user.displayName, email: user.email };
-    const query = req.query as Record<string, unknown>;
+    // Routes read who's acting from the query, so it's always overwritten with the logged-in user:
+    // a request can't act as someone else by naming them. Express 5 re-parses req.query from the URL
+    // on every read, so the request gets its own copy that keeps these values.
+    const query: Record<string, unknown> = { ...(req.query as Record<string, unknown>) };
     query.userId = user.id;
     query.userName = user.displayName;
     if ('adminId' in query) query.adminId = user.id;
+    Object.defineProperty(req, 'query', { value: query, writable: true, enumerable: true, configurable: true });
     if (req.body && typeof req.body === 'object' && 'adminId' in req.body) {
       req.body.adminId = user.id;
     }

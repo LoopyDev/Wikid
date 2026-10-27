@@ -20,7 +20,7 @@
     "build": "npm run build -w web"
   },
   "overrides": {
-    "qs": "^6.14.1",
+    "qs": "^6.16.0",
     "@tiptap/extension-blockquote": "3.32.0",
     "@tiptap/extension-bold": "3.32.0",
     "@tiptap/extension-bullet-list": "3.32.0",
@@ -44,7 +44,8 @@
     "@tiptap/extension-underline": "3.32.0",
     "@tiptap/extensions": "3.32.0",
     "@tiptap/pm": "3.32.0",
-    "@tiptap/y-tiptap": "3.0.10"
+    "@tiptap/y-tiptap": "3.0.10",
+    "multer": "^2.5.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.64.1"
