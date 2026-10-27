@@ -158,7 +158,7 @@ If you find a security issue, please report it privately; see [SECURITY.md](SECU
 
 ## Contributing
 
-Issues and pull requests are welcome. For larger changes, please open an issue first so we can talk through the approach. Contributions need a quick sign-off on the contributor agreement; see [`CONTRIBUTING.md`](CONTRIBUTING.md). Architecture and feature docs live in [`docs/`](docs/).
+Issues and pull requests are welcome. For larger changes, please open an issue first so we can talk through the approach. See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the setup and the checks to run. Architecture and feature docs live in [`docs/`](docs/).
 
 ## License
 
