@@ -33,4 +33,7 @@ if ! node -e "new (require('@prisma/client').PrismaClient)().user.count().then((
   node dist/prisma/seed.js
 fi
 
-exec "$@"
+# Everything above needs root (the secrets volume, migrations). The API itself, and the Chromium it
+# starts for PDF export, run as the unprivileged node user: Chromium can't use its own sandbox under
+# Docker's default restrictions, so this limits what a compromised browser could reach.
+exec setpriv --reuid=node --regid=node --init-groups --inh-caps=-all env HOME=/home/node "$@"
