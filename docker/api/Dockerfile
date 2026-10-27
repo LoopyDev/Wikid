@@ -1,4 +1,4 @@
-FROM node:24-bookworm-slim AS build
+FROM node:26-bookworm-slim AS build
 RUN apt-get update \
   && apt-get install -y --no-install-recommends openssl \
   && rm -rf /var/lib/apt/lists/*
@@ -20,7 +20,7 @@ RUN npx prisma generate \
   && npm run build \
   && cp -r prisma/generated dist/prisma/generated
 
-FROM node:24-bookworm-slim
+FROM node:26-bookworm-slim
 # openssl for the Prisma engines; chromium and fonts for PDF export
 RUN apt-get update \
   && apt-get install -y --no-install-recommends openssl ca-certificates chromium fonts-dejavu-core fonts-liberation fonts-noto-color-emoji \

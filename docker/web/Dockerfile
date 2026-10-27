@@ -1,4 +1,4 @@
-FROM node:24-bookworm-slim AS build
+FROM node:26-bookworm-slim AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY api/package.json api/
@@ -14,7 +14,7 @@ ENV VITE_API_URL=/api \
 ARG VITE_SOURCE_URL=
 RUN npm run build -w web
 
-FROM nginx:1.30-alpine
+FROM nginx:1.31-alpine
 COPY docker/web/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/web/dist /usr/share/nginx/html
 EXPOSE 80
