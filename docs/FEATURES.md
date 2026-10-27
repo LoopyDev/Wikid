@@ -43,7 +43,7 @@ What Wikid does today, and how much to rely on each part. Wikid is in early deve
 
 | Feature | Status | Notes |
 |---|---|---|
-| Editing a page together in real time | Beta | Tested with two people, including both typing in the same line. Uses y-tiptap 3.0.2, held back from newer versions because of an upstream cursor bug ([tiptap#8594](https://github.com/ueberdosis/tiptap/issues/8594)). |
+| Editing a page together in real time | Beta | Tested with two people, including both typing in the same line. Includes an unreleased upstream fix for a cursor bug ([tiptap#8594](https://github.com/ueberdosis/tiptap/issues/8594)), applied in `web/vite.config.js` until y-tiptap releases it. |
 | Who's here: avatars, cursors, and which database cell someone is editing | Beta | |
 | A notice when someone else moves the page you have open to the Bin, with Restore | Stable | |
 
