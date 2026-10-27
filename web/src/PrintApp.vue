@@ -20,6 +20,7 @@ import { ref, onMounted, nextTick } from 'vue';
 import TiptapEditor from './components/TiptapEditor.vue';
 import { api } from './api/client';
 import { normalizeEditorDoc, fallbackDoc } from './utils/editorDoc';
+import { useWorkspaceStore } from './stores/workspace';
 
 const params = Object.fromEntries(new URLSearchParams(window.location.search));
 
@@ -36,6 +37,7 @@ const doc = ref(fallbackDoc);
 const error = ref('');
 
 const noOp = () => Promise.resolve(false);
+const workspace = useWorkspaceStore();
 
 const segments = window.location.pathname.split('/');
 const pageId = segments[segments.indexOf('print') + 1] ?? '';
@@ -50,6 +52,17 @@ onMounted(async () => {
       userId: params.userId,
       userName: params.userName,
     });
+    // Embedded databases and page links look pages up in the workspace's page list and load their
+    // data as the signed-in user, as in the app, so set those up before showing the page.
+    workspace.activeUserId = params.userId || null;
+    workspace.activeUserName = params.userName || null;
+    workspace.hasApi = true;
+    workspace.activeWorkspaceId = res.workspaceId || null;
+    workspace.activePageWorkspaceId = res.workspaceId || null;
+    if (res.workspaceId) {
+      const pages = await api.listPages({ workspaceId: res.workspaceId, userId: params.userId, userName: params.userName });
+      workspace.pages = Array.isArray(pages) ? pages : [];
+    }
     page.value = res;
     doc.value = normalizeEditorDoc(res.content);
     await nextTick();

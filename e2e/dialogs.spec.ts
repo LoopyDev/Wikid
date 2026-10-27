@@ -114,6 +114,32 @@ test.describe('dialogs', () => {
     await expect(exportDialog).toHaveCount(0);
   });
 
+  test('the printed page, which PDF export uses, shows embedded databases', async ({ alice: page, workspaceId }) => {
+    const dbId = await createPage(page, workspaceId, { title: unique('Stock'), kind: 'DATABASE' });
+    const db = await (await page.request.get(`/api/pages/${dbId}/database`)).json();
+    const name = db.fields.find((f: any) => f.name === 'Name').id;
+    const rowName = unique('Spanner');
+    await page.request.post(`/api/pages/${dbId}/database/rows`, { data: { data: { [name]: rowName } } });
+    const content = {
+      type: 'doc',
+      content: [
+        { type: 'paragraph', content: [{ type: 'text', text: 'Our stock:' }] },
+        { type: 'databaseView', attrs: { pageId: dbId } },
+      ],
+    };
+    const pageId = await createPage(page, workspaceId, { title: unique('Report') });
+    expect((await page.request.put(`/api/pages/${pageId}/content`, { data: { content } })).status()).toBe(200);
+    const me = (await (await page.request.get('/api/auth/me')).json()).user;
+
+    // The same address the PDF export opens (see api/src/pdf/pdf.service.ts)
+    await page.goto(`/print/${pageId}?userId=${me.id}&userName=${encodeURIComponent(me.displayName)}`);
+    await expect(page.getByText('Our stock:')).toBeVisible();
+    await expect.poll(() => page.locator('.database-table input').evaluateAll((inputs) => inputs.map((i) => (i as HTMLInputElement).value))).toContain(rowName);
+    await expect(page.getByText(/Database not found/)).toHaveCount(0);
+    // A PDF shows content, not editing controls
+    await expect(page.getByRole('button', { name: 'Add row' })).toBeHidden();
+  });
+
   test('sets up a compliance database from the page type picker', async ({ alice: page, workspaceId }) => {
     const id = await createPage(page, workspaceId, { setupStatus: 'PENDING', title: unique('Compliance') });
     await page.goto(`/doc/${id}`);

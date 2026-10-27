@@ -9701,6 +9701,13 @@ button {
   margin: 0;
   line-height: 1.2;
 }
+/* The printed page (used for PDF export) shows content only: no editing controls in embedded databases */
+.print-page .db-add-row-cell,
+.print-page .db-add-column-btn,
+.print-page .database-table__search {
+  display: none;
+}
+
 .print-error {
   color: var(--danger, #e53e3e);
   padding: 2rem;
