@@ -19,7 +19,7 @@ export async function signIn(context: BrowserContext, email: string) {
   // The web app remembers who is logged in here, next to the session cookie.
   await context.addInitScript((u) => {
     window.localStorage.setItem('wikid:user', JSON.stringify(u));
-  }, { id: user.id, name: user.displayName, email: user.email });
+  }, { id: user.id, name: user.displayName });
 }
 
 /** Creates a page through the API and returns its id. */

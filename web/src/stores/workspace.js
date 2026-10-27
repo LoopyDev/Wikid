@@ -494,10 +494,10 @@ export const useWorkspaceStore = defineStore('workspace', {
       if (typeof localStorage === 'undefined' || !this.activeUserId) return;
       localStorage.setItem(
         'wikid:user',
+        // Just enough to show who's signed in straight away; the email comes from the server on load
         JSON.stringify({
           id: this.activeUserId,
           name: this.activeUserName,
-          email: this.activeUserEmail,
           mustChangePassword: this.mustChangePassword,
         }),
       );
@@ -510,8 +510,9 @@ export const useWorkspaceStore = defineStore('workspace', {
         if (entry?.id) {
           this.activeUserId = entry.id;
           this.activeUserName = entry.name || entry.id;
-          this.activeUserEmail = entry.email || null;
           this.mustChangePassword = !!entry.mustChangePassword;
+          // Earlier versions also saved the email here; save again without it
+          if ('email' in entry) this.saveUserToStorage();
         }
       } catch {
         // ignore
@@ -535,6 +536,7 @@ export const useWorkspaceStore = defineStore('workspace', {
           userName: this.activeUser.name,
         });
         this.setUserPreferences(user?.preferences || {});
+        if (user?.email !== undefined) this.activeUserEmail = user.email || null;
       } catch (err) {
         console.warn('Load user preferences failed', err);
       }

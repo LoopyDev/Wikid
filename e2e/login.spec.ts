@@ -15,6 +15,26 @@ test.describe('signing in', () => {
     await expect(sidebar.getByRole('button', { name: /Wikid Workspace/ })).toBeVisible();
   });
 
+  test("remembers who's signed in without keeping their email in the browser", async ({ page }) => {
+    const saved = () => page.evaluate(() => JSON.parse(localStorage.getItem('wikid:user') || 'null'));
+    await page.goto('/');
+    await page.getByRole('textbox', { name: 'Email' }).fill(USERS.alice.email);
+    await page.getByRole('textbox', { name: 'Password' }).fill(DEMO_PASSWORD);
+    await page.getByRole('button', { name: 'Sign in' }).click();
+    await expect(page).toHaveURL(/\/doc\//);
+    await expect.poll(saved).toMatchObject({ name: USERS.alice.name });
+    expect(await saved()).not.toHaveProperty('email');
+
+    // Entries saved by earlier versions, which included the email, are rewritten without it
+    await page.evaluate(() => {
+      const entry = JSON.parse(localStorage.getItem('wikid:user') || '{}');
+      localStorage.setItem('wikid:user', JSON.stringify({ ...entry, email: 'alice@wikid.local' }));
+    });
+    await page.reload();
+    await expect(page.getByRole('complementary').getByRole('button', { name: /Wikid Workspace/ })).toBeVisible();
+    await expect.poll(saved).not.toHaveProperty('email');
+  });
+
   test('signs in with a username instead of the email', async ({ page }) => {
     await page.goto('/');
     await page.getByRole('textbox', { name: 'Email or username' }).fill('alice');
