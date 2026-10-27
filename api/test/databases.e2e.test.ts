@@ -302,6 +302,23 @@ describe('forms', () => {
     expect((await alice.delete(`/database-forms/${form.id}`)).status).toBe(200);
     expect((await alice.get(`/database-forms/${form.id}`)).status).toBe(404);
   });
+
+  it('keeps both changes when the fields and the settings are saved at the same time', async () => {
+    // Both live in one column; overlapping saves used to overwrite each other's half.
+    const { pageId, titleFieldId } = await createDatabase();
+    for (let i = 0; i < 5; i += 1) {
+      const form = (await alice.post(`/pages/${pageId}/database/forms`, { name: 'Form', fields: [{ fieldId: titleFieldId }] })).body;
+      const message = `Thanks ${i}`;
+      const [fields, config] = await Promise.all([
+        alice.patch(`/database-forms/${form.id}`, { fields: [{ fieldId: titleFieldId, required: true }] }),
+        alice.patch(`/database-forms/${form.id}`, { config: { successMessage: message } }),
+      ]);
+      expect([fields.status, config.status]).toEqual([200, 200]);
+      const stored = (await alice.get(`/pages/${pageId}/database`)).body.forms.find((f: any) => f.id === form.id);
+      expect(stored.fields.fields.find((f: any) => f.fieldId === titleFieldId)?.required).toBe(true);
+      expect(stored.fields.config?.successMessage).toBe(message);
+    }
+  });
 });
 
 describe('compliance mode', () => {
