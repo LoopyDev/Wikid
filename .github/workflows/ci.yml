@@ -54,8 +54,24 @@ jobs:
       - run: npm ci
       - name: API tests
         run: npm run test:api
+      # Installing the browser's system libraries with apt took anywhere from 20 seconds to 12 minutes,
+      # depending on Ubuntu's mirrors. The browser itself is cached per Playwright version, and the
+      # libraries (which GitHub's Ubuntu runners mostly have already) are only installed if it can't start.
+      - name: Playwright version
+        id: playwright
+        run: echo "version=$(npx playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+      - name: Cache the browser for the browser tests
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
       - name: Install the browser for the browser tests
-        run: npx playwright install --with-deps chromium
+        run: |
+          npx playwright install chromium
+          if ! node -e "require('@playwright/test').chromium.launch().then((b) => b.close())"; then
+            echo "Chromium can't start yet; installing its system libraries"
+            npx playwright install-deps chromium
+          fi
       - name: Browser tests
         run: npm run test:e2e
       - name: Browser test report on failure
