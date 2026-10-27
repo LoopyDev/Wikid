@@ -25,7 +25,7 @@
     "@aws-sdk/client-s3": "^3.1157.0",
     "@nestjs/common": "^11.2.8",
     "@nestjs/core": "^11.2.8",
-    "@nestjs/platform-express": "^11.2.8",
+    "@nestjs/platform-express": "^12.2.0",
     "@prisma/client": "^5.19.0",
     "dotenv": "^16.4.5",
     "jsonwebtoken": "^9.0.3",
