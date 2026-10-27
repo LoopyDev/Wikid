@@ -4,7 +4,8 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     root: __dirname,
-    include: ['**/*.e2e.test.ts'],
+    // *.e2e.test.ts run against the stack; other *.test.ts are plain unit tests
+    include: ['**/*.test.ts'],
     globalSetup: ['./global-setup.ts'],
     testTimeout: 30_000,
     hookTimeout: 30_000,

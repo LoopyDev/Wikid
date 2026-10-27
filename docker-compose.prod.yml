@@ -27,6 +27,8 @@ services:
       CORS_ORIGINS: https://${WIKID_DOMAIN:?Set WIKID_DOMAIN in .env}
       PUBLIC_API_URL: https://${WIKID_DOMAIN:?Set WIKID_DOMAIN in .env}/api
       SESSION_COOKIE_SECURE: "true"
+      # Caddy, then the web container's nginx
+      TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-2}
       DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@db:5432/wikid-tiptap
       COMPLIANCE_DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@compliance-db:5432/wikid-compliance
       S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in .env}

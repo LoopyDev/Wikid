@@ -75,6 +75,9 @@ services:
       COLLAB_JWT_SECRET: ${COLLAB_JWT_SECRET:-}
       COLLAB_API_SECRET: ${COLLAB_API_SECRET:-}
       SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
+      # Proxies in front of the API: the web container's nginx. Add one for each reverse proxy you put in
+      # front of Wikid, so failed logins are counted per real client address
+      TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-1}
       CORS_ORIGINS: ${WIKID_PUBLIC_URL:-http://localhost:8088}
       PUBLIC_API_URL: ${WIKID_PUBLIC_URL:-http://localhost:8088}/api
       PRINT_BASE_URL: http://web

@@ -150,6 +150,7 @@ CI runs these, plus a Docker image build, on every push to `main` and every pull
 Wikid hasn't had a security review yet. How it works today:
 
 - **Sessions:** logging in sets a signed, `HttpOnly`, `SameSite=Lax` session cookie (14 days). A global guard rejects any API request without a valid session, and every request acts as the logged-in user, whatever user ID the client sends.
+- **Logins:** failed logins are limited (5 per account from one address, 20 per account, 100 per address, over 15 minutes), so passwords can't be guessed at speed. Behind your own reverse proxy, see `TRUST_PROXY_HOPS` in [`docs/deployment.md`](docs/deployment.md).
 - **Frontend and API location:** the frontend and API must be on the same site (for example `wiki.example.com` and `api.wiki.example.com`) so the browser sends the cookie. Set `CORS_ORIGINS` to your frontend's URL and serve both over HTTPS in production.
 - **Defaults:** the dev setup uses well-known defaults (`postgres`/`postgres`, `minioadmin`/`minioadmin`, demo accounts with the password `wikid`). The production setup in [`docs/deployment.md`](docs/deployment.md) requires your own passwords and admin login, and creates no demo accounts.
 

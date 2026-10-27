@@ -148,5 +148,6 @@ docker compose down                  # stop everything (keeps data)
 
 - **No certificate / browser warning:** check `docker compose logs caddy`. Usually the DNS record isn't pointing at the server yet, or port 80 is blocked by a firewall. Caddy retries on its own once fixed.
 - **`required variable ... is missing a value`:** a setting in `.env` is empty.
+- **"Too many failed attempts":** after 5 wrong passwords for an account from one address (or 20 from anywhere, or 100 for any accounts from one address) in 15 minutes, logins wait until the oldest failure is 15 minutes old. Restarting the API clears the counts. If you run Wikid behind another reverse proxy of your own, set `TRUST_PROXY_HOPS` one higher in `.env`; otherwise everyone appears to come from your proxy's address and shares one count.
 - **Can't log in after changing `WIKID_ADMIN_PASSWORD`:** expected; it's only used when the database is first created. Use the password you started with, then change it in the app.
 - **Firewalls:** Docker's published ports bypass `ufw`. A provider-level firewall (e.g. Hetzner Cloud Firewall) allowing only 22, 80 and 443 is the reliable way to restrict access.
