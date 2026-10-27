@@ -29,7 +29,8 @@ npx prisma migrate deploy --schema prisma/compliance/schema.prisma
 # Seed the demo accounts only on a fresh database, so restarts don't reset passwords
 if ! node -e "new (require('@prisma/client').PrismaClient)().user.count().then((n) => process.exit(n > 0 ? 0 : 1), () => process.exit(1))"; then
   echo "Seeding demo data..."
-  npx prisma db seed
+  # The compiled seed: the image has no TypeScript runner
+  node dist/prisma/seed.js
 fi
 
 exec "$@"
