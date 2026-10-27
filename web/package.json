@@ -12,7 +12,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@hocuspocus/provider": "^2.15.2",
+    "@hocuspocus/provider": "^4.7.1",
     "@sparkjsdev/spark": "^2.4.0",
     "@tanstack/vue-table": "^8.20.5",
     "@tiptap/core": "3.32.0",
