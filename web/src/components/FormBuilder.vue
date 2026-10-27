@@ -177,6 +177,17 @@ const saveFormConfig = async (formId, nextConfig) => {
 
 const activeFormConfig = computed(() => normalizeFormConfig(activeForm.value?.config));
 
+// Text boxes here save when you leave them. If the form re-renders while you're typing in one (say
+// the response to another save arrives), Vue would put back the stored value and drop what you typed.
+const vKeepTyping = {
+  beforeUpdate(el) {
+    el._typed = document.activeElement === el ? el.value : null;
+  },
+  updated(el) {
+    if (el._typed != null && el.value !== el._typed) el.value = el._typed;
+  },
+};
+
 const updateFormMode = async (mode) => {
   if (!canCreateForms.value) return;
   const form = activeForm.value;
@@ -1306,6 +1317,7 @@ watch(
         :value="activeFormConfig.filter?.value ?? ''"
         :disabled="!canCreateForms || isReadonly"
         placeholder="Value"
+        v-keep-typing
         @change="updateFormFilterValue($event.target.value)"
       />
     </div>
@@ -1336,6 +1348,7 @@ watch(
         :value="activeFormConfig.successMessage"
         :disabled="!canCreateForms || isReadonly"
         placeholder="Thanks! Your response has been saved."
+        v-keep-typing
         @change="updateFormSuccessMessage($event.target.value)"
       ></textarea>
     </div>
@@ -1581,6 +1594,7 @@ watch(
             :value="field.autoTemplate"
             :disabled="field.missing || field.locked || isReadonly"
             placeholder="Incident Report #{{counter}}"
+            v-keep-typing
             @change="updateFormFieldAutoTemplate(field.id, $event.target.value)"
           />
           <div class="db-form-field-hint" v-pre>Use {{counter}}, {{user}}, {{userId}}, {{date}}, {{datetime}}</div>
@@ -1699,6 +1713,7 @@ watch(
                 :value="field.autoTemplate"
                 :disabled="field.missing || field.locked || isReadonly"
                 placeholder="Incident Report #{{counter}}"
+                v-keep-typing
                 @change="updateFormFieldAutoTemplate(field.id, $event.target.value)"
               />
             </div>

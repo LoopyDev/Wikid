@@ -169,7 +169,7 @@ export class DatabaseFormsService {
   ) {
     const form = await this.prisma.databaseForm.findUnique({
       where: { id },
-      select: { id: true, databaseId: true, fields: true },
+      select: { id: true, databaseId: true },
     });
     if (!form) throw new NotFoundException('Form not found');
     const database = await this.prisma.database.findUnique({
@@ -188,8 +188,15 @@ export class DatabaseFormsService {
     if (payload.position !== undefined) {
       updateData.position = payload.position;
     }
-    if (payload.fields !== undefined || payload.config !== undefined) {
-      const existing = this.databaseValues.normalizeDatabaseFormStorage(form.fields ?? []);
+    if (payload.fields === undefined && payload.config === undefined) {
+      return this.prisma.databaseForm.update({ where: { id }, data: updateData });
+    }
+    // The fields and the settings share one column, and each save changes only one of them: lock the
+    // row and read it again, so saves that overlap don't overwrite each other's half.
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "DatabaseForm" WHERE id = ${id}::uuid FOR UPDATE`;
+      const current = await tx.databaseForm.findUnique({ where: { id }, select: { fields: true } });
+      const existing = this.databaseValues.normalizeDatabaseFormStorage(current?.fields ?? []);
       const nextFields =
         payload.fields !== undefined
           ? await this.databaseValues.sanitizeDatabaseFormFields(form.databaseId, payload.fields)
@@ -201,10 +208,7 @@ export class DatabaseFormsService {
           ? await this.sanitizeDatabaseFormConfig(form.databaseId, existing.config, { complianceMode: database.complianceMode })
           : null;
       updateData.fields = nextConfig ? { fields: nextFields, config: nextConfig } : nextFields;
-    }
-    return this.prisma.databaseForm.update({
-      where: { id },
-      data: updateData,
+      return tx.databaseForm.update({ where: { id }, data: updateData });
     });
   }
 
