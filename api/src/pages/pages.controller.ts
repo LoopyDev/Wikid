@@ -400,8 +400,13 @@ export class PagesController {
   }
 
   @Patch('pages/:id/restore')
-  restorePage(@Param('id') id: string, @CurrentUserId() userId?: string, @CurrentUserName() userName?: string) {
-    return this.pages.restorePage(id, { userId, userName });
+  restorePage(
+    @Param('id') id: string,
+    @CurrentUserId() userId?: string,
+    @CurrentUserName() userName?: string,
+    @Body('placement') placement?: 'withParents' | 'topLevel'
+  ) {
+    return this.pages.restorePage(id, { userId, userName }, { placement });
   }
 
   @Delete('pages')

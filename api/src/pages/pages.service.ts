@@ -554,16 +554,69 @@ export class PagesService {
     return result;
   }
 
-  async restorePage(id: string, user?: { userId?: string; userName?: string }) {
+  /**
+   * Restores a page and its sub-pages from the Bin. If a page above it is still in the Bin, the page
+   * would come back under a parent nobody can see, so the caller has to choose a placement:
+   * 'withParents' also restores those pages (just them, not their other sub-pages), 'topLevel' moves
+   * the page to the top of the workspace. Without one, this refuses with code PARENT_IN_BIN and the
+   * pages in the way, nearest first.
+   */
+  async restorePage(
+    id: string,
+    user?: { userId?: string; userName?: string },
+    options: { placement?: 'withParents' | 'topLevel' } = {}
+  ) {
     const { page } = await this.access.requirePageAccess(id, user, { requireWrite: true, allowDeleted: true });
+    const binnedAncestors = await this.binnedAncestors(page.parentId);
+    const placement = options.placement;
+    if (binnedAncestors.length && placement !== 'withParents' && placement !== 'topLevel') {
+      throw new ConflictException({
+        message: 'A page above this one is still in the Bin',
+        code: 'PARENT_IN_BIN',
+        parents: binnedAncestors.map(({ id: parentId, title }) => ({ id: parentId, title })),
+      });
+    }
+    const restoreParents = binnedAncestors.length > 0 && placement === 'withParents';
+    const moveToTop = binnedAncestors.length > 0 && placement === 'topLevel';
+    if (restoreParents) {
+      for (const ancestor of binnedAncestors) {
+        await this.access.requirePageAccess(ancestor.id, user, { requireWrite: true, allowDeleted: true });
+      }
+    }
     const descendantIds = await this.access.collectDescendantIds(id);
-    const idsToRestore = [id, ...descendantIds];
-    const result = await this.prisma.page.updateMany({
-      where: { id: { in: idsToRestore } },
-      data: { isDeleted: false, deletedAt: null },
+    const idsToRestore = [id, ...descendantIds, ...(restoreParents ? binnedAncestors.map((a) => a.id) : [])];
+    const result = await this.prisma.$transaction(async (tx) => {
+      if (moveToTop) {
+        await tx.page.update({
+          where: { id },
+          data: { parentId: null, position: await this.nextPosition(page.workspaceId, null) },
+        });
+      }
+      return tx.page.updateMany({
+        where: { id: { in: idsToRestore } },
+        data: { isDeleted: false, deletedAt: null },
+      });
     });
     this.collabSync.announcePagesChanged(page.workspaceId, idsToRestore, { restored: true });
-    return result;
+    return { ...result, restoredIds: idsToRestore, movedToTopLevel: moveToTop };
+  }
+
+  /** The pages above this one that are in the Bin, nearest first. */
+  private async binnedAncestors(parentId: string | null) {
+    const binned: { id: string; title: string }[] = [];
+    const seen = new Set<string>();
+    let nextId = parentId;
+    while (nextId && !seen.has(nextId)) {
+      seen.add(nextId);
+      const ancestor = await this.prisma.page.findUnique({
+        where: { id: nextId },
+        select: { id: true, title: true, isDeleted: true, parentId: true },
+      });
+      if (!ancestor) break;
+      if (ancestor.isDeleted) binned.push({ id: ancestor.id, title: ancestor.title });
+      nextId = ancestor.parentId;
+    }
+    return binned;
   }
 
   async reorderSiblings(payload: { parentId: string | null; orderedIds: string[] }, user?: { userId?: string; userName?: string }) {
