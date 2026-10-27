@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "@hocuspocus/extension-database": "^2.15.2",
-    "@hocuspocus/extension-logger": "^2.15.2",
+    "@hocuspocus/extension-logger": "^4.7.1",
     "@hocuspocus/server": "^2.15.2",
     "dotenv": "^16.4.5",
     "jsonwebtoken": "^9.0.3"
