@@ -51,12 +51,6 @@ export const looksLikeMarkdown = (text) => {
   return hits > 0 && lines.length > 1;
 };
 
-export const stripHtmlToText = (html) =>
-  String(html || '')
-    .replace(/<[^>]*>/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-
 export const htmlHasRichFormatting = (html) =>
   /<(h[1-6]|ul|ol|li|blockquote|pre|code|table|thead|tbody|tr|td|th|hr)\b/i.test(String(html || ''));
 

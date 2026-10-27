@@ -1,9 +1,8 @@
 <script setup>
 import { nextTick, ref, watch } from 'vue';
 import { api } from '../api/client';
-import { marked } from 'marked';
+import { renderMarkdownSafely } from '../utils/safeMarkdown';
 
-marked.setOptions({ breaks: true, gfm: true });
 
 const props = defineProps({
   workspaceId: {
@@ -321,7 +320,7 @@ defineExpose({ focusInput });
             <span v-if="msg.pending && !msg.text && !msg.toolCalls?.length" class="ai-panel__typing" aria-label="AI is typing">
               <span></span><span></span><span></span>
             </span>
-            <div v-else-if="msg.role === 'assistant'" class="ai-panel__markdown" v-html="marked.parse(msg.text || '')"></div>
+            <div v-else-if="msg.role === 'assistant'" class="ai-panel__markdown" v-html="renderMarkdownSafely(msg.text)"></div>
             <template v-else>{{ msg.text }}</template>
           </div>
         </div>

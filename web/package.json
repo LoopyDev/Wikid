@@ -41,6 +41,7 @@
     "@tiptap/vue-3": "3.32.0",
     "@tiptap/y-tiptap": "3.0.10",
     "bootstrap-icons": "^1.13.1",
+    "dompurify": "^3.4.17",
     "emoji-picker-element": "^1.28.1",
     "emoji-picker-element-data": "^1.8.0",
     "gifenc": "^1.0.3",

@@ -39,8 +39,9 @@ export class AiController {
       }
       res.write('data: [DONE]\n\n');
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'AI generation failed';
-      res.write(`data: ${JSON.stringify({ error: message })}\n\n`);
+      // The details stay in the server log; the browser gets a plain message
+      console.warn('AI generation failed', err);
+      res.write(`data: ${JSON.stringify({ error: 'AI generation failed. Try again in a moment.' })}\n\n`);
     } finally {
       res.end();
     }
@@ -95,8 +96,9 @@ export class AiController {
       }
       res.write('data: [DONE]\n\n');
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'AI chat failed';
-      res.write(`data: ${JSON.stringify({ type: 'error', error: message })}\n\n`);
+      // The details stay in the server log; the browser gets a plain message
+      console.warn('AI chat failed', err);
+      res.write(`data: ${JSON.stringify({ type: 'error', error: 'AI chat failed. Try again in a moment.' })}\n\n`);
     } finally {
       res.end();
     }
