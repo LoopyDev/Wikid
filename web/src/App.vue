@@ -1490,6 +1490,8 @@ const setPageIcon = (page) => {
 };
 
 const isExpanded = (id) => !!expanded.value[id];
+// Opens these pages in the sidebar, e.g. parents restored from the Bin with a sub-page
+const expandPages = (ids) => ids.forEach((id) => { expanded.value[id] = true; });
 const toggleExpand = (id) => {
   expanded.value[id] = !expanded.value[id];
 };
@@ -2606,7 +2608,7 @@ if (typeof window !== 'undefined') {
         @cancel="cancelDeleteModal"
         @confirm="confirmDeleteModal"
       />
-      <BinModal v-if="showBinModal" @close="closeBin" />
+      <BinModal v-if="showBinModal" @close="closeBin" @restored-parents="expandPages" />
       <SearchDialog v-if="showSearch" @open="openSearchResult" @close="showSearch = false" />
     </main>
   </div>

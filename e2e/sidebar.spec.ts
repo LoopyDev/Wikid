@@ -75,6 +75,38 @@ test.describe('sidebar', () => {
     await expect(main(page).getByRole('listitem').filter({ hasText: childTitle })).toHaveCount(0);
   });
 
+  test("restores a page whose parent is still in the bin: to the top level, or with its parent", async ({ alice: page, workspaceId }) => {
+    const parentTitle = unique('Binned parent');
+    const parentId = await createPage(page, workspaceId, { title: parentTitle });
+    const firstTitle = unique('First child');
+    await createPage(page, workspaceId, { title: firstTitle, parentId });
+    const secondTitle = unique('Second child');
+    await createPage(page, workspaceId, { title: secondTitle, parentId });
+    await openPage(page, await createPage(page, workspaceId, { title: unique('Elsewhere') }));
+    expect((await page.request.delete(`/api/pages/${parentId}`)).status()).toBe(200);
+    await expect(sidebarItem(page, parentTitle)).toHaveCount(0);
+
+    await sidebar(page).getByRole('button', { name: /Bin/ }).click();
+    const bin = main(page);
+    const restoreButton = (title: string) => bin.getByRole('listitem').filter({ hasText: title }).getByRole('button', { name: 'Restore' });
+
+    // To the top level: the page shows in the sidebar straight away, and its parent stays in the bin.
+    await restoreButton(firstTitle).click();
+    const choice = bin.getByRole('group', { name: 'Where to restore the page' });
+    await expect(choice).toContainText(`"${parentTitle}" is still in the Bin`);
+    await choice.getByRole('button', { name: 'Restore to the top level' }).click();
+    await expect(bin.getByRole('status')).toContainText(`Restored "${firstTitle}" to the top level`);
+    await expect(sidebarItem(page, firstTitle)).toHaveAttribute('data-depth', '0');
+    await expect(sidebarItem(page, parentTitle)).toHaveCount(0);
+
+    // With its parent: both come back, the page in its old place.
+    await restoreButton(secondTitle).click();
+    await choice.getByRole('button', { name: `Restore with "${parentTitle}"` }).click();
+    await expect(sidebarItem(page, parentTitle)).toBeVisible();
+    await expect(sidebarItem(page, secondTitle)).toHaveAttribute('data-depth', '1');
+    await expect(bin.getByRole('listitem').filter({ hasText: parentTitle })).toHaveCount(0);
+  });
+
   test("shows a page's menu in full, over the page next to the sidebar", async ({ alice: page, workspaceId }) => {
     const title = unique('Menu page');
     await openPage(page, await createPage(page, workspaceId, { title }));

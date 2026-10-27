@@ -8,6 +8,7 @@ import {
   docWithParagraphs,
   loginAs,
   paragraphTexts,
+  unique,
 } from './helpers';
 
 const MISSING_ID = '00000000-0000-4000-8000-000000000000';
@@ -163,8 +164,46 @@ describe('bin, restore and permanent delete', () => {
 
     const restored = await alice.patch(`/pages/${parent.id}/restore`);
     expect(restored.status).toBe(200);
-    expect(restored.body).toEqual({ count: 2 });
+    expect(restored.body).toMatchObject({ count: 2, movedToTopLevel: false });
     expect((await alice.get(`/pages/${child.id}`)).status).toBe(200);
+  });
+
+  it('asks where to put a page whose parent is still in the bin, and can put it at the top level', async () => {
+    const parent = await createPage(alice, workspaceId, { title: unique('Parent') });
+    const child = await createPage(alice, workspaceId, { title: unique('Child'), parentId: parent.id });
+    await alice.delete(`/pages/${parent.id}`);
+
+    // Under a parent that's still in the bin it wouldn't show anywhere, so the API won't do that.
+    const asked = await alice.patch(`/pages/${child.id}/restore`);
+    expect(asked.status).toBe(409);
+    expect(asked.body).toMatchObject({ code: 'PARENT_IN_BIN', parents: [{ id: parent.id, title: parent.title }] });
+    expect((await alice.get(`/pages/${child.id}`)).status).toBe(404);
+
+    const toTop = await alice.patch(`/pages/${child.id}/restore`, { placement: 'topLevel' });
+    expect(toTop.status).toBe(200);
+    expect(toTop.body).toMatchObject({ count: 1, movedToTopLevel: true });
+    expect((await alice.get(`/pages/${child.id}`)).body).toMatchObject({ parentId: null });
+    expect((await alice.get(`/pages/${parent.id}`)).status).toBe(404);
+    expect(await listIds(alice)).toContain(child.id);
+  });
+
+  it('restores a page together with the binned pages above it, but not their other sub-pages', async () => {
+    const top = await createPage(alice, workspaceId, { title: unique('Top') });
+    const middle = await createPage(alice, workspaceId, { title: unique('Middle'), parentId: top.id });
+    const page = await createPage(alice, workspaceId, { title: unique('Page'), parentId: middle.id });
+    const sibling = await createPage(alice, workspaceId, { title: unique('Sibling'), parentId: middle.id });
+    await alice.delete(`/pages/${top.id}`);
+
+    const asked = await alice.patch(`/pages/${page.id}/restore`);
+    expect(asked.body.parents.map((p: any) => p.id)).toEqual([middle.id, top.id]);
+
+    const withParents = await alice.patch(`/pages/${page.id}/restore`, { placement: 'withParents' });
+    expect(withParents.status).toBe(200);
+    expect(withParents.body).toMatchObject({ count: 3, movedToTopLevel: false });
+    expect((await alice.get(`/pages/${page.id}`)).body).toMatchObject({ parentId: middle.id });
+    expect((await alice.get(`/pages/${middle.id}`)).status).toBe(200);
+    expect((await alice.get(`/pages/${top.id}`)).status).toBe(200);
+    expect((await alice.get(`/pages/${sibling.id}`)).status).toBe(404);
   });
 
   it('deletes pages permanently', async () => {

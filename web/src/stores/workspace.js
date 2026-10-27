@@ -1169,14 +1169,21 @@ export const useWorkspaceStore = defineStore('workspace', {
     clearBinState() {
       this.binPages = [];
     },
-    async restorePageFromBin(page) {
-      if (!this.hasApi) return;
+    // Restores a page (with its sub-pages) from the Bin. If a page above it is still in the Bin, nothing
+    // happens and this returns { parentsInBin } (nearest first), so the caller can ask whether to bring
+    // those back too ({ placement: 'withParents' }) or put the page at the top level ('topLevel').
+    async restorePageFromBin(page, { placement } = {}) {
+      if (!this.hasApi) return null;
       const pageId = typeof page === 'string' ? page : page?.id;
-      if (!pageId) return;
+      if (!pageId) return null;
       try {
-        await api.restorePage(pageId, { userId: this.activeUser?.id, userName: this.activeUser?.name });
-        // The server restores the page with its sub-pages
-        const restoredIds = new Set([pageId]);
+        const res = await api.restorePage(
+          pageId,
+          { userId: this.activeUser?.id, userName: this.activeUser?.name },
+          { placement }
+        );
+        // The server restores the page with its sub-pages, and with its parents if asked
+        const restoredIds = new Set(Array.isArray(res?.restoredIds) ? res.restoredIds : [pageId]);
         let added = true;
         while (added) {
           added = false;
@@ -1189,12 +1196,26 @@ export const useWorkspaceStore = defineStore('workspace', {
         }
         const restored = this.binPages
           .filter((p) => restoredIds.has(p.id))
-          .map((p) => ({ ...p, isDeleted: false, deletedAt: null }));
+          .map((p) => ({
+            ...p,
+            isDeleted: false,
+            deletedAt: null,
+            ...(res?.movedToTopLevel && p.id === pageId ? { parentId: null } : {}),
+          }));
         this.binPages = this.binPages.filter((p) => !restoredIds.has(p.id));
         this.pages = [...restored, ...this.pages.filter((p) => !restoredIds.has(p.id))];
+        if (res?.movedToTopLevel && this.activeWorkspaceId) {
+          // Its new place among the top-level pages comes from the server
+          await this.loadPageList(this.activeWorkspaceId, { keepBin: true });
+        }
+        return { restored: true, movedToTopLevel: !!res?.movedToTopLevel };
       } catch (err) {
+        if (err?.status === 409 && err?.body?.code === 'PARENT_IN_BIN') {
+          return { parentsInBin: Array.isArray(err.body.parents) ? err.body.parents : [] };
+        }
         console.warn('Restore page failed', err);
         this.error = err?.message || 'Failed to restore page';
+        return null;
       }
     },
     async destroyBin(ids) {

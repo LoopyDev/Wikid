@@ -65,7 +65,17 @@ async function request(path, options = {}) {
   }
   notifyApiStatus('online');
   const raw = await res.text(); // read once
-  if (!res.ok) throw new Error(errorMessageFrom(raw, res));
+  if (!res.ok) {
+    const error = new Error(errorMessageFrom(raw, res));
+    // Callers that handle a specific refusal (e.g. code PARENT_IN_BIN) read these
+    error.status = res.status;
+    try {
+      error.body = JSON.parse(raw);
+    } catch {
+      error.body = null;
+    }
+    throw error;
+  }
   try {
     return JSON.parse(raw);
   } catch (err) {
@@ -258,9 +268,10 @@ export const api = {
       method: 'DELETE',
     });
   },
-  async restorePage(pageId, { userId, userName } = {}) {
+  async restorePage(pageId, { userId, userName } = {}, { placement } = {}) {
     return request(`/pages/${pageId}/restore${buildQs({ userId, userName })}`, {
       method: 'PATCH',
+      body: JSON.stringify(placement ? { placement } : {}),
     });
   },
   async destroyPages(ids, { userId, userName } = {}) {
