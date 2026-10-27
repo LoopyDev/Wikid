@@ -13,6 +13,5 @@
 **/.DS_Store
 Docs
 api/prisma/generated
-api/prisma/ERD.svg
 api/uploads
 collab/data
