@@ -3,7 +3,7 @@ import { NodeViewWrapper } from '@tiptap/vue-3';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { SplatMesh } from '@sparkjsdev/spark';
+import { SparkRenderer, SplatMesh } from '@sparkjsdev/spark';
 import { GIFEncoder, quantize, applyPalette } from 'gifenc';
 import { api } from '../api/client';
 import { useWorkspaceStore } from '../stores/workspace';
@@ -27,6 +27,8 @@ let scene = null;
 let camera = null;
 let controls = null;
 let splatMesh = null;
+// Spark 2 draws splats through a SparkRenderer in the scene, tied to one WebGL renderer
+let spark = null;
 let animationId = null;
 let resizeObserver = null;
 
@@ -140,6 +142,8 @@ async function initScene() {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setSize(el.clientWidth, el.clientHeight);
   el.appendChild(renderer.domElement);
+  spark = new SparkRenderer({ renderer });
+  scene.add(spark);
 
   controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
@@ -196,6 +200,10 @@ function cleanup() {
   if (splatMesh) {
     splatMesh.dispose();
     splatMesh = null;
+  }
+  if (spark) {
+    spark.dispose?.();
+    spark = null;
   }
   if (renderer) {
     renderer.dispose();
