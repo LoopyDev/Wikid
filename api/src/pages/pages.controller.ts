@@ -1,6 +1,7 @@
 import { BadRequestException, Body, Controller, Delete, ForbiddenException, Get, HttpException, HttpStatus, Param, Patch, Post, Put, Query, Req, Res, StreamableFile } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { LoginRateLimiter } from '../auth/login-rate-limiter';
+import { isUuid } from '../utils/uuid.util';
 import { PageAccessService } from './page-access.service';
 import { CollabSyncService } from './collab-sync.service';
 import { WikiService } from './wiki.service';
@@ -66,6 +67,8 @@ export class PagesController {
     @Query('theme') theme?: string,
     @Query('scale') scale?: string,
   ): Promise<StreamableFile> {
+    // The id becomes part of the address the PDF browser opens, so only accept a real page id
+    if (!isUuid(id)) throw new BadRequestException('Invalid page id');
     const pdf = await this.pdfService.generatePagePdf(id, userId, userName, theme, scale ? parseFloat(scale) : undefined);
     return new StreamableFile(pdf, {
       type: 'application/pdf',

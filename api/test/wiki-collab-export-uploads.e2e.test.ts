@@ -147,6 +147,42 @@ describe('uploads', () => {
   });
 });
 
+describe('fetching addresses people give us', () => {
+  // Link previews and "image from URL" run on the server, which can reach Wikid's own services.
+  const internal = [
+    'http://127.0.0.1:3000/',
+    'http://localhost:3000/auth/me',
+    'http://api:3000/',
+    'http://minio:9000/',
+    'http://collab:1234/',
+    'http://169.254.169.254/latest/meta-data/',
+    'http://[::1]/',
+    'http://0x7f000001/',
+  ];
+
+  it("won't preview a link to an internal address", async () => {
+    for (const url of internal) {
+      const res = await alice.post('/embeds/link', { url });
+      expect(res.status, url).toBe(400);
+      expect(res.body.message, url).toMatch(/can't be fetched|Couldn't fetch/);
+    }
+    expect((await alice.post('/embeds/link', { url: 'file:///etc/passwd' })).status).toBe(400);
+  });
+
+  it("won't add an image from an internal address", async () => {
+    const page = await createPage(alice, workspaceId);
+    for (const url of internal) {
+      const res = await alice.post('/uploads/by-url', { url, pageId: page.id });
+      expect(res.status, url).toBe(400);
+      expect(res.body.message, url).toMatch(/can't be fetched|Couldn't fetch/);
+    }
+  });
+
+  it('only exports a real page id as PDF', async () => {
+    expect((await alice.get('/pages/not-a-page-id/export/pdf')).status).toBe(400);
+  });
+});
+
 describe('admin reset', () => {
   it('requires the admin and the exact confirmation text', async () => {
     // Only the guard rails are tested: a real reset would wipe the stack.
