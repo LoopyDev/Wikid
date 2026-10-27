@@ -17,6 +17,7 @@ jobs:
   check:
     name: Type-check, test and build
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -36,6 +37,8 @@ jobs:
   docker:
     name: Docker images, API and browser tests
     runs-on: ubuntu-latest
+    # Usually about 15 minutes; a hung run would otherwise block its PR for up to 6 hours
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
       - run: docker compose -f docker-compose.yml build
