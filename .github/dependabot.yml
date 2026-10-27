@@ -18,7 +18,7 @@ updates:
       tiptap-security:
         applies-to: security-updates
         patterns: ["@tiptap/*"]
-      # Hocuspocus (the collaboration server and its client) also has to move as a whole
+      # Hocuspocus (the collaboration server and its client) also has to move as a whole, majors included
       hocuspocus:
         applies-to: version-updates
         patterns: ["@hocuspocus/*"]
@@ -30,12 +30,10 @@ updates:
       minor-and-patch:
         applies-to: version-updates
         update-types: [minor, patch]
-    # Major upgrades planned as their own work (see notes/plans/next-up.md), not proposed weekly:
-    # NestJS 12 is ESM-only (the API is CommonJS), and Hocuspocus 2 -> 4 changes the collaboration API.
+    # NestJS 12 is ESM-only and the API is CommonJS, so it needs converting first; that's tracked as a
+    # GitHub issue. NestJS 11 is still maintained, and security fixes come through regardless.
     ignore:
       - dependency-name: "@nestjs/*"
-        update-types: [version-update:semver-major]
-      - dependency-name: "@hocuspocus/*"
         update-types: [version-update:semver-major]
 
   - package-ecosystem: github-actions
