@@ -28,14 +28,14 @@
     "@nestjs/platform-express": "^11.2.8",
     "@prisma/client": "^5.19.0",
     "dotenv": "^16.4.5",
-    "jsonwebtoken": "^9.0.2",
+    "jsonwebtoken": "^9.0.3",
     "prisma": "^5.19.0",
     "prosemirror-model": "^1.21.0",
     "puppeteer": "^25.16.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "y-prosemirror": "^1.2.9",
-    "yjs": "^13.6.27"
+    "yjs": "^13.6.33"
   },
   "devDependencies": {
     "@types/express": "^5.0.0",
