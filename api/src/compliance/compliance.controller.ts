@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { ComplianceService } from './compliance.service';
 
+import { CurrentUserId, CurrentUserName } from '../auth/auth.guard';
 @Controller('compliance')
 export class ComplianceController {
   constructor(private readonly compliance: ComplianceService) {}
@@ -8,8 +9,8 @@ export class ComplianceController {
   @Post('workflows')
   createWorkflow(
     @Body() body: any,
-    @Query('userId') userId?: string,
-    @Query('userName') userName?: string
+    @CurrentUserId() userId?: string,
+    @CurrentUserName() userName?: string
   ) {
     return this.compliance.createWorkflowVersion(
       { workspaceId: body.workspaceId, databaseId: body.databaseId, config: body.config },
@@ -20,8 +21,8 @@ export class ComplianceController {
   @Post('schemas')
   createSchema(
     @Body() body: any,
-    @Query('userId') userId?: string,
-    @Query('userName') userName?: string
+    @CurrentUserId() userId?: string,
+    @CurrentUserName() userName?: string
   ) {
     return this.compliance.createSchemaVersion(
       { workspaceId: body.workspaceId, databaseId: body.databaseId, schema: body.schema },
@@ -32,8 +33,8 @@ export class ComplianceController {
   @Post('records/submit')
   submitRecord(
     @Body() body: any,
-    @Query('userId') userId?: string,
-    @Query('userName') userName?: string
+    @CurrentUserId() userId?: string,
+    @CurrentUserName() userName?: string
   ) {
     return this.compliance.submitRecord(
       {
@@ -53,8 +54,8 @@ export class ComplianceController {
   amendRecord(
     @Param('id') recordId: string,
     @Body() body: any,
-    @Query('userId') userId?: string,
-    @Query('userName') userName?: string
+    @CurrentUserId() userId?: string,
+    @CurrentUserName() userName?: string
   ) {
     return this.compliance.amendRecord(
       recordId,
@@ -72,8 +73,8 @@ export class ComplianceController {
   transitionRecord(
     @Param('id') recordId: string,
     @Body() body: any,
-    @Query('userId') userId?: string,
-    @Query('userName') userName?: string
+    @CurrentUserId() userId?: string,
+    @CurrentUserName() userName?: string
   ) {
     return this.compliance.transitionRecord(
       recordId,
@@ -90,8 +91,8 @@ export class ComplianceController {
   @Get('records/:id')
   getRecord(
     @Param('id') recordId: string,
-    @Query('userId') userId?: string,
-    @Query('userName') userName?: string,
+    @CurrentUserId() userId?: string,
+    @CurrentUserName() userName?: string,
     @Query('logView') logView?: string
   ) {
     const shouldLog = logView !== 'false';
@@ -101,8 +102,8 @@ export class ComplianceController {
   @Post('records/:id/export')
   exportRecord(
     @Param('id') recordId: string,
-    @Query('userId') userId?: string,
-    @Query('userName') userName?: string
+    @CurrentUserId() userId?: string,
+    @CurrentUserName() userName?: string
   ) {
     return this.compliance.logExport(recordId, { userId, userName });
   }
@@ -111,8 +112,8 @@ export class ComplianceController {
   setLegalHold(
     @Param('id') recordId: string,
     @Body('enabled') enabled: any,
-    @Query('userId') userId?: string,
-    @Query('userName') userName?: string
+    @CurrentUserId() userId?: string,
+    @CurrentUserName() userName?: string
   ) {
     if (typeof enabled !== 'boolean') {
       return this.compliance.getRecord(recordId, { userId, userName }, { logView: false });
@@ -123,8 +124,8 @@ export class ComplianceController {
   @Post('records/:id/archive')
   archiveRecord(
     @Param('id') recordId: string,
-    @Query('userId') userId?: string,
-    @Query('userName') userName?: string
+    @CurrentUserId() userId?: string,
+    @CurrentUserName() userName?: string
   ) {
     return this.compliance.archiveRecord(recordId, { userId, userName });
   }
@@ -132,8 +133,8 @@ export class ComplianceController {
   @Post('retention/sweep')
   runRetentionSweep(
     @Body('workspaceId') workspaceId: string,
-    @Query('userId') userId?: string,
-    @Query('userName') userName?: string
+    @CurrentUserId() userId?: string,
+    @CurrentUserName() userName?: string
   ) {
     return this.compliance.runRetentionSweep({ workspaceId }, { userId, userName });
   }

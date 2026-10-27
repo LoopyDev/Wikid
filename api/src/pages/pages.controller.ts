@@ -11,7 +11,7 @@ import { WorkspacesService } from './workspaces.service';
 import { UsersService } from './users.service';
 import { PdfService } from '../pdf/pdf.service';
 import { HtmlExportService } from '../export/html-export.service';
-import { AuthUser, CurrentUser } from '../auth/auth.guard';
+import { AdminId, AuthUser, CurrentUser, CurrentUserId, CurrentUserName } from '../auth/auth.guard';
 import { AllowPendingPasswordChange, Public } from '../auth/public.decorator';
 import { SESSION_COOKIE, sessionCookieOptions, signSession } from '../auth/session.util';
 
@@ -42,8 +42,8 @@ export class PagesController {
   @Get('pages')
   listPages(
     @Query('workspaceId') workspaceId?: string,
-    @Query('userId') userId?: string,
-    @Query('userName') userName?: string,
+    @CurrentUserId() userId?: string,
+    @CurrentUserName() userName?: string,
     @Query('includeDeleted') includeDeleted?: string,
     @Query('state') state?: string,
   ) {
@@ -59,8 +59,8 @@ export class PagesController {
   @Get('pages/:id/export/pdf')
   async exportPagePdf(
     @Param('id') id: string,
-    @Query('userId') userId?: string,
-    @Query('userName') userName?: string,
+    @CurrentUserId() userId?: string,
+    @CurrentUserName() userName?: string,
     @Query('theme') theme?: string,
     @Query('scale') scale?: string,
   ): Promise<StreamableFile> {
@@ -107,8 +107,8 @@ export class PagesController {
   @Get('pages/:id')
   getPage(
     @Param('id') id: string,
-    @Query('userId') userId?: string,
-    @Query('userName') userName?: string,
+    @CurrentUserId() userId?: string,
+    @CurrentUserName() userName?: string,
   ) {
     return this.pages.getPage(id, { userId, userName });
   }
@@ -117,8 +117,8 @@ export class PagesController {
   updatePageContent(
     @Param('id') id: string,
     @Body('content') content: any,
-    @Query('userId') userId?: string,
-    @Query('userName') userName?: string,
+    @CurrentUserId() userId?: string,
+    @CurrentUserName() userName?: string,
   ) {
     return this.pages.updatePageContent(id, content ?? null, { userId, userName });
   }
@@ -127,8 +127,8 @@ export class PagesController {
   reorderPages(
     @Body('parentId') parentId: string | null,
     @Body('orderedIds') orderedIds: string[],
-    @Query('userId') userId?: string,
-    @Query('userName') userName?: string,
+    @CurrentUserId() userId?: string,
+    @CurrentUserName() userName?: string,
   ) {
     return this.pages.reorderSiblings({ parentId: parentId ?? null, orderedIds }, { userId, userName });
   }
@@ -138,8 +138,8 @@ export class PagesController {
     @Param('id') id: string,
     @Body('title') title: string,
     @Body('icon') icon?: string,
-    @Query('userId') userId?: string,
-    @Query('userName') userName?: string,
+    @CurrentUserId() userId?: string,
+    @CurrentUserName() userName?: string,
   ) {
     const nextTitle = typeof title === 'string' ? title : undefined;
     const nextIcon = typeof icon === 'string' ? icon : undefined;
@@ -150,8 +150,8 @@ export class PagesController {
   movePageToWorkspace(
     @Param('id') id: string,
     @Body('targetWorkspaceId') targetWorkspaceId: string,
-    @Query('userId') userId?: string,
-    @Query('userName') userName?: string,
+    @CurrentUserId() userId?: string,
+    @CurrentUserName() userName?: string,
   ) {
     return this.pages.movePageToWorkspace(id, targetWorkspaceId, { userId, userName });
   }
@@ -160,8 +160,8 @@ export class PagesController {
   updatePageVisibility(
     @Param('id') id: string,
     @Body('visibility') visibility: any,
-    @Query('userId') userId?: string,
-    @Query('userName') userName?: string,
+    @CurrentUserId() userId?: string,
+    @CurrentUserName() userName?: string,
   ) {
     return this.pages.updatePageVisibility(id, visibility, { userId, userName });
   }
@@ -173,8 +173,8 @@ export class PagesController {
     @Body('setupStatus') setupStatus: any,
     @Body('complianceMode') complianceMode: any,
     @Body('database') database: any,
-    @Query('userId') userId?: string,
-    @Query('userName') userName?: string,
+    @CurrentUserId() userId?: string,
+    @CurrentUserName() userName?: string,
   ) {
     const nextCompliance = typeof complianceMode === 'boolean' ? complianceMode : undefined;
     return this.pages.updatePageSetup(
@@ -187,13 +187,13 @@ export class PagesController {
   @Post('pages/:id/wiki')
   convertPageToWiki(
     @Param('id') id: string,
-    @Query('userId') userId?: string,
-    @Query('userName') userName?: string,
+    @CurrentUserId() userId?: string,
+    @CurrentUserName() userName?: string,
   ) {
     return this.wiki.convertPageToWiki(id, { userId, userName });
   }
   @Get('pages/:id/blocks')
-  listBlocks(@Param('id') id: string, @Query('userId') userId?: string, @Query('userName') userName?: string) {
+  listBlocks(@Param('id') id: string, @CurrentUserId() userId?: string, @CurrentUserName() userName?: string) {
     return this.pages.listBlocksForPage(id, { userId, userName });
   }
 
@@ -201,8 +201,8 @@ export class PagesController {
   createBlock(
     @Param('id') pageId: string,
     @Body() body: any,
-    @Query('userId') userId?: string,
-    @Query('userName') userName?: string,
+    @CurrentUserId() userId?: string,
+    @CurrentUserName() userName?: string,
   ) {
     return this.pages.createBlock(pageId, body, { userId, userName });
   }
@@ -215,8 +215,8 @@ export class PagesController {
   @Get('pages/:id/database')
   getDatabase(
     @Param('id') pageId: string,
-    @Query('userId') userId?: string,
-    @Query('userName') userName?: string,
+    @CurrentUserId() userId?: string,
+    @CurrentUserName() userName?: string,
   ) {
     return this.databases.getDatabase(pageId, { userId, userName });
   }
@@ -225,8 +225,8 @@ export class PagesController {
   updateDatabase(
     @Param('id') pageId: string,
     @Body('complianceMode') complianceMode: any,
-    @Query('userId') userId?: string,
-    @Query('userName') userName?: string,
+    @CurrentUserId() userId?: string,
+    @CurrentUserName() userName?: string,
   ) {
     const next = typeof complianceMode === 'boolean' ? complianceMode : undefined;
     return this.databases.updateDatabaseSettings(pageId, { complianceMode: next }, { userId, userName });
@@ -236,8 +236,8 @@ export class PagesController {
   createDatabaseField(
     @Param('id') pageId: string,
     @Body() body: any,
-    @Query('userId') userId?: string,
-    @Query('userName') userName?: string,
+    @CurrentUserId() userId?: string,
+    @CurrentUserName() userName?: string,
   ) {
     return this.databases.createDatabaseField(pageId, body, { userId, userName });
   }
@@ -246,8 +246,8 @@ export class PagesController {
   updateDatabaseField(
     @Param('id') id: string,
     @Body() body: any,
-    @Query('userId') userId?: string,
-    @Query('userName') userName?: string,
+    @CurrentUserId() userId?: string,
+    @CurrentUserName() userName?: string,
   ) {
     const data: any = pickDefined(body, ['type', 'options', 'position']);
     if (typeof body.name === 'string') data.name = body.name;
@@ -255,7 +255,7 @@ export class PagesController {
   }
 
   @Delete('database-fields/:id')
-  deleteDatabaseField(@Param('id') id: string, @Query('userId') userId?: string, @Query('userName') userName?: string) {
+  deleteDatabaseField(@Param('id') id: string, @CurrentUserId() userId?: string, @CurrentUserName() userName?: string) {
     return this.databases.deleteDatabaseField(id, { userId, userName });
   }
 
@@ -263,8 +263,8 @@ export class PagesController {
   createDatabaseRow(
     @Param('id') pageId: string,
     @Body() body: any,
-    @Query('userId') userId?: string,
-    @Query('userName') userName?: string,
+    @CurrentUserId() userId?: string,
+    @CurrentUserName() userName?: string,
   ) {
     return this.databases.createDatabaseRow(pageId, body, { userId, userName });
   }
@@ -273,8 +273,8 @@ export class PagesController {
   createDatabaseForm(
     @Param('id') pageId: string,
     @Body() body: any,
-    @Query('userId') userId?: string,
-    @Query('userName') userName?: string,
+    @CurrentUserId() userId?: string,
+    @CurrentUserName() userName?: string,
   ) {
     return this.databaseForms.createDatabaseForm(pageId, body, { userId, userName });
   }
@@ -283,8 +283,8 @@ export class PagesController {
   updateDatabaseForm(
     @Param('id') id: string,
     @Body() body: any,
-    @Query('userId') userId?: string,
-    @Query('userName') userName?: string,
+    @CurrentUserId() userId?: string,
+    @CurrentUserName() userName?: string,
   ) {
     const data: any = pickDefined(body, ['fields', 'config', 'position']);
     if (typeof body.name === 'string') data.name = body.name;
@@ -295,8 +295,8 @@ export class PagesController {
   @Get('database-forms/:id')
   getDatabaseForm(
     @Param('id') id: string,
-    @Query('userId') userId?: string,
-    @Query('userName') userName?: string,
+    @CurrentUserId() userId?: string,
+    @CurrentUserName() userName?: string,
   ) {
     return this.databaseForms.getDatabaseForm(id, { userId, userName });
   }
@@ -304,8 +304,8 @@ export class PagesController {
   @Delete('database-forms/:id')
   deleteDatabaseForm(
     @Param('id') id: string,
-    @Query('userId') userId?: string,
-    @Query('userName') userName?: string,
+    @CurrentUserId() userId?: string,
+    @CurrentUserName() userName?: string,
   ) {
     return this.databaseForms.deleteDatabaseForm(id, { userId, userName });
   }
@@ -314,8 +314,8 @@ export class PagesController {
   createDatabaseView(
     @Param('id') pageId: string,
     @Body() body: any,
-    @Query('userId') userId?: string,
-    @Query('userName') userName?: string,
+    @CurrentUserId() userId?: string,
+    @CurrentUserName() userName?: string,
   ) {
     return this.databaseViews.createDatabaseView(pageId, body, { userId, userName });
   }
@@ -324,8 +324,8 @@ export class PagesController {
   updateDatabaseView(
     @Param('id') id: string,
     @Body() body: any,
-    @Query('userId') userId?: string,
-    @Query('userName') userName?: string,
+    @CurrentUserId() userId?: string,
+    @CurrentUserName() userName?: string,
   ) {
     const data: any = pickDefined(body, ['config', 'position']);
     if (typeof body.name === 'string') data.name = body.name;
@@ -337,8 +337,8 @@ export class PagesController {
   @Delete('database-views/:id')
   deleteDatabaseView(
     @Param('id') id: string,
-    @Query('userId') userId?: string,
-    @Query('userName') userName?: string,
+    @CurrentUserId() userId?: string,
+    @CurrentUserName() userName?: string,
   ) {
     return this.databaseViews.deleteDatabaseView(id, { userId, userName });
   }
@@ -347,8 +347,8 @@ export class PagesController {
   submitDatabaseForm(
     @Param('id') id: string,
     @Body() body: any,
-    @Query('userId') userId?: string,
-    @Query('userName') userName?: string,
+    @CurrentUserId() userId?: string,
+    @CurrentUserName() userName?: string,
   ) {
     const data = body?.data !== undefined ? body.data : undefined;
     const rowId = typeof body?.rowId === 'string' ? body.rowId : undefined;
@@ -360,8 +360,8 @@ export class PagesController {
   updateDatabaseRow(
     @Param('id') id: string,
     @Body() body: any,
-    @Query('userId') userId?: string,
-    @Query('userName') userName?: string,
+    @CurrentUserId() userId?: string,
+    @CurrentUserName() userName?: string,
   ) {
     return this.databases.updateDatabaseRow(id, pickDefined(body, ['data', 'position']), { userId, userName });
   }
@@ -369,8 +369,8 @@ export class PagesController {
   @Get('database-rows/:id/backlinks')
   getDatabaseRowBacklinks(
     @Param('id') id: string,
-    @Query('userId') userId?: string,
-    @Query('userName') userName?: string,
+    @CurrentUserId() userId?: string,
+    @CurrentUserName() userName?: string,
   ) {
     return this.databases.getDatabaseRowBacklinks(id, { userId, userName });
   }
@@ -379,8 +379,8 @@ export class PagesController {
   ensureDatabaseRowPage(
     @Param('id') id: string,
     @Body() body: any,
-    @Query('userId') userId?: string,
-    @Query('userName') userName?: string,
+    @CurrentUserId() userId?: string,
+    @CurrentUserName() userName?: string,
   ) {
     const title = typeof body.title === 'string' ? body.title : undefined;
     const pageId = typeof body.pageId === 'string' ? body.pageId : undefined;
@@ -390,22 +390,22 @@ export class PagesController {
   }
 
   @Delete('database-rows/:id')
-  deleteDatabaseRow(@Param('id') id: string, @Query('userId') userId?: string, @Query('userName') userName?: string) {
+  deleteDatabaseRow(@Param('id') id: string, @CurrentUserId() userId?: string, @CurrentUserName() userName?: string) {
     return this.databases.deleteDatabaseRow(id, { userId, userName });
   }
 
   @Delete('pages/:id')
-  deletePage(@Param('id') id: string, @Query('userId') userId?: string, @Query('userName') userName?: string) {
+  deletePage(@Param('id') id: string, @CurrentUserId() userId?: string, @CurrentUserName() userName?: string) {
     return this.pages.deletePage(id, { userId, userName });
   }
 
   @Patch('pages/:id/restore')
-  restorePage(@Param('id') id: string, @Query('userId') userId?: string, @Query('userName') userName?: string) {
+  restorePage(@Param('id') id: string, @CurrentUserId() userId?: string, @CurrentUserName() userName?: string) {
     return this.pages.restorePage(id, { userId, userName });
   }
 
   @Delete('pages')
-  destroyPages(@Body('ids') ids: string[], @Query('userId') userId?: string, @Query('userName') userName?: string) {
+  destroyPages(@Body('ids') ids: string[], @CurrentUserId() userId?: string, @CurrentUserName() userName?: string) {
     return this.pages.destroyPages(ids, { userId, userName });
   }
 
@@ -439,8 +439,8 @@ export class PagesController {
   @Get('users/:id')
   getUser(
     @Param('id') id: string,
-    @Query('userId') userId?: string,
-    @Query('userName') userName?: string,
+    @CurrentUserId() userId?: string,
+    @CurrentUserName() userName?: string,
   ) {
     return this.users.getUserProfile(id, { userId, userName });
   }
@@ -449,8 +449,8 @@ export class PagesController {
   updateUserPreferences(
     @Param('id') id: string,
     @Body('preferences') preferences: any,
-    @Query('userId') userId?: string,
-    @Query('userName') userName?: string,
+    @CurrentUserId() userId?: string,
+    @CurrentUserName() userName?: string,
   ) {
     return this.users.updateUserPreferences(id, preferences, { userId, userName });
   }
@@ -469,13 +469,13 @@ export class PagesController {
 
   // Admin user management
   @Get('admin/users')
-  listUsers(@Query('adminId') adminId?: string) {
+  listUsers(@AdminId() adminId?: string) {
     return this.users.listUsers(adminId);
   }
 
   @Post('admin/users')
   adminCreateUser(
-    @Body('adminId') adminId: string,
+    @AdminId() adminId: string,
     @Body('displayName') displayName: string,
     @Body('email') email: string,
     @Body('password') password: string,
@@ -488,7 +488,7 @@ export class PagesController {
   @Patch('admin/users/:id')
   adminUpdateUser(
     @Param('id') id: string,
-    @Body('adminId') adminId: string,
+    @AdminId() adminId: string,
     @Body('displayName') displayName?: string,
     @Body('email') email?: string,
     @Body('username') username?: string | null,
@@ -499,7 +499,7 @@ export class PagesController {
   @Post('admin/users/:id/reset-password')
   adminResetPassword(
     @Param('id') id: string,
-    @Body('adminId') adminId: string,
+    @AdminId() adminId: string,
     @Body('newPassword') newPassword: string,
     @Body('mustChangePassword') mustChangePassword?: boolean,
   ) {
@@ -507,7 +507,7 @@ export class PagesController {
   }
 
   @Delete('admin/users/:id')
-  adminDeleteUser(@Param('id') id: string, @Query('adminId') adminId: string) {
+  adminDeleteUser(@Param('id') id: string, @AdminId() adminId: string) {
     return this.users.adminDeleteUser(adminId, id);
   }
 
@@ -515,8 +515,8 @@ export class PagesController {
   updateBlock(
     @Param('id') id: string,
     @Body() body: any,
-    @Query('userId') userId?: string,
-    @Query('userName') userName?: string,
+    @CurrentUserId() userId?: string,
+    @CurrentUserName() userName?: string,
   ) {
     const data: any = pickDefined(body, ['props', 'position', 'type']);
     if (typeof body.content === 'string') data.content = body.content;
@@ -531,7 +531,7 @@ export class PagesController {
 
   // Admin: list non-personal workspaces
   @Get('workspaces')
-  listWorkspaces(@Query('userId') userId?: string, @Query('userName') userName?: string, @Query('adminId') adminId?: string) {
+  listWorkspaces(@CurrentUserId() userId?: string, @CurrentUserName() userName?: string, @AdminId() adminId?: string) {
     return this.workspaces.listWorkspaces(userId, userName, adminId);
   }
 
@@ -544,13 +544,13 @@ export class PagesController {
   updateWorkspace(
     @Param('id') id: string,
     @Body('name') name: string,
-    @Query('userId') userId: string,
+    @CurrentUserId() userId: string,
   ) {
     return this.workspaces.updateWorkspace(id, { name }, userId);
   }
 
   @Delete('workspaces/:id')
-  deleteWorkspace(@Param('id') id: string, @Query('userId') userId: string) {
+  deleteWorkspace(@Param('id') id: string, @CurrentUserId() userId: string) {
     return this.workspaces.deleteWorkspace(id, userId);
   }
 
@@ -558,8 +558,8 @@ export class PagesController {
   @Get('workspaces/:id/members')
   listWorkspaceMembers(
     @Param('id') workspaceId: string,
-    @Query('userId') userId?: string,
-    @Query('adminId') adminId?: string,
+    @CurrentUserId() userId?: string,
+    @AdminId() adminId?: string,
   ) {
     return this.workspaces.listWorkspaceMembers(userId, workspaceId, adminId);
   }
@@ -572,8 +572,8 @@ export class PagesController {
     @Body('email') email?: string,
     @Body('userId') userId?: string,
     @Body('role') role?: any,
-    @Query('userId') requesterId?: string,
-    @Query('adminId') adminId?: string,
+    @CurrentUserId() requesterId?: string,
+    @AdminId() adminId?: string,
   ) {
     return this.workspaces.addWorkspaceMember(requesterId, workspaceId, { login: login ?? email, userId, role }, adminId);
   }
@@ -584,8 +584,8 @@ export class PagesController {
     @Param('id') workspaceId: string,
     @Param('userId') memberId: string,
     @Body('role') role: any,
-    @Query('userId') requesterId?: string,
-    @Query('adminId') adminId?: string,
+    @CurrentUserId() requesterId?: string,
+    @AdminId() adminId?: string,
   ) {
     return this.workspaces.updateWorkspaceMemberRole(requesterId, workspaceId, memberId, role, adminId);
   }
@@ -595,15 +595,15 @@ export class PagesController {
   removeWorkspaceMember(
     @Param('id') workspaceId: string,
     @Param('userId') memberId: string,
-    @Query('userId') requesterId?: string,
-    @Query('adminId') adminId?: string,
+    @CurrentUserId() requesterId?: string,
+    @AdminId() adminId?: string,
   ) {
     return this.workspaces.removeWorkspaceMember(requesterId, workspaceId, memberId, adminId);
   }
 
   // Admin: reset all workspaces, documents, and regenerate personal workspaces
   @Post('workspaces/admin/reset')
-  resetAllWorkspaces(@Body('confirm') confirm: string, @Query('adminId') adminId?: string) {
+  resetAllWorkspaces(@Body('confirm') confirm: string, @AdminId() adminId?: string) {
     return this.workspaces.resetAllWorkspaces(adminId, confirm);
   }
 }

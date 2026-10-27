@@ -7,6 +7,7 @@ import { UploadsService } from './uploads.service';
 import { PageAccessService } from '../pages/page-access.service';
 import { assertSystemAdmin } from '../utils/assert-admin.util';
 
+import { AdminId, CurrentUserId, CurrentUserName } from '../auth/auth.guard';
 @Controller('uploads')
 export class UploadsController {
   constructor(private readonly uploads: UploadsService, private readonly pageAccess: PageAccessService) {}
@@ -29,8 +30,8 @@ export class UploadsController {
   async uploadFile(
     @UploadedFile() file?: Express.Multer.File,
     @Body('pageId') pageId?: string,
-    @Query('userId') userId?: string,
-    @Query('userName') userName?: string,
+    @CurrentUserId() userId?: string,
+    @CurrentUserName() userName?: string,
     @Req() req?: Request
   ) {
     if (!file) throw new BadRequestException('No file uploaded');
@@ -57,8 +58,8 @@ export class UploadsController {
   async uploadByUrl(
     @Body('url') url?: string,
     @Body('pageId') pageId?: string,
-    @Query('userId') userId?: string,
-    @Query('userName') userName?: string,
+    @CurrentUserId() userId?: string,
+    @CurrentUserName() userName?: string,
     @Req() req?: Request
   ) {
     const trimmed = url?.trim();
@@ -97,8 +98,8 @@ export class UploadsController {
   async getUpload(
     @Param('pageId') pageId?: string,
     @Param('filename') filename?: string,
-    @Query('userId') userId?: string,
-    @Query('userName') userName?: string,
+    @CurrentUserId() userId?: string,
+    @CurrentUserName() userName?: string,
     @Res({ passthrough: true }) res?: ExpressResponse
   ) {
     if (!pageId || !filename) throw new BadRequestException('Invalid upload path');
@@ -122,7 +123,7 @@ export class UploadsController {
   }
 
   @Post('admin/gc')
-  async gcUploads(@Query('adminId') adminId?: string) {
+  async gcUploads(@AdminId() adminId?: string) {
     assertSystemAdmin(adminId);
     const summary = await this.uploads.garbageCollectUploads();
     return { ok: true, ...summary };
