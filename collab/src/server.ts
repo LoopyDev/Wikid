@@ -269,7 +269,7 @@ const applyRowDelete = (document: Y.Doc, rowId: string) => {
   }
 };
 
-const server = Server.configure({
+const server = new Server({
   name: 'wikid-collab',
   port,
   address: host,
@@ -391,7 +391,7 @@ const server = Server.configure({
         }
         await connection.transact((document) => {
           applyRowDelete(document, rowId);
-        }, 'api-row-delete');
+        });
       } else {
         const rowId =
           typeof body?.rowId === 'string'
@@ -413,7 +413,7 @@ const server = Server.configure({
         }
         await connection.transact((document) => {
           applyRowUpdate(document, rowId, data, pageId);
-        }, 'api-row-update');
+        });
       }
       response.writeHead(200, { 'Content-Type': 'application/json' });
       response.end(JSON.stringify({ ok: true }));
