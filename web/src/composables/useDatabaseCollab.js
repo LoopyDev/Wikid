@@ -12,6 +12,10 @@ export function useDatabaseCollab({ props, workspace, fields, rows, sorting, col
   const collabProvider = ref(null);
   const currentCollabDocName = ref(null);
   const collabSynced = ref(false);
+  // The provider's connection: 'connecting', 'connected' or 'disconnected'
+  const collabStatus = ref('');
+  // Has this table's document synced at least once since it was opened?
+  const collabEverSynced = ref(false);
   const collabSeeded = ref(false);
   const collabFieldsMap = ref(null);
   const collabRowsMap = ref(null);
@@ -318,6 +322,7 @@ export function useDatabaseCollab({ props, workspace, fields, rows, sorting, col
   const handleCollabSynced = (synced) => {
     if (!synced) return;
     collabSynced.value = true;
+    collabEverSynced.value = true;
     maybeSeedCollab();
     syncCollabFieldsFromSnapshot(lastLoadedSnapshot.value);
     syncCollabRowsFromSnapshot(lastLoadedSnapshot.value);
@@ -333,17 +338,28 @@ export function useDatabaseCollab({ props, workspace, fields, rows, sorting, col
   const teardownCollabProvider = (options = {}) => {
     if (collabProvider.value) {
       collabProvider.value.off?.('synced', handleCollabSynced);
+      collabProvider.value.off?.('status', handleCollabStatus);
       collabProvider.value.destroy();
     }
     collabProvider.value = null;
+    collabStatus.value = '';
     if (!options.keepDoc) {
       unbindCollabDoc();
       collabDoc.value = null;
       currentCollabDocName.value = null;
       collabSynced.value = false;
+      collabEverSynced.value = false;
       collabSeeded.value = false;
     }
   };
+  const handleCollabStatus = (event) => {
+    collabStatus.value = event?.status || '';
+  };
+  // Edits wait while the table isn't connected: before the first sync they'd go into a copy without the
+  // server's rows (see above), and afterwards, like pages, editing pauses until it reconnects.
+  const collabWaiting = computed(
+    () => isCollabEnabled.value && (!collabSynced.value || collabStatus.value !== 'connected')
+  );
   const setupCollabProvider = () => {
     const ctx = collabContext.value;
     if (!ctx) {
@@ -370,6 +386,7 @@ export function useDatabaseCollab({ props, workspace, fields, rows, sorting, col
         document: collabDoc.value,
       });
       collabProvider.value.on('synced', handleCollabSynced);
+      collabProvider.value.on('status', handleCollabStatus);
     } catch (err) {
       console.warn('Database collab provider failed to initialize', err);
       teardownCollabProvider({ keepDoc: true });
@@ -418,6 +435,6 @@ export function useDatabaseCollab({ props, workspace, fields, rows, sorting, col
     return rowMap;
   };
 
-  return { collabDoc, whenCollabSynced, collabProvider, collabFieldOrder, collabFieldsMap, collabRowOrder, collabRowsMap, ensureCollabDoc, ensureCollabFieldMap, ensureCollabRowMap, isCollabEnabled, maybeSeedCollab, setupCollabProvider, teardownCollabProvider, syncCollabFieldsFromSnapshot, syncCollabRowsFromSnapshot, collabContext };
+  return { collabDoc, whenCollabSynced, collabWaiting, collabEverSynced, collabProvider, collabFieldOrder, collabFieldsMap, collabRowOrder, collabRowsMap, ensureCollabDoc, ensureCollabFieldMap, ensureCollabRowMap, isCollabEnabled, maybeSeedCollab, setupCollabProvider, teardownCollabProvider, syncCollabFieldsFromSnapshot, syncCollabRowsFromSnapshot, collabContext };
 }
 
