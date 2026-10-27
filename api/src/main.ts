@@ -9,6 +9,10 @@ async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, { bodyParser: false });
   // Don't advertise the framework (X-Powered-By: Express)
   app.disable('x-powered-by');
+  // How many of Wikid's own proxies sit in front of the API: the web container's nginx (1), plus
+  // Caddy in the production setup (2). The client's address is read that many hops back in
+  // X-Forwarded-For, so an address the client makes up is ignored (used to limit failed logins).
+  app.set('trust proxy', Number(process.env.TRUST_PROXY_HOPS ?? 1));
   app.useGlobalFilters(new PrismaNotFoundFilter(app.getHttpAdapter()));
 
   app.useBodyParser('json', { limit: '10mb' });

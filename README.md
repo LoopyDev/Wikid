@@ -150,6 +150,7 @@ CI runs these, plus a Docker image build, on every push to `main` and every pull
 Wikid hasn't had a security review yet. How it works today:
 
 - **Sessions:** logging in sets a signed, `HttpOnly`, `SameSite=Lax` session cookie (14 days). A global guard rejects any API request without a valid session, and every request acts as the logged-in user, whatever user ID the client sends.
+- **Logins:** failed logins are limited (5 per account from one address, 20 per account, 100 per address, over 15 minutes), so passwords can't be guessed at speed. Behind your own reverse proxy, see `TRUST_PROXY_HOPS` in [`docs/deployment.md`](docs/deployment.md).
 - **Frontend and API location:** the frontend and API must be on the same site (for example `wiki.example.com` and `api.wiki.example.com`) so the browser sends the cookie. Set `CORS_ORIGINS` to your frontend's URL and serve both over HTTPS in production.
 - **Defaults:** the dev setup uses well-known defaults (`postgres`/`postgres`, `minioadmin`/`minioadmin`, demo accounts with the password `wikid`). The production setup in [`docs/deployment.md`](docs/deployment.md) requires your own passwords and admin login, and creates no demo accounts.
 
@@ -157,7 +158,7 @@ If you find a security issue, please report it privately; see [SECURITY.md](SECU
 
 ## Contributing
 
-Issues and pull requests are welcome. For larger changes, please open an issue first so we can talk through the approach. Contributions need a quick sign-off on the contributor agreement; see [`CONTRIBUTING.md`](CONTRIBUTING.md). Architecture and feature docs live in [`docs/`](docs/).
+Issues and pull requests are welcome. For larger changes, please open an issue first so we can talk through the approach. See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the setup and the checks to run. Architecture and feature docs live in [`docs/`](docs/).
 
 ## License
 

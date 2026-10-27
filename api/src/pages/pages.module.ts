@@ -17,10 +17,12 @@ import { PdfService } from '../pdf/pdf.service';
 import { HtmlExportService } from '../export/html-export.service';
 import { UploadsService } from '../uploads/uploads.service';
 
+import { LoginRateLimiter } from '../auth/login-rate-limiter';
 @Module({
   imports: [ComplianceModule, CollabModule],
   controllers: [PagesController],
   providers: [
+    LoginRateLimiter,
     PageAccessService,
     CollabSyncService,
     DatabaseSetupService,

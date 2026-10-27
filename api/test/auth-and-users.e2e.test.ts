@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEMO_PASSWORD, Session, USERS, addMember, createPage, createWorkspace, loginAs, unique } from './helpers';
+import { API_URL, DEMO_PASSWORD, Session, USERS, addMember, createPage, createWorkspace, loginAs, unique } from './helpers';
 
 const MISSING_ID = '00000000-0000-4000-8000-000000000000';
 
@@ -13,6 +13,27 @@ async function createTempUser(admin: Session, password: string, { mustChangePass
 }
 
 describe('login and sessions', () => {
+  it('stops guessing a password after 5 failures, even with made-up client addresses', async () => {
+    const admin = await loginAs(USERS.admin.email);
+    const { email } = await createTempUser(admin, 'right-password');
+    // Raw requests, so each attempt can claim a different client address
+    const attempt = (password: string, n: number) =>
+      fetch(`${API_URL}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Forwarded-For': `203.0.113.${n}` },
+        body: JSON.stringify({ login: email, password }),
+      });
+    for (let i = 0; i < 5; i += 1) {
+      expect((await attempt('wrong', i)).status).toBe(401);
+    }
+    const blocked = await attempt('right-password', 99);
+    expect(blocked.status).toBe(429);
+    expect(Number(blocked.headers.get('retry-after'))).toBeGreaterThan(0);
+    expect((await blocked.json()).message).toMatch(/Too many failed attempts/);
+    // Other accounts from the same address can still log in.
+    expect((await new Session().login(USERS.alice.email)).status).toBe(201);
+  });
+
   it('logs in, reports the current user and logs out', async () => {
     const session = new Session();
     const login = await session.login(USERS.alice.email);

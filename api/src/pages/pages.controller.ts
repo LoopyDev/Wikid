@@ -1,5 +1,6 @@
-import { BadRequestException, Body, Controller, Delete, ForbiddenException, Get, Param, Patch, Post, Put, Query, Res, StreamableFile } from '@nestjs/common';
-import { Response } from 'express';
+import { BadRequestException, Body, Controller, Delete, ForbiddenException, Get, HttpException, HttpStatus, Param, Patch, Post, Put, Query, Req, Res, StreamableFile } from '@nestjs/common';
+import { Request, Response } from 'express';
+import { LoginRateLimiter } from '../auth/login-rate-limiter';
 import { PageAccessService } from './page-access.service';
 import { CollabSyncService } from './collab-sync.service';
 import { WikiService } from './wiki.service';
@@ -37,6 +38,7 @@ export class PagesController {
     private readonly users: UsersService,
     private readonly pdfService: PdfService,
     private readonly htmlExportService: HtmlExportService,
+    private readonly loginLimiter: LoginRateLimiter,
   ) {}
 
   @Get('pages')
@@ -420,10 +422,31 @@ export class PagesController {
     @Body('login') login: string | undefined,
     @Body('email') email: string | undefined,
     @Body('password') password: string,
+    @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ) {
     // `login` is an email or a username; `email` is the older name for it.
-    const result = await this.users.loginWithCredentials(login ?? email ?? '', password);
+    const name = login ?? email ?? '';
+    // The client's address, as passed on by Wikid's own proxies (see TRUST_PROXY_HOPS in main.ts)
+    const address = req.ip || req.socket.remoteAddress || 'unknown';
+    try {
+      this.loginLimiter.check(name, address);
+    } catch (err) {
+      if (err instanceof HttpException && err.getStatus() === HttpStatus.TOO_MANY_REQUESTS) {
+        res.setHeader('Retry-After', String((err.getResponse() as { retryAfter: number }).retryAfter));
+      }
+      throw err;
+    }
+    let result: Awaited<ReturnType<UsersService['loginWithCredentials']>>;
+    try {
+      result = await this.users.loginWithCredentials(name, password);
+    } catch (err) {
+      if (err instanceof HttpException && err.getStatus() === HttpStatus.UNAUTHORIZED) {
+        this.loginLimiter.recordFailure(name, address);
+      }
+      throw err;
+    }
+    this.loginLimiter.recordSuccess(name, address);
     res.cookie(SESSION_COOKIE, signSession(result.user.id), sessionCookieOptions());
     return result;
   }
