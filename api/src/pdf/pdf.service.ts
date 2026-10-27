@@ -15,6 +15,8 @@ export class PdfService {
     if (theme) qs.set('theme', theme);
     const url = `${this.printBaseUrl}/print/${pageId}?${qs}`;
 
+    // Chromium's sandbox doesn't work under Docker's default restrictions, so it runs without one; the
+    // container runs the API as an unprivileged user instead (docker/api/entrypoint.sh).
     const browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox'] });
     try {
       const page = await browser.newPage();
