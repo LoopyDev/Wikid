@@ -95,6 +95,42 @@ test.describe('databases', () => {
     await expect(builder.locator('form').getByText('Preview only. Submissions are disabled.')).toBeVisible();
   });
 
+  test("keeps a form message you're typing when another save finishes", async ({ alice: page, workspaceId }) => {
+    // The form re-rendered when a save's response arrived and put back the stored (empty) message,
+    // so what you'd typed was never saved.
+    await openPage(page, await createPage(page, workspaceId));
+    const id = await newDatabaseFromSidebar(page, unique('Sign-ups'));
+    const forms = async () => (await (await page.request.get(`/api/pages/${id}/database`)).json()).forms ?? [];
+    await main(page).getByRole('button', { name: /^Forms/ }).click();
+    page.on('dialog', (dialog) => dialog.accept(dialog.type() === 'prompt' ? 'Sign-up form' : undefined));
+    await main(page).getByRole('button', { name: 'New form' }).click();
+    await expect.poll(async () => (await forms()).length).toBe(1);
+    const builder = main(page).locator('.db-form-builder');
+    const nameField = builder.locator('.db-form-field', { hasText: 'Name' });
+    await expect(nameField).toBeVisible();
+
+    // Hold the "Required" save's response back until the message has been typed.
+    let released = false;
+    await page.route('**/database-forms/**', async (route) => {
+      if (route.request().method() === 'PATCH' && (route.request().postData() || '').includes('"fields"')) {
+        await new Promise((resolve) => setTimeout(resolve, 800));
+        released = true;
+      }
+      await route.continue();
+    });
+    await nameField.getByLabel('Required').check();
+    const message = builder.getByPlaceholder('Thanks! Your response has been saved.');
+    await message.fill('Thanks for signing up');
+    await expect.poll(() => released).toBe(true);
+    await page.waitForTimeout(300);
+    await expect(message).toHaveValue('Thanks for signing up');
+    await message.press('Tab');
+    await expect.poll(async () => {
+      const [form] = await forms();
+      return (form?.config ?? form?.fields?.config ?? {}).successMessage;
+    }).toBe('Thanks for signing up');
+  });
+
   test("shows which cell someone else is editing", async ({ alice, bob, workspaceId }) => {
     await openPage(alice, await createPage(alice, workspaceId));
     const id = await newDatabaseFromSidebar(alice, unique('Busy table'));
