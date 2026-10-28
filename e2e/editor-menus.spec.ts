@@ -82,6 +82,45 @@ test.describe('editor menus', () => {
     await expect.poll(() => outline(page)).toEqual(['paragraph: Three', 'paragraph: One', 'paragraph: Two']);
   });
 
+  test('dragging a table by its handle moves the whole table, leaving nothing behind in its column', async ({ alice: page, workspaceId }) => {
+    await openPage(page, await createPage(page, workspaceId));
+    await page.evaluate(() => {
+      const p = (text: string) => ({ type: 'paragraph', content: [{ type: 'text', text }] });
+      const cell = (text: string) => ({ type: 'tableCell', content: [p(text)] });
+      (document.querySelector('.ProseMirror') as any).editor.commands.setContent({ type: 'doc', content: [
+        p('Top'),
+        { type: 'columns', content: [
+          { type: 'column', content: [{ type: 'table', content: [{ type: 'tableRow', content: [cell('A'), cell('B')] }] }] },
+          { type: 'column', content: [p('Right')] },
+        ] },
+      ] });
+    });
+    const table = ['table', '  tableRow', '    tableCell', '      paragraph: A', '    tableCell', '      paragraph: B'];
+
+    // Pointing at a cell gives the table's handle (it used to be the cell's text)
+    await editor(page).locator('td').last().hover();
+    const handle = page.locator('.drag-handle--floating:not(.drag-handle--list) .drag-handle__btn--drag');
+    await expect(handle).toBeVisible();
+    await handle.evaluate((button) => {
+      const data = new DataTransfer();
+      const target = document.querySelector('.ProseMirror')!.firstElementChild!.getBoundingClientRect();
+      const at = { clientX: target.left + 10, clientY: target.top + 2, bubbles: true, cancelable: true, dataTransfer: data };
+      button.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: data }));
+      const dropTarget = document.elementFromPoint(at.clientX, at.clientY)!;
+      dropTarget.dispatchEvent(new DragEvent('dragover', at));
+      dropTarget.dispatchEvent(new DragEvent('drop', at));
+      button.dispatchEvent(new DragEvent('dragend', { bubbles: true, dataTransfer: data }));
+    });
+    // The emptied column goes, and with one column left the columns become plain blocks again
+    await expect.poll(() => outline(page)).toEqual([...table, 'paragraph: Top', 'paragraph: Right']);
+
+    // Deleting it from its menu removes the table, not just what's in it
+    await editor(page).locator('td').first().hover();
+    await handle.click();
+    await menuItem(page, 'Delete').click();
+    await expect.poll(() => outline(page)).toEqual(['paragraph: Top', 'paragraph: Right']);
+  });
+
   test('dragging an image moves its block, and clicking it opens it in a new tab', async ({ alice: page, workspaceId }) => {
     await openPage(page, await createPage(page, workspaceId));
     await typeParagraphs(page, ['One', 'Two']);

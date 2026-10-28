@@ -239,10 +239,30 @@ export function useBlockHandles({ handleState, handleVisible, handleLocked, hand
     return true;
   };
 
+  // Anything inside a table belongs to the table: its handle moves the whole table, not one
+  // cell's text (which left the table behind with that cell emptied)
+  const tableAround = (pos) => {
+    const { view, state } = getEditor();
+    if (!Number.isFinite(pos) || pos < 0 || pos > state.doc.content.size) return null;
+    const $pos = state.doc.resolve(pos);
+    for (let depth = 1; depth <= $pos.depth; depth += 1) {
+      if ($pos.node(depth)?.type?.name !== 'table') continue;
+      const tablePos = $pos.before(depth);
+      const element = view.nodeDOM(tablePos);
+      return element instanceof HTMLElement ? { element, node: $pos.node(depth), pos: tablePos } : null;
+    }
+    return null;
+  };
+
   const resolveHandleCandidate = (event) => {
     if (!getEditor()?.view || !event) return null;
     if (typeof event.clientX !== 'number' || typeof event.clientY !== 'number') return null;
     const { view, state } = getEditor();
+    const tableEl = event.target?.closest?.('table');
+    if (tableEl && view.dom.contains(tableEl)) {
+      const hit = tableAround(view.posAtDOM(tableEl, 0));
+      if (hit) return hit;
+    }
     const listItemTarget = resolveListItemFromTarget(event.target, event.clientY);
     if (listItemTarget) {
       return listItemTarget;
@@ -305,6 +325,8 @@ export function useBlockHandles({ handleState, handleVisible, handleLocked, hand
       if (!coords?.pos && coords?.pos !== 0) return null;
       resolvedPos = coords.pos;
     }
+    const tableHit = tableAround(resolvedPos);
+    if (tableHit) return tableHit;
     const listItemHit = resolveListItemFromPos(resolvedPos);
     if (listItemHit) {
       const listItemFromContainer = resolveListItemFromTarget(listItemHit.element, event.clientY);
