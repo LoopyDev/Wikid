@@ -14,6 +14,18 @@ const LIVE_ONLY = '.drag-handle, .bubble-menu, .emoji-menu, .collaboration-caret
 // Embeds would load again (or show blank) in a copy, so they become a plain box of the same size
 const EMBEDS = 'iframe, video, audio, canvas, object, embed';
 
+// A timeline of each switch in the browser console, switched on with
+// localStorage.setItem('wikid:debug-page-switch', '1')
+const debugEnabled = () => {
+  try {
+    return typeof window !== 'undefined' && window.localStorage?.getItem('wikid:debug-page-switch') === '1';
+  } catch {
+    return false;
+  }
+};
+// After letting go, what the page shows a moment later
+const AFTER_RELEASE_MS = [0, 100, 300, 1000];
+
 /** A still, non-interactive copy of a page body. */
 export function stillCopy(body) {
   const copy = body.cloneNode(true);
@@ -48,7 +60,10 @@ const textInsets = (body) => {
   };
 };
 
-export function usePageSwitchHold() {
+/**
+ * `describe()`, if given, says what the page shows right now, for the debug timeline.
+ */
+export function usePageSwitchHold({ describe } = {}) {
   // null when not holding, otherwise 'hold' (the copy as it was), 'fade' or 'skeleton'
   const stage = ref(null);
   // Briefly true as the new page's content fades in, after placeholder lines. From the copy it
@@ -72,9 +87,30 @@ export function usePageSwitchHold() {
     timers.clear();
   };
 
-  const release = () => {
+  let debugStart = 0;
+  const debug = (event, details) => {
+    if (!debugEnabled()) return;
+    const at = Math.round(performance.now() - debugStart);
+    let shows = null;
+    try {
+      shows = describe?.() ?? null;
+    } catch (err) {
+      shows = { describeFailed: String(err) };
+    }
+    // As text, so it copies out of the console in full
+    console.log(`[page-switch] +${at}ms ${event} ${JSON.stringify({ ...details, stage: stage.value, shows })}`);
+  };
+  watch(stage, (next, previous) => {
+    if (next && previous && next !== previous) debug(`stage ${next}`);
+  });
+
+  const release = (reason = 'ready') => {
     if (!stage.value) return;
+    debug('release', { reason });
     clearTimers();
+    if (debugEnabled()) {
+      for (const ms of AFTER_RELEASE_MS) setTimeout(() => debug(`after release +${ms}ms`), ms);
+    }
     const fromPlaceholders = stage.value === 'skeleton';
     stage.value = null;
     copy = null;
@@ -87,6 +123,8 @@ export function usePageSwitchHold() {
 
   /** Starts holding on to `body` (the page body being left, if any). */
   const start = (body) => {
+    const already = !!stage.value;
+    if (!already) debugStart = performance.now();
     clearTimers();
     revealing.value = false;
     // Moving on again while still holding keeps what's on screen, rather than copying a page
@@ -96,6 +134,7 @@ export function usePageSwitchHold() {
       insets.value = textInsets(body);
       stage.value = 'hold';
     }
+    debug(already ? 'start again (still holding)' : 'start', { copied: !!copy, copiedText: copy?.textContent?.length ?? 0 });
     if (stage.value === 'hold' && copy) {
       later(() => {
         if (stage.value === 'hold') stage.value = 'fade';
@@ -106,7 +145,7 @@ export function usePageSwitchHold() {
         if (stage.value) stage.value = 'skeleton';
       }, copy ? SKELETON_AFTER_MS : FADE_AFTER_MS);
     }
-    later(release, GIVE_UP_MS);
+    later(() => release('gave up'), GIVE_UP_MS);
   };
 
   watch(holdEl, (el) => {
@@ -116,5 +155,5 @@ export function usePageSwitchHold() {
 
   onBeforeUnmount(clearTimers);
 
-  return { stage, revealing, holdEl, insets, start, release };
+  return { stage, revealing, holdEl, insets, start, release, debug };
 }
