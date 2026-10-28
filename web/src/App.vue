@@ -1983,6 +1983,7 @@ if (typeof window !== 'undefined') {
     </section>
   </div>
   <LoginPage v-else-if="!activeUser" />
+  <div v-else-if="!workspace.sessionChecked" class="app-signing-in" role="status" aria-live="polite">Signing in…</div>
   <ChooseNewPassword v-else-if="workspace.mustChangePassword" />
   <div v-else class="app-shell" :class="{ 'app-shell--sidebar-hidden': isSidebarHidden }" :style="appShellStyle">
     <div v-if="showNotConnected" class="not-connected-overlay" role="status" aria-live="polite">

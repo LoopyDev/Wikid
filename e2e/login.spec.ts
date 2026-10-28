@@ -83,8 +83,11 @@ test.describe('signing in', () => {
     await page.getByRole('textbox', { name: 'Password' }).fill('given-pass');
     await page.getByRole('button', { name: 'Sign in' }).click();
     await expect(page.getByRole('heading', { name: 'Choose a new password' })).toBeVisible();
+    // After a reload the server says so again (the browser doesn't store it), straight to the same screen
+    expect(await page.evaluate(() => localStorage.getItem('wikid:user'))).not.toMatch(/password/i);
     await page.reload();
     await expect(page.getByRole('heading', { name: 'Choose a new password' })).toBeVisible();
+    await expect(page.getByRole('complementary')).toHaveCount(0);
 
     await page.getByLabel('Password you were given').fill('given-pass');
     await page.getByLabel('New password', { exact: true }).fill('my-own-pass');
