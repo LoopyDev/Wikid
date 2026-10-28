@@ -1290,6 +1290,9 @@ document.querySelectorAll('.page-link--external').forEach(function(link) {
 `;
 
 const CSS_PAGED = `
+/* Each page fills the screen, so its sub-page links sit at the bottom of a short page */
+.page-section{flex-direction:column;min-height:100vh}
+.page-body{flex:1 0 auto}
 .child-pages{display:flex;flex-wrap:wrap;gap:8px;margin-top:24px;padding-top:16px;border-top:1px solid var(--border)}
 `;
 
@@ -1297,7 +1300,7 @@ const JS_PAGED = `
 function navigateTo(id) {
   if (!id) return;
   document.querySelectorAll('.page-section').forEach(function(s) {
-    s.style.display = s.id === 'page-' + id ? 'block' : 'none';
+    s.style.display = s.id === 'page-' + id ? 'flex' : 'none';
   });
   document.querySelectorAll('.sidebar .nav-link').forEach(function(a) {
     a.classList.toggle('active', a.getAttribute('href') === '#page-' + id);
