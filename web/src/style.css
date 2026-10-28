@@ -146,6 +146,9 @@ body {
 
 button {
   font: inherit;
+  /* Not the browser's own button colour (black, even in dark mode), e.g. for icons drawn in the
+     text colour */
+  color: inherit;
 }
 
 .app-shell {
