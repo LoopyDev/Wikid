@@ -56,6 +56,44 @@ test.describe('loading', () => {
     expect(sockets).toHaveLength(1);
   });
 
+  test('a page with an icon keeps its title as you come back to it', async ({ alice: page, workspaceId }) => {
+    // Its icon used to be written in before the server's copy arrived, which made the connection
+    // report the page synced too early, and the title was added again on every visit
+    const iconTitle = unique('With icon');
+    const otherTitle = unique('Without');
+    const withIcon = await createPage(page, workspaceId, { title: iconTitle });
+    await page.request.patch(`/api/pages/${withIcon}`, { data: { icon: '🔥' } });
+    const other = await createPage(page, workspaceId, { title: otherTitle });
+    await openPage(page, other);
+    const title = page.getByRole('main').getByRole('textbox').first();
+    for (let visit = 0; visit < 3; visit += 1) {
+      await sidebarItem(page, iconTitle).click();
+      await page.waitForURL(`**/doc/${withIcon}`);
+      await page.waitForTimeout(500);
+      await expect(title).toHaveValue(iconTitle);
+      await sidebarItem(page, otherTitle).click();
+      await page.waitForURL(`**/doc/${other}`);
+    }
+  });
+
+  test('repairs a title doubled by that bug', async ({ alice: page, workspaceId }) => {
+    const pageTitle = unique('Doubled');
+    const id = await createPage(page, workspaceId, { title: pageTitle });
+    await openPage(page, id);
+    const title = page.getByRole('main').getByRole('textbox').first();
+    await expect(title).toHaveValue(pageTitle);
+    // Double the live title directly, as the bug did
+    await page.evaluate((t) => {
+      const { state } = (document.querySelector('.ProseMirror') as any).editor;
+      const ySync = state.plugins.find((p: any) => p.key.startsWith('y-sync'));
+      ySync.getState(state).doc.getText('title').insert(0, t);
+    }, pageTitle);
+    await expect(title).toHaveValue(pageTitle + pageTitle);
+    await page.waitForTimeout(1000);
+    await page.reload();
+    await expect(title).toHaveValue(pageTitle);
+  });
+
   test("keeps an uploaded image's space while it loads, and loads it lazily", async ({ alice: page, workspaceId }) => {
     const pageId = await createPage(page, workspaceId, { title: unique('Images') });
     await openPage(page, pageId);

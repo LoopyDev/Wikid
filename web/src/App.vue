@@ -675,13 +675,20 @@ const setupTitleCollab = () => {
   const iconObs = (event) => handleIconYChange(event);
   iconYMap.value.observe(iconObs);
   iconObserver.value = iconObs;
-  const existingIcon = iconYMap.value.get('icon') || null;
-  if (!existingIcon && workspace.currentPage?.icon) {
-    // Seed from current page icon without persisting immediately.
-    iconYMap.value.set('icon', workspace.currentPage.icon);
-  }
   const syncedHandler = ({ state }) => {
+    // Seed from the current page icon, once the server's copy is here (not before, or it could
+    // replace a newer one)
+    if (state && iconYMap.value && !iconYMap.value.get('icon') && workspace.currentPage?.icon) {
+      iconYMap.value.set('icon', workspace.currentPage.icon);
+    }
     if (state && titleYText.value) {
+      // Repairs titles doubled by a bug in October 2026 (a title seeded before the server's copy
+      // arrived): the live title is the saved one repeated, which nobody types
+      const savedTitle = (workspace.currentPage?.title || '').trim();
+      const liveTitle = titleYText.value.toString();
+      if (savedTitle && liveTitle.length > savedTitle.length && liveTitle === savedTitle.repeat(liveTitle.length / savedTitle.length)) {
+        writeCollabTitle(savedTitle, 'title-repair');
+      }
       const hasTitle = titleYText.value.length > 0;
       const localTitle = (workspace.currentPage?.title || titleDraft.value || '').trim();
       const hasLocalTitle = !!localTitle && localTitle !== 'Untitled page';

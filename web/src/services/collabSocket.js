@@ -22,6 +22,17 @@ export function createCollabProvider({ url, ...options }) {
   const socket = socketFor(url);
   // A session of its own, so the same document can be open twice (a page and its overlay, say)
   const provider = new HocuspocusProvider({ ...options, websocketProvider: socket, sessionAwareness: true });
+  // Hocuspocus marks a document synced whenever the server has confirmed all of its changes, even
+  // before the server's copy has arrived. On a connection that's already open, a change made
+  // straight away is confirmed first, and code waiting for the sync (seeding a page's title, say)
+  // would then add to an empty copy and duplicate what the server has. Until the first real sync
+  // (and again after a reconnect), count confirmations without calling the document synced.
+  const decrementUnsyncedChanges = provider.decrementUnsyncedChanges.bind(provider);
+  provider.decrementUnsyncedChanges = () => {
+    if (provider.isSynced) return decrementUnsyncedChanges();
+    if (provider.unsyncedChanges > 0) provider.unsyncedChanges -= 1;
+    provider.emit('unsyncedChanges', { number: provider.unsyncedChanges });
+  };
   provider.attach();
   // A provider joining a connection that's already up hears no "connected" status, so pass on the
   // current one, once the caller has added its listeners
