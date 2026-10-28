@@ -76,6 +76,55 @@ test.describe('loading', () => {
     }
   });
 
+  test("coming back to a page shows its icon and content, never an empty page's hint, and doesn't add its content again", async ({ alice: page, workspaceId }) => {
+    const iconTitle = unique('Icon page');
+    const otherTitle = unique('Other page');
+    const withIcon = await createPage(page, workspaceId, { title: iconTitle });
+    await page.request.patch(`/api/pages/${withIcon}`, { data: { icon: '🔥' } });
+    const other = await createPage(page, workspaceId, { title: otherTitle });
+    await openPage(page, withIcon);
+    await editor(page).click();
+    await page.keyboard.type('First line');
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('Second line');
+    await waitForSaved(page);
+    await openPage(page, other);
+    // A little delay, as on a real server, so there's a moment before the content arrives
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send('Network.enable');
+    await cdp.send('Network.emulateNetworkConditions', { offline: false, latency: 80, downloadThroughput: -1, uploadThroughput: -1 });
+
+    for (let visit = 0; visit < 3; visit += 1) {
+      // Note what each frame shows while the page opens
+      await page.evaluate((id) => {
+        const seen = new Set<string>();
+        (window as any).__seen = seen;
+        const started = performance.now();
+        const tick = () => {
+          // Once the new page's editor is in (the one before can show for a frame as it leaves)
+          if (!location.pathname.endsWith(id) || !document.querySelector('.ProseMirror')) {
+            requestAnimationFrame(tick);
+            return;
+          }
+          seen.add(`icon:${document.querySelector('.page-icon-main__icon')?.textContent?.trim()}`);
+          const empty = document.querySelector('.ProseMirror .is-editor-empty');
+          if (empty && getComputedStyle(empty, '::before').content.includes('/')) seen.add('hint');
+          if (performance.now() - started < 1500) requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      }, withIcon);
+      await sidebarItem(page, iconTitle).click();
+      await expect(editor(page)).toHaveText('First lineSecond line');
+      await page.waitForTimeout(1600);
+      const seen = await page.evaluate(() => [...(window as any).__seen]);
+      expect(seen.filter((s) => s.startsWith('icon:') && s !== 'icon:undefined')).toEqual(['icon:🔥']);
+      expect(seen).not.toContain('hint');
+      await expect(editor(page)).toHaveText('First lineSecond line');
+      await sidebarItem(page, otherTitle).click();
+      await page.waitForURL(`**/doc/${other}`);
+    }
+  });
+
   test('repairs a title doubled by that bug', async ({ alice: page, workspaceId }) => {
     const pageTitle = unique('Doubled');
     const id = await createPage(page, workspaceId, { title: pageTitle });

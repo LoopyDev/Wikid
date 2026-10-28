@@ -4719,6 +4719,11 @@ button {
   pointer-events: none;
 }
 
+/* No "type '/'" hint while the page's content is still on its way */
+.tiptap-wrapper.tiptap-wrapper--waiting .ProseMirror :is(p, h1, h2, h3, h4, h5, h6).is-editor-empty::before {
+  content: none;
+}
+
 .tiptap-editor [data-type='taskList'],
 .tiptap-editor .tiptap-task-list {
   list-style: none;

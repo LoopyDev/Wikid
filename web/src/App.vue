@@ -640,6 +640,8 @@ const handleTitleYChange = (event) => {
 const applyIconFromY = () => {
   if (!iconYMap.value) return;
   const next = iconYMap.value.get('icon') || null;
+  // Before the server's copy arrives the live copy has no icon yet: keep showing the saved one
+  if (!next && !boundTitleProvider.value?.isSynced) return;
   workspace.applyCollabIcon(next);
 };
 
@@ -649,6 +651,30 @@ const handleIconYChange = (event) => {
   if (origin === 'icon-local') {
     persistCollabIcon(iconYMap.value?.get('icon') || null);
   }
+};
+
+// Repairs titles doubled by a bug in October 2026 (a title seeded before the server's copy
+// arrived): the live title is the saved one repeated, which nobody types. Only the live copy was
+// doubled, so the saved title comes from the server (the one here already shows the live title).
+const repeatsOf = (text, unit) => !!unit && text.length > unit.length && text.length % unit.length === 0 && unit.repeat(text.length / unit.length) === text;
+const looksRepeated = (text) => {
+  for (let length = 1; length <= text.length / 2; length += 1) {
+    if (repeatsOf(text, text.slice(0, length))) return true;
+  }
+  return false;
+};
+const repairDoubledTitle = async (doc) => {
+  const pageId = workspace.activePageId;
+  if (!pageId || !titleYText.value || !looksRepeated(titleYText.value.toString())) return;
+  let saved = '';
+  try {
+    saved = ((await api.getPage(pageId, { userId: activeUser.value?.id, userName: activeUser.value?.name }))?.title || '').trim();
+  } catch {
+    return;
+  }
+  // Still the same page, and still doubled
+  if (boundTitleDoc.value !== doc || !titleYText.value || !repeatsOf(titleYText.value.toString(), saved)) return;
+  writeCollabTitle(saved, 'title-repair');
 };
 
 const setupTitleCollab = () => {
@@ -682,13 +708,7 @@ const setupTitleCollab = () => {
       iconYMap.value.set('icon', workspace.currentPage.icon);
     }
     if (state && titleYText.value) {
-      // Repairs titles doubled by a bug in October 2026 (a title seeded before the server's copy
-      // arrived): the live title is the saved one repeated, which nobody types
-      const savedTitle = (workspace.currentPage?.title || '').trim();
-      const liveTitle = titleYText.value.toString();
-      if (savedTitle && liveTitle.length > savedTitle.length && liveTitle === savedTitle.repeat(liveTitle.length / savedTitle.length)) {
-        writeCollabTitle(savedTitle, 'title-repair');
-      }
+      repairDoubledTitle(doc);
       const hasTitle = titleYText.value.length > 0;
       const localTitle = (workspace.currentPage?.title || titleDraft.value || '').trim();
       const hasLocalTitle = !!localTitle && localTitle !== 'Untitled page';
@@ -701,6 +721,7 @@ const setupTitleCollab = () => {
   provider.on('synced', syncedHandler);
   titleSyncedHandler.value = syncedHandler;
   boundTitleProvider.value = provider;
+  if (provider.isSynced) syncedHandler({ state: true });
   // Apply the latest collab state so the UI reflects the synced title/icon.
   applyTitleFromY();
   applyIconFromY();
