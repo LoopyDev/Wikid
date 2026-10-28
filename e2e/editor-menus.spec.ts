@@ -82,6 +82,49 @@ test.describe('editor menus', () => {
     await expect.poll(() => outline(page)).toEqual(['paragraph: Three', 'paragraph: One', 'paragraph: Two']);
   });
 
+  test('dragging an image moves its block, and clicking it opens it in a new tab', async ({ alice: page, workspaceId }) => {
+    await openPage(page, await createPage(page, workspaceId));
+    await typeParagraphs(page, ['One', 'Two']);
+    // An image after the paragraphs
+    await page.evaluate(() => {
+      const ed = (document.querySelector('.ProseMirror') as any).editor;
+      ed.chain().focus('end').setImage({ src: '/vite.svg', naturalWidth: 240, naturalHeight: 120 } as any).run();
+    });
+    const image = editor(page).locator('.tiptap-image-resizable');
+    await expect(image).toBeVisible();
+    await expect.poll(() => outline(page)).toEqual(['paragraph: One', 'paragraph: Two', 'image']);
+
+    // Drag the image itself (not the block handle) to the top of the page
+    await image.evaluate((el) => {
+      const data = new DataTransfer();
+      const target = document.querySelector('.ProseMirror')!.firstElementChild!.getBoundingClientRect();
+      const at = { clientX: target.left + 10, clientY: target.top + 2, bubbles: true, cancelable: true, dataTransfer: data };
+      el.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: data }));
+      const dropTarget = document.elementFromPoint(at.clientX, at.clientY)!;
+      dropTarget.dispatchEvent(new DragEvent('dragover', at));
+      dropTarget.dispatchEvent(new DragEvent('drop', at));
+      el.dispatchEvent(new DragEvent('dragend', { bubbles: true, dataTransfer: data }));
+    });
+    await expect.poll(() => outline(page)).toEqual(['image', 'paragraph: One', 'paragraph: Two']);
+
+    const opened = page.context().waitForEvent('page');
+    await image.locator('img').click();
+    const tab = await opened;
+    expect(new URL(tab.url()).pathname).toBe('/vite.svg');
+    await tab.close();
+
+    // Resizing it, ending over the image, doesn't open it
+    const tabs = page.context().pages().length;
+    const handle = await image.getByRole('button', { name: 'Resize image' }).boundingBox();
+    await page.mouse.move(handle!.x + handle!.width / 2, handle!.y + handle!.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(handle!.x - 60, handle!.y + handle!.height / 2, { steps: 5 });
+    await page.mouse.up();
+    await expect(image).toHaveCSS('width', /^1[78]\d/);
+    await page.waitForTimeout(300);
+    expect(page.context().pages()).toHaveLength(tabs);
+  });
+
   test("the block menu colours a block's text, and the panel follows the block", async ({ alice: page, workspaceId }) => {
     await openPage(page, await createPage(page, workspaceId));
     await typeParagraphs(page, ['Coloured']);
