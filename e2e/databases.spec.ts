@@ -256,6 +256,42 @@ test.describe('databases', () => {
     await expect(cards.nth(1).locator('.db-gallery__cover')).toHaveText('Pick a font');
   });
 
+  test('pauses editing while the table is connecting or reconnecting', async ({ alice: page, workspaceId }) => {
+    // Hold back the live connection: each attempt is closed until allowed.
+    let allowed = false;
+    const sockets: { close: () => Promise<void> }[] = [];
+    await page.routeWebSocket(/\/collab/, (ws) => {
+      if (!allowed) {
+        void ws.close();
+        return;
+      }
+      ws.connectToServer();
+      sockets.push(ws);
+    });
+    const id = await createPage(page, workspaceId, { title: unique('Offline table'), kind: 'DATABASE' });
+    await page.goto(`/doc/${id}`);
+    const notice = main(page).locator('.database-table__connection');
+    const addRow = main(page).getByRole('button', { name: 'Add row' });
+    await expect(notice).toContainText('Connecting…');
+    await expect(addRow).toBeDisabled();
+
+    allowed = true;
+    await expect(notice).toHaveCount(0, { timeout: 15_000 });
+    await expect(addRow).toBeEnabled();
+    const before = await rowNames(page).count();
+    await addRow.click();
+    await expect(rowNames(page)).toHaveCount(before + 1);
+
+    // Losing the connection later pauses editing again, until it's back.
+    allowed = false;
+    await Promise.all(sockets.splice(0).map((ws) => ws.close()));
+    await expect(notice).toContainText('Reconnecting…');
+    await expect(addRow).toBeDisabled();
+    allowed = true;
+    await expect(notice).toHaveCount(0, { timeout: 15_000 });
+    await expect(addRow).toBeEnabled();
+  });
+
   test("a view chosen on a database view block is only for you, until you save it for everyone", async ({ alice, bob, workspaceId }) => {
     // A database with an "Only Apple" view, embedded on a page
     const db = await createPage(alice, workspaceId, { title: unique('Fruit'), kind: 'DATABASE' });
@@ -352,42 +388,6 @@ test.describe('databases', () => {
     await page.reload();
     await expect(fruits).toHaveCount(2);
     await expect(block.locator('.ce-database-view__header-controls')).toBeHidden();
-  });
-
-  test('pauses editing while the table is connecting or reconnecting', async ({ alice: page, workspaceId }) => {
-    // Hold back the live connection: each attempt is closed until allowed.
-    let allowed = false;
-    const sockets: { close: () => Promise<void> }[] = [];
-    await page.routeWebSocket(/\/collab/, (ws) => {
-      if (!allowed) {
-        void ws.close();
-        return;
-      }
-      ws.connectToServer();
-      sockets.push(ws);
-    });
-    const id = await createPage(page, workspaceId, { title: unique('Offline table'), kind: 'DATABASE' });
-    await page.goto(`/doc/${id}`);
-    const notice = main(page).locator('.database-table__connection');
-    const addRow = main(page).getByRole('button', { name: 'Add row' });
-    await expect(notice).toContainText('Connecting…');
-    await expect(addRow).toBeDisabled();
-
-    allowed = true;
-    await expect(notice).toHaveCount(0, { timeout: 15_000 });
-    await expect(addRow).toBeEnabled();
-    const before = await rowNames(page).count();
-    await addRow.click();
-    await expect(rowNames(page)).toHaveCount(before + 1);
-
-    // Losing the connection later pauses editing again, until it's back.
-    allowed = false;
-    await Promise.all(sockets.splice(0).map((ws) => ws.close()));
-    await expect(notice).toContainText('Reconnecting…');
-    await expect(addRow).toBeDisabled();
-    allowed = true;
-    await expect(notice).toHaveCount(0, { timeout: 15_000 });
-    await expect(addRow).toBeEnabled();
   });
 
   test('shows rows added by someone else live', async ({ alice, bob, workspaceId }) => {
