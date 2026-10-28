@@ -110,6 +110,8 @@ test.describe('loading', () => {
   });
 
   test('a slow page fades the last one, then shows placeholder lines, then its content', async ({ alice: page, workspaceId }) => {
+    // A full-width window: the page is centred there, and the placeholder lines once had no room
+    await page.setViewportSize({ width: 1920, height: 1000 });
     const slowTitle = unique('Slow');
     const slow = await createPage(page, workspaceId, { title: slowTitle });
     await openPage(page, slow);
@@ -134,7 +136,14 @@ test.describe('loading', () => {
     });
     await sidebarItem(page, slowTitle).click();
     // The new page's title is there straight away
-    await expect(page.getByRole('main').getByRole('textbox').first()).toHaveValue(slowTitle);
+    const title = page.getByRole('main').getByRole('textbox').first();
+    await expect(title).toHaveValue(slowTitle);
+    // The placeholder lines show, under the title
+    const line = page.locator('.page-hold[data-stage="skeleton"] .page-hold__line').first();
+    await expect(line).toBeVisible();
+    const lineBox = (await line.boundingBox())!;
+    expect(lineBox.width).toBeGreaterThan(200);
+    expect(Math.abs(lineBox.x - (await title.boundingBox())!.x)).toBeLessThan(24);
     await expect(editor(page)).toHaveText('Worth the wait');
     await expect(page.locator('.page-hold')).toHaveCount(0);
     expect(await page.evaluate(() => (window as any).__stages)).toEqual(['none', 'hold', 'fade', 'skeleton', 'none']);
