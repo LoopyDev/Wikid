@@ -3560,34 +3560,34 @@ onBeforeUnmount(() => {
                 <button class="block-menu__back" type="button" @click.stop="closeRelationPanel">‹ Back</button>
                 <span class="block-menu__panel-title">Relation</span>
               </div>
-              <div class="block-menu__panel-scroll">
-                <div class="db-form-field-controls">
-                  <label class="db-form-field-label">Target database</label>
-                  <select v-model="relationDraftPageId" class="db-form-field-select">
+              <div class="block-menu__panel-scroll db-relation-settings">
+                <label class="db-relation-settings__field">
+                  <span class="db-relation-settings__label">Target database</span>
+                  <select v-model="relationDraftPageId" class="db-form-field-select db-relation-settings__select">
                     <option value="">Select database...</option>
                     <option v-for="page in relationTargetPages" :key="page.id" :value="page.id">
                       {{ page.title || 'Untitled database' }}
                     </option>
                   </select>
-                  <div v-if="!relationTargetPages.length" class="db-options-empty">No databases available.</div>
-                </div>
-                <div class="db-form-field-controls">
-                  <label class="db-form-field-label">Allow multiple</label>
-                  <label class="db-form-field-checkbox">
-                    <input type="checkbox" v-model="relationDraftAllowMultiple" />
-                    Enable multi-select relations
-                  </label>
-                </div>
-                <div class="db-form-field-controls">
-                  <label class="db-form-field-label">Track history</label>
-                  <label class="db-form-field-checkbox">
-                    <input type="checkbox" v-model="relationDraftHistoryEnabled" />
-                    Append-only relation log
-                  </label>
-                  <div v-if="relationDraftHistoryEnabled && relationDraftHistoryPageId" class="db-form-field-hint">
-                    Logging to: {{ pageMap.get(relationDraftHistoryPageId)?.title || 'Relation history' }}
-                  </div>
-                </div>
+                  <span v-if="!relationTargetPages.length" class="db-relation-settings__hint">No databases available.</span>
+                </label>
+                <label class="db-relation-settings__check">
+                  <input type="checkbox" v-model="relationDraftAllowMultiple" />
+                  <span class="db-relation-settings__text">
+                    <span class="db-relation-settings__title">Allow multiple</span>
+                    <span class="db-relation-settings__hint">Link a row to more than one row</span>
+                  </span>
+                </label>
+                <label class="db-relation-settings__check">
+                  <input type="checkbox" v-model="relationDraftHistoryEnabled" />
+                  <span class="db-relation-settings__text">
+                    <span class="db-relation-settings__title">Track history</span>
+                    <span class="db-relation-settings__hint">Keep an append-only log of changes</span>
+                    <span v-if="relationDraftHistoryEnabled && relationDraftHistoryPageId" class="db-relation-settings__hint">
+                      Logging to: {{ pageMap.get(relationDraftHistoryPageId)?.title || 'Relation history' }}
+                    </span>
+                  </span>
+                </label>
               </div>
             </template>
           </div>

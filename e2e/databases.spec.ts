@@ -74,6 +74,44 @@ test.describe('databases', () => {
     await expect.poll(() => nameFieldValues(page, id)).toEqual(['Write tests', 'Ship it to everyone']);
   });
 
+  test("a relation column's settings are laid out one under another, nothing overlapping", async ({ alice: page, workspaceId }) => {
+    await createPage(page, workspaceId, { title: unique('Other database with a rather long name'), kind: 'DATABASE' });
+    const id = await createPage(page, workspaceId, { title: unique('Related'), kind: 'DATABASE' });
+    await page.goto(`/doc/${id}`);
+    await expect(main(page).getByRole('button', { name: 'Add row' })).toBeVisible();
+    await main(page).locator('thead th').last().locator('button').first().click();
+    await page.locator('.db-add-column-menu .block-menu__item', { hasText: 'Relation' }).click();
+    await expect(main(page).locator('thead th')).toHaveCount(3);
+    await expect(page.locator('.db-add-column-menu')).toHaveCount(0);
+    const menu = page.locator('.db-field-menu');
+    await main(page).locator('thead th').nth(1).locator('button').first().click();
+    await expect(menu).toBeVisible();
+    // Short icons like "A-Z" stay on one line
+    const iconHeight = async (item: string) =>
+      (await menu.locator('.block-menu__item', { hasText: item }).first().locator('.block-menu__icon').boundingBox())!.height;
+    expect(await iconHeight('Sort ascending')).toBe(await iconHeight('Type'));
+
+    await menu.locator('.block-menu__item', { hasText: 'Relation' }).first().click();
+    const parts = [
+      menu.locator('.db-relation-settings__field'),
+      menu.getByText('Allow multiple'),
+      menu.getByText('Link a row to more than one row'),
+      menu.getByText('Track history'),
+      menu.getByText('Keep an append-only log of changes'),
+    ];
+    const boxes = [];
+    for (const part of parts) {
+      await expect(part).toBeVisible();
+      boxes.push((await part.boundingBox())!);
+    }
+    for (let i = 1; i < boxes.length; i += 1) {
+      expect(boxes[i].y, `part ${i} starts below the one before`).toBeGreaterThanOrEqual(boxes[i - 1].y + boxes[i - 1].height - 1);
+    }
+    // Each one fits in the menu
+    const menuBox = (await menu.boundingBox())!;
+    for (const box of boxes) expect(box.x + box.width).toBeLessThanOrEqual(menuBox.x + menuBox.width);
+  });
+
   test('pauses editing while the table is connecting or reconnecting', async ({ alice: page, workspaceId }) => {
     // Hold back the live connection: each attempt is closed until allowed.
     let allowed = false;
