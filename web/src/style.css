@@ -1106,7 +1106,6 @@ button {
   display: flex;
   flex-direction: column;
   gap: 14px;
-  max-width: 720px;
   padding-top: 8px;
   animation: page-reveal 200ms ease-out;
 }
@@ -1117,6 +1116,9 @@ button {
   background: linear-gradient(90deg, var(--surface-border) 0%, color-mix(in srgb, var(--surface-border) 45%, transparent) 50%, var(--surface-border) 100%);
   background-size: 200% 100%;
   animation: page-hold-shimmer 1.4s ease-in-out infinite;
+  /* Capped on the lines themselves: the skeleton is padded to line up with the text, which on a
+     wide screen (a centred page) is most of its width, and capping that left no room for them */
+  max-width: 640px;
 }
 .page-hold__line:nth-child(3n + 1) {
   width: 92%;
