@@ -3480,6 +3480,56 @@ button {
   cursor: not-allowed;
 }
 
+/* A relation column's settings, in the column menu: each on its own line */
+.db-relation-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  /* A long database name is cut short in the select rather than widening the menu */
+  width: 260px;
+  max-width: 100%;
+  padding: 4px 10px 10px;
+}
+.db-relation-settings__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.db-relation-settings__label {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+.db-relation-settings__select {
+  width: 100%;
+  min-width: 0;
+}
+.db-relation-settings__check {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  cursor: pointer;
+}
+.db-relation-settings__check input {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  margin: 3px 0 0;
+}
+.db-relation-settings__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.db-relation-settings__title {
+  font-size: 0.85rem;
+  color: var(--text-primary);
+}
+.db-relation-settings__hint {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
 .block-menu.db-field-menu {
   position: absolute;
   z-index: 1200;
@@ -6843,10 +6893,13 @@ button {
 
 .block-menu__icon {
   width: 28px;
+  flex-shrink: 0;
   display: inline-flex;
   justify-content: center;
   align-items: center;
   font-weight: 700;
+  /* Short labels such as "A-Z" stay on one line */
+  white-space: nowrap;
 }
 
 .block-menu__icon--highlight {
