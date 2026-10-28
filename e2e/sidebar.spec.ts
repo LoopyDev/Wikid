@@ -159,6 +159,42 @@ test.describe('sidebar', () => {
     await expect.poll(background).not.toBe(hovered);
   });
 
+  test("lights up the hovered page's whole branch, and keeps it lit moving between its pages", async ({ alice: page, workspaceId }) => {
+    // First: Empty (expanded, with no pages inside), then Child, which has a Grandchild. Then Other.
+    const name = (label: string) => unique(label);
+    const t = { first: name('First'), empty: name('Empty'), child: name('Child'), grandchild: name('Grandchild'), other: name('Other'), otherChild: name('Other child') };
+    const first = await createPage(page, workspaceId, { title: t.first });
+    const empty = await createPage(page, workspaceId, { title: t.empty, parentId: first });
+    const child = await createPage(page, workspaceId, { title: t.child, parentId: first });
+    await createPage(page, workspaceId, { title: t.grandchild, parentId: child });
+    const other = await createPage(page, workspaceId, { title: t.other });
+    await createPage(page, workspaceId, { title: t.otherChild, parentId: other });
+    await openPage(page, await createPage(page, workspaceId));
+    for (const title of [t.first, t.empty, t.child, t.other]) {
+      await sidebarItem(page, title).hover();
+      await sidebarItem(page, title).locator('.page-chevron').click();
+    }
+    await expect(sidebar(page).getByText('No pages inside')).toBeVisible();
+    await expect(sidebarItem(page, t.otherChild)).toBeVisible();
+
+    const lit = async () => {
+      const rows = await sidebar(page).locator('.sidebar__item.tree-hovered').allTextContents();
+      return Object.entries(t).filter(([, title]) => rows.some((row) => row.includes(title))).map(([key]) => key);
+    };
+    await sidebarItem(page, t.empty).hover();
+    await expect.poll(lit).toEqual(['first', 'child', 'grandchild']);
+    // Onto a page at the same level: still the same branch, after the old one's linger is over
+    await sidebarItem(page, t.child).hover();
+    await page.waitForTimeout(500);
+    await expect.poll(lit).toEqual(['first', 'empty', 'grandchild']);
+    // Another branch
+    await sidebarItem(page, t.otherChild).hover();
+    await expect.poll(lit).toEqual(['other']);
+    // And gone a moment after leaving the sidebar
+    await page.mouse.move(900, 500);
+    await expect.poll(lit).toEqual([]);
+  });
+
   test("stays in the workspace after deleting its last page", async ({ alice: page, workspaceId }) => {
     const title = unique('Only page');
     const id = await createPage(page, workspaceId, { title });
