@@ -6,6 +6,14 @@ const ResizableImageExtension = Image.extend({
   // Keep the same name as the base Image node so existing JSON/doc content still matches.
   name: 'image',
 
+  addOptions() {
+    return {
+      ...this.parent?.(),
+      // Starts dragging the image's block, as the block handle does
+      dragBlock: null,
+    };
+  },
+
   addAttributes() {
     return {
       ...this.parent?.(),

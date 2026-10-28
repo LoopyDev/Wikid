@@ -4664,6 +4664,8 @@ button {
   width: 100%;
   height: auto;
   border-radius: 10px;
+  /* Clicking it opens it in a new tab */
+  cursor: zoom-in;
 }
 
 .tiptap-image-resizable {

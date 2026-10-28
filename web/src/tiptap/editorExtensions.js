@@ -65,6 +65,7 @@ lowlight.register('lua', lua);
  * - pageLinks, databaseViews, slashCommands: the options for those extensions.
  * - getPlaceholder: the page's own placeholder text, if any.
  * - lastTextInputAt, lastTextInputInfo: when and what was last typed (for the selection guard).
+ * - dragBlock(event, { pos, node }): starts dragging a block, as its handle does (for images).
  */
 export function createEditorExtensions({
   collab,
@@ -77,6 +78,7 @@ export function createEditorExtensions({
   getPlaceholder,
   lastTextInputAt,
   lastTextInputInfo,
+  dragBlock,
 }) {
   return [
       ...(collab
@@ -164,6 +166,7 @@ export function createEditorExtensions({
       }),
       ResizableImage.configure({
         inline: false,
+        dragBlock,
       }),
       Placeholder.configure({
         showOnlyCurrent: true,

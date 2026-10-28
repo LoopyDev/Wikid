@@ -637,6 +637,7 @@ editor = useEditor({
     getPlaceholder: () => props.placeholder,
     lastTextInputAt,
     lastTextInputInfo,
+    dragBlock: (event, options) => handleBlockDragStart(event, options),
   }),
   onCreate({ editor: ed }) {
     logSetup('create', {
