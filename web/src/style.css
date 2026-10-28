@@ -1060,7 +1060,8 @@ button {
 
 /* Moving to another page: the page being left stays on screen, as a still copy over the new page's
    body, until the new page's content is in (see usePageSwitchHold). A slower switch fades the
-   copy, a slow one shows placeholder lines, and the new content fades in once it's there. */
+   copy, and a slow one shows placeholder lines. The new content swaps straight in for the copy,
+   and fades in after placeholder lines. */
 .page-body-slot {
   grid-column: 1;
   position: relative;

@@ -67,10 +67,18 @@ test.describe('loading', () => {
       await waitForSaved(page);
       pages.push({ id, title, text: `${label} page text` });
     }
-    // A little delay, as on a real server
+    // A delay, as on a real server, for requests and the live connection both (Chrome's own
+    // throttling leaves the live connection alone, which is where a page's content comes from)
     const cdp = await page.context().newCDPSession(page);
     await cdp.send('Network.enable');
     await cdp.send('Network.emulateNetworkConditions', { offline: false, latency: 80, downloadThroughput: -1, uploadThroughput: -1 });
+    await page.routeWebSocket(/\/collab/, (ws) => {
+      const server = ws.connectToServer();
+      ws.onMessage((message) => setTimeout(() => server.send(message), 100));
+      server.onMessage((message) => setTimeout(() => ws.send(message), 100));
+    });
+    await page.reload();
+    await expect(editor(page)).toHaveText(pages[1].text);
 
     for (const to of [pages[0], pages[1], pages[0]]) {
       // Note any frame where the page body shows neither the last page nor this one's content
@@ -81,7 +89,11 @@ test.describe('loading', () => {
         const tick = () => {
           if (!document.querySelector('.page-hold')) {
             const live = document.querySelector('.ProseMirror:not(.page-hold *)')?.textContent || '';
+            const body = document.querySelector('.page-body-slot > .page-body');
+            // Fading the new content in from nothing as the copy went left a blank moment too
+            const faint = body && Number(getComputedStyle(body).opacity) < 0.9;
             if (!live.trim()) blank.push(`${Math.round(performance.now() - started)}ms: ${live ? 'other text' : 'empty'}`);
+            else if (faint) blank.push(`${Math.round(performance.now() - started)}ms: faint`);
             else if (live !== text && performance.now() - started > 5) blank.push(`${Math.round(performance.now() - started)}ms: "${live}"`);
           }
           if (performance.now() - started < 1200) requestAnimationFrame(tick);

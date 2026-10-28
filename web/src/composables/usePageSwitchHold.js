@@ -51,7 +51,8 @@ const textInsets = (body) => {
 export function usePageSwitchHold() {
   // null when not holding, otherwise 'hold' (the copy as it was), 'fade' or 'skeleton'
   const stage = ref(null);
-  // Briefly true as the new page's content fades in
+  // Briefly true as the new page's content fades in, after placeholder lines. From the copy it
+  // swaps straight in: fading it in from nothing left a blank moment between the two.
   const revealing = ref(false);
   // Where the copy goes, inside the new page
   const holdEl = ref(null);
@@ -74,8 +75,10 @@ export function usePageSwitchHold() {
   const release = () => {
     if (!stage.value) return;
     clearTimers();
+    const fromPlaceholders = stage.value === 'skeleton';
     stage.value = null;
     copy = null;
+    if (!fromPlaceholders) return;
     revealing.value = true;
     later(() => {
       revealing.value = false;
