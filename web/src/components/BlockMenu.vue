@@ -176,6 +176,8 @@ const isCodeBlock = computed(() => handleState.value?.node?.type?.name === 'code
 const isHorizontalRule = computed(() => handleState.value?.node?.type?.name === 'horizontalRule');
 
 const isPageLinkBlock = computed(() => handleState.value?.node?.type?.name === 'pageLink');
+const isDatabaseViewBlock = computed(() => handleState.value?.node?.type?.name === 'databaseView');
+const databaseViewShowsTitle = computed(() => getHandleNode()?.attrs?.showTitle !== false);
 
 const currentCodeLanguage = computed(() => {
   const handleLang = handleState.value?.node?.attrs?.language;
@@ -332,6 +334,17 @@ const updatePageLinkAttrs = (attrs) => {
   return true;
 };
 
+// A database view block's title above its table, on or off
+const toggleDatabaseViewTitle = () => {
+  if (!editor.value) return;
+  const node = getHandleNode();
+  const pos = handleState.value?.pos;
+  if (!node || node.type?.name !== 'databaseView' || pos == null || pos < 0) return;
+  const { state, view } = editor.value;
+  view.dispatch(state.tr.setNodeMarkup(pos, node.type, { ...node.attrs, showTitle: node.attrs?.showTitle === false }));
+  closeTuneMenu();
+};
+
 const setPageLinkStyle = (style) => {
   const next = style === 'small' ? 'small' : 'card';
   updatePageLinkAttrs({ style: next });
@@ -460,6 +473,13 @@ watch(
                 <span class="block-menu__hint">Set language</span>
               </span>
               <span class="block-menu__chevron">›</span>
+            </button>
+            <button v-if="isDatabaseViewBlock" class="block-menu__item" type="button" @click="toggleDatabaseViewTitle">
+              <span class="block-menu__icon">Ti</span>
+              <span class="block-menu__text">
+                <span class="block-menu__title">Show title</span>
+              </span>
+              <span v-if="databaseViewShowsTitle" class="block-menu__chevron">✓</span>
             </button>
             <button v-if="isPageLinkBlock" class="block-menu__item block-menu__item--submenu" type="button" @click.stop="openPanel('pageLinkStyle')">
               <span class="block-menu__icon">St</span>
