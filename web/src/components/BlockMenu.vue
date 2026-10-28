@@ -178,6 +178,7 @@ const isHorizontalRule = computed(() => handleState.value?.node?.type?.name === 
 const isPageLinkBlock = computed(() => handleState.value?.node?.type?.name === 'pageLink');
 const isDatabaseViewBlock = computed(() => handleState.value?.node?.type?.name === 'databaseView');
 const databaseViewShowsTitle = computed(() => getHandleNode()?.attrs?.showTitle !== false);
+const databaseViewShowsControls = computed(() => getHandleNode()?.attrs?.showControls !== false);
 
 const currentCodeLanguage = computed(() => {
   const handleLang = handleState.value?.node?.attrs?.language;
@@ -334,14 +335,14 @@ const updatePageLinkAttrs = (attrs) => {
   return true;
 };
 
-// A database view block's title above its table, on or off
-const toggleDatabaseViewTitle = () => {
+// A database view block's title, or its controls (view picker, Columns, search), on or off
+const toggleDatabaseViewAttr = (name) => {
   if (!editor.value) return;
   const node = getHandleNode();
   const pos = handleState.value?.pos;
   if (!node || node.type?.name !== 'databaseView' || pos == null || pos < 0) return;
   const { state, view } = editor.value;
-  view.dispatch(state.tr.setNodeMarkup(pos, node.type, { ...node.attrs, showTitle: node.attrs?.showTitle === false }));
+  view.dispatch(state.tr.setNodeMarkup(pos, node.type, { ...node.attrs, [name]: node.attrs?.[name] === false }));
   closeTuneMenu();
 };
 
@@ -474,12 +475,19 @@ watch(
               </span>
               <span class="block-menu__chevron">›</span>
             </button>
-            <button v-if="isDatabaseViewBlock" class="block-menu__item" type="button" @click="toggleDatabaseViewTitle">
+            <button v-if="isDatabaseViewBlock" class="block-menu__item" type="button" @click="toggleDatabaseViewAttr('showTitle')">
               <span class="block-menu__icon">Ti</span>
               <span class="block-menu__text">
                 <span class="block-menu__title">Show title</span>
               </span>
               <span v-if="databaseViewShowsTitle" class="block-menu__chevron">✓</span>
+            </button>
+            <button v-if="isDatabaseViewBlock" class="block-menu__item" type="button" @click="toggleDatabaseViewAttr('showControls')">
+              <span class="block-menu__icon">Ct</span>
+              <span class="block-menu__text">
+                <span class="block-menu__title">Show controls</span>
+              </span>
+              <span v-if="databaseViewShowsControls" class="block-menu__chevron">✓</span>
             </button>
             <button v-if="isPageLinkBlock" class="block-menu__item block-menu__item--submenu" type="button" @click.stop="openPanel('pageLinkStyle')">
               <span class="block-menu__icon">St</span>

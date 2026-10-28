@@ -256,6 +256,104 @@ test.describe('databases', () => {
     await expect(cards.nth(1).locator('.db-gallery__cover')).toHaveText('Pick a font');
   });
 
+  test("a view chosen on a database view block is only for you, until you save it for everyone", async ({ alice, bob, workspaceId }) => {
+    // A database with an "Only Apple" view, embedded on a page
+    const db = await createPage(alice, workspaceId, { title: unique('Fruit'), kind: 'DATABASE' });
+    const nameField = (await (await alice.request.get(`/api/pages/${db}/database`)).json()).fields.find((f: any) => f.name === 'Name').id;
+    for (const fruit of ['Apple', 'Banana']) await alice.request.post(`/api/pages/${db}/database/rows`, { data: { data: { [nameField]: fruit } } });
+    await alice.request.post(`/api/pages/${db}/database/fields`, { data: { name: 'Notes', type: 'TEXT' } });
+    const view = await (await alice.request.post(`/api/pages/${db}/database/views`, {
+      data: { name: 'Only Apple', config: { filters: { match: 'AND', rules: [{ fieldId: nameField, operator: 'contains', value: 'Apple' }] } } },
+    })).json();
+    const doc = await createPage(alice, workspaceId, { title: unique('Report') });
+    await openPage(alice, doc);
+    await alice.evaluate((pageId) => {
+      (document.querySelector('.ProseMirror') as any).editor.chain().focus('end').insertContent({ type: 'databaseView', attrs: { pageId } }).run();
+    }, db);
+    await waitForSaved(alice);
+    await openPage(bob, doc);
+
+    const fruits = (page: Page) => page.locator('.ce-database-view tbody tr');
+    const picker = (page: Page) => page.locator('.ce-database-view__view-select');
+    const blockViewId = () => alice.evaluate(() => {
+      const json = (document.querySelector('.ProseMirror') as any).editor.getJSON();
+      return json.content.find((n: any) => n.type === 'databaseView')?.attrs?.viewId || null;
+    });
+    await expect(fruits(alice)).toHaveCount(2);
+    await expect(fruits(bob)).toHaveCount(2);
+
+    // Alice's choice changes only what she sees
+    await picker(alice).selectOption({ label: 'Only Apple' });
+    await expect(fruits(alice)).toHaveCount(1);
+    await expect(alice.getByText('Only you see this')).toBeVisible();
+    expect(await blockViewId()).toBeNull();
+    await bob.waitForTimeout(500);
+    await expect(fruits(bob)).toHaveCount(2);
+    await expect(picker(bob)).toHaveValue('');
+
+    // Remembered in her browser, and Reset goes back to the block's view
+    await alice.reload();
+    await expect(fruits(alice)).toHaveCount(1);
+    await alice.getByRole('button', { name: 'Reset' }).click();
+    await expect(fruits(alice)).toHaveCount(2);
+    await expect(alice.getByText('Only you see this')).toHaveCount(0);
+
+    // Hiding a column (on the block's own view) is hers alone too, until saved for everyone
+    const notesHeader = (page: Page) => page.locator('.ce-database-view thead th', { hasText: 'Notes' });
+    await expect(notesHeader(bob)).toHaveCount(1);
+    await alice.locator('.ce-database-view').getByRole('button', { name: 'Columns' }).click();
+    await alice.locator('.db-columns-menu__item', { hasText: 'Notes' }).click();
+    await alice.keyboard.press('Escape');
+    await alice.mouse.click(5, 5);
+    await expect(notesHeader(alice)).toHaveCount(0);
+    await expect(alice.getByText('Only you see this')).toBeVisible();
+    await bob.waitForTimeout(500);
+    await expect(notesHeader(bob)).toHaveCount(1);
+    await alice.getByRole('button', { name: 'Save for everyone' }).click();
+    await expect(alice.getByText('Only you see this')).toHaveCount(0);
+    await expect(notesHeader(bob)).toHaveCount(0);
+
+    // A view saved for everyone: Bob sees it too
+    await picker(alice).selectOption({ label: 'Only Apple' });
+    await alice.getByRole('button', { name: 'Save for everyone' }).click();
+    await expect(alice.getByText('Only you see this')).toHaveCount(0);
+    expect(await blockViewId()).toBe(view.id);
+    await expect(picker(bob)).toHaveValue(view.id);
+    await expect(fruits(bob)).toHaveCount(1);
+  });
+
+  test("a database view block's controls can be turned off, showing everyone the block's own view", async ({ alice: page, workspaceId }) => {
+    const db = await createPage(page, workspaceId, { title: unique('Fruit'), kind: 'DATABASE' });
+    const nameField = (await (await page.request.get(`/api/pages/${db}/database`)).json()).fields.find((f: any) => f.name === 'Name').id;
+    for (const fruit of ['Apple', 'Banana']) await page.request.post(`/api/pages/${db}/database/rows`, { data: { data: { [nameField]: fruit } } });
+    await page.request.post(`/api/pages/${db}/database/views`, {
+      data: { name: 'Only Apple', config: { filters: { match: 'AND', rules: [{ fieldId: nameField, operator: 'contains', value: 'Apple' }] } } },
+    });
+    const doc = await createPage(page, workspaceId, { title: unique('Report') });
+    await openPage(page, doc);
+    await page.evaluate((pageId) => {
+      (document.querySelector('.ProseMirror') as any).editor.chain().focus('end').insertContent({ type: 'databaseView', attrs: { pageId } }).run();
+    }, db);
+    const block = page.locator('.ce-database-view');
+    const fruits = block.locator('tbody .db-cell-input');
+    await expect(fruits).toHaveCount(2);
+    // A choice of her own first
+    await block.locator('.ce-database-view__view-select').selectOption({ label: 'Only Apple' });
+    await expect(fruits).toHaveCount(1);
+
+    await block.hover();
+    await page.locator('.drag-handle--floating:not(.drag-handle--list) .drag-handle__btn--drag').click();
+    await page.locator('.block-menu').getByRole('button', { name: 'Show controls' }).click();
+    // The picker, Columns and search go, and the block's own view shows, not her choice
+    await expect(block.locator('.ce-database-view__header-controls')).toBeHidden();
+    await expect(block.getByRole('button', { name: 'Columns' })).toBeHidden();
+    await expect(fruits).toHaveCount(2);
+    await waitForSaved(page);
+    await page.reload();
+    await expect(fruits).toHaveCount(2);
+    await expect(block.locator('.ce-database-view__header-controls')).toBeHidden();
+  });
+
   test('pauses editing while the table is connecting or reconnecting', async ({ alice: page, workspaceId }) => {
     // Hold back the live connection: each attempt is closed until allowed.
     let allowed = false;

@@ -622,6 +622,7 @@ editor = useEditor({
       createDatabasePage,
       openPage,
       restorePage,
+      getHostPageId: () => props.pageId || null,
     },
     slashCommands: {
       commands: slashItems,

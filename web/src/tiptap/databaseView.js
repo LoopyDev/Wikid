@@ -17,6 +17,8 @@ export default Node.create({
       createDatabasePage: null,
       openPage: null,
       restorePage: null,
+      // The id of the page this editor shows, so a person's own view of a block can be remembered
+      getHostPageId: null,
     };
   },
   addAttributes() {
@@ -31,6 +33,12 @@ export default Node.create({
         default: true,
         parseHTML: (element) => element.getAttribute('data-show-title') !== 'false',
         renderHTML: (attributes) => (attributes.showTitle === false ? { 'data-show-title': 'false' } : {}),
+      },
+      // The view picker, Columns and search above the table (off for a fixed, clean table)
+      showControls: {
+        default: true,
+        parseHTML: (element) => element.getAttribute('data-show-controls') !== 'false',
+        renderHTML: (attributes) => (attributes.showControls === false ? { 'data-show-controls': 'false' } : {}),
       },
     };
   },
