@@ -18,7 +18,7 @@ import { clearYMap, cloneForSeed, ensureCollabRowDataMap, generateId, hydrateRow
 import { multiSelectDotStyle } from '../utils/database/colors';
 import { ADD_COLUMN_ID, ADD_COLUMN_LABEL, ADD_COLUMN_SIZE, ASSET_TAG_COLUMN_SIZE, AUTO_SIZE_BASE, AUTO_SIZE_BUFFER, AUTO_SIZE_CHAR_LIMIT, AUTO_SIZE_CHAR_WIDTH, AUTO_SIZE_FIRST_EXTRA, AUTO_SIZE_MULTI_MEMBERS_PLACEHOLDER, AUTO_SIZE_MULTI_PILL_GAP, AUTO_SIZE_MULTI_PILL_PADDING, AUTO_SIZE_MULTI_PLACEHOLDER, AUTO_SIZE_PAGE_ICON_EXTRA, AUTO_SIZE_RELATION_PLACEHOLDER, AUTO_SIZE_SELECT_EXTRA, AUTO_SIZE_SELECT_PLACEHOLDER, COLUMN_DEFAULT_SIZE, COLUMN_MAX_SIZE, COLUMN_MIN_SIZE, ROW_ID_COLUMN_ID, ROW_ID_COLUMN_LABEL, ROW_ID_COLUMN_MIN_SIZE, ROW_ID_COLUMN_SIZE } from '../utils/database/columnLayout';
 import { AUDIT_VIEW_ID, DEFAULT_INITIAL_STATUS, GOVERNANCE_FILTER_ID, auditStatusOptions, getAuditStatusClass, getComplianceRecordId } from '../utils/database/compliance';
-import { fieldTypeIcons, fieldTypes, getFieldSource, getMultiSelectChoiceValues, getRelationConfig, isAssetTagField, isFieldDeleteLocked, isFieldOptionsLocked, isFieldReadOnly, isFieldTypeLocked, isLastEditedField, isMembersField, isPageField, isRelationField, isSelectField, normalizeFieldOptions } from '../utils/database/fieldOptions';
+import { fieldTypeIcons, fieldTypes, getFieldSource, getLinkedFromConfig, getMultiSelectChoiceValues, getRelationConfig, isAssetTagField, isLinkedFromField, isFieldDeleteLocked, isFieldOptionsLocked, isFieldReadOnly, isFieldTypeLocked, isLastEditedField, isMembersField, isPageField, isRelationField, isSelectField, normalizeFieldOptions } from '../utils/database/fieldOptions';
 import { DEFAULT_FORM_ICON, buildFormField, normalizeFormIcon } from '../utils/database/forms';
 import { OPERATOR_LABELS, operatorNeedsValue, operatorsForFieldType, sortByType } from '../utils/database/views';
 import { colorFromId } from '../utils/presenceColor';
@@ -27,6 +27,7 @@ import { useDatabaseCollab } from '../composables/useDatabaseCollab';
 import { useSavedViews } from '../composables/useSavedViews';
 import { useViewRows } from '../composables/useViewRows';
 import { useCellRenderer } from '../composables/useCellRenderer';
+import { useLinkedFrom } from '../composables/useLinkedFrom';
 
 const props = defineProps({
   pageId: {
@@ -66,6 +67,12 @@ const openFormPage = inject('openFormPage', null);
 const loading = ref(false);
 const error = ref(null);
 const fields = ref([]);
+// "Linked from" columns: the rows of other databases linking to these ones
+const { linkedRowsFor, incomingRelations, incomingRelationsLoading, loadIncomingRelations } = useLinkedFrom({
+  pageId: computed(() => props.pageId),
+  fields,
+  workspace,
+});
 const rows = ref([]);
 const sorting = ref([]);
 const sortRefreshScheduled = ref(false);
@@ -99,6 +106,8 @@ const pageTitleUpdateTimers = new Map();
 const rowPageEnsuring = new Set();
 const fieldMenu = ref({ open: false, fieldId: null, x: 0, y: 0 });
 const addFieldMenu = ref({ open: false, x: 0, y: 0 });
+// Adding a "Linked from" column when more than one relation points here: those to choose from
+const addFieldLinkedFromChoices = ref(null);
 const multiSelectMenu = ref({ open: false, fieldId: null, rowId: null, x: 0, y: 0 });
 const rowMenu = ref({ open: false, rowId: null, x: 0, y: 0 });
 const columnsMenu = ref({ open: false, x: 0, y: 0 });
@@ -1498,6 +1507,7 @@ const closeFieldMenu = () => {
 
 const closeAddFieldMenu = () => {
   addFieldMenu.value = { open: false, x: 0, y: 0 };
+  addFieldLinkedFromChoices.value = null;
   addFieldName.value = '';
 };
 
@@ -1808,7 +1818,7 @@ const choiceColorForValue = (field, value) => {
   return match?.color || null;
 };
 
-const { renderCellInput } = useCellRenderer({ choiceColorForValue, getChoiceLabel, isReadonly, markCellFocus, markCellBlur, openMultiSelectMenu, getCellPresence, caretLeftForCell, openAssetTagPreview, rowPageId, getRowPageTitle, openRowPageOverlay, pageMap, workspace, resolveRowPage, ensureRowPage, applyLocalPageTitleUpdate, schedulePageTitleUpdate, tableWrapRef, pendingEnsureRowPages, scheduleSortRefresh, handleCaretNavigate, handleCaretMouse, markCellTyping, updateCell, setCellInputRef, resolveRowLastEdited, relationOptionsByPageId, relationOptionsLoading, loadRelationOptions, relationOptionsForPage, relationOptionsLoadingForPage, relationOptionsErrorForPage, getFieldChoices });
+const { renderCellInput } = useCellRenderer({ choiceColorForValue, getChoiceLabel, isReadonly, markCellFocus, markCellBlur, openMultiSelectMenu, getCellPresence, caretLeftForCell, openAssetTagPreview, rowPageId, getRowPageTitle, openRowPageOverlay, pageMap, workspace, resolveRowPage, ensureRowPage, applyLocalPageTitleUpdate, schedulePageTitleUpdate, tableWrapRef, pendingEnsureRowPages, scheduleSortRefresh, handleCaretNavigate, handleCaretMouse, markCellTyping, updateCell, setCellInputRef, resolveRowLastEdited, relationOptionsByPageId, relationOptionsLoading, loadRelationOptions, relationOptionsForPage, relationOptionsLoadingForPage, relationOptionsErrorForPage, getFieldChoices, linkedRowsFor });
 
 const getColumnSizeForField = (fieldId) => {
   const raw = columnSizing.value?.[fieldId] ?? COLUMN_DEFAULT_SIZE;
@@ -2125,6 +2135,34 @@ const closeRelationPanel = async () => {
   openPanel('root');
 };
 
+// A column changed to "Linked from" follows the first relation elsewhere that points here (changed
+// from its menu); without one there's nothing to show yet
+const linkedFromOptionsForNewField = async () => {
+  const relations = await loadIncomingRelations();
+  const first = relations[0];
+  if (!first) {
+    window.alert('No other database links to this one yet. Add a relation column there that points here first.');
+    return null;
+  }
+  return { linkedFrom: { pageId: first.databasePageId, fieldId: first.fieldId } };
+};
+
+const linkedFromKey = (relation) => (relation ? `${relation.pageId || relation.databasePageId}:${relation.fieldId}` : '');
+const activeLinkedFromKey = computed(() => linkedFromKey(getLinkedFromConfig(activeField.value)));
+
+const openLinkedFromPanel = () => {
+  if (!activeField.value || !isLinkedFromField(activeField.value) || isReadonly.value) return;
+  void loadIncomingRelations();
+  openPanel('linkedFrom');
+};
+
+const chooseLinkedFrom = async (key) => {
+  const relation = incomingRelations.value.find((entry) => linkedFromKey(entry) === key);
+  if (!activeField.value || !relation) return;
+  const options = { ...normalizeFieldOptions(activeField.value), linkedFrom: { pageId: relation.databasePageId, fieldId: relation.fieldId } };
+  await updateField(activeField.value, { options });
+};
+
 const isMultiSelectOptionSelected = (value) => activeMultiSelectValues.value.includes(value);
 
 const toggleMultiSelectOption = (value) => {
@@ -2175,6 +2213,11 @@ const setFieldType = async (field, type) => {
     }
     options = { relation: { pageId: targetId, allowMultiple: false } };
     void loadRelationOptions(targetId);
+  }
+  if (type === 'LINKED_FROM') {
+    const linked = await linkedFromOptionsForNewField();
+    if (!linked) return;
+    options = { linkedFrom: linked.linkedFrom };
   }
   await updateField(field, { type, options });
   closeFieldMenu();
@@ -2402,11 +2445,11 @@ watch(
   { immediate: true }
 );
 
-const createFieldWithType = async (type) => {
+const createFieldWithType = async (type, { linkedFrom: chosenLinkedFrom = null } = {}) => {
   if (isReadonly.value) return;
   if (!type) return;
   const trimmed = addFieldName.value.trim();
-  const name = trimmed || addFieldPlaceholder.value;
+  let name = trimmed || addFieldPlaceholder.value;
   let options = {};
   if (type === 'SELECT' || type === 'MULTI_SELECT') {
     options = { choices: [] };
@@ -2425,6 +2468,25 @@ const createFieldWithType = async (type) => {
     options = { relation: { pageId: targetId, allowMultiple: false } };
     void loadRelationOptions(targetId);
   }
+  if (type === 'LINKED_FROM') {
+    let relation = chosenLinkedFrom;
+    if (!relation) {
+      const relations = await loadIncomingRelations();
+      if (!relations.length) {
+        window.alert('No other database links to this one yet. Add a relation column there that points here first.');
+        return;
+      }
+      // More than one to follow: say which, in the menu
+      if (relations.length > 1) {
+        addFieldLinkedFromChoices.value = relations;
+        return;
+      }
+      relation = relations[0];
+    }
+    options = { linkedFrom: { pageId: relation.databasePageId, fieldId: relation.fieldId } };
+    // Named after the database it shows, unless given a name
+    if (!trimmed) name = relation.databaseTitle || name;
+  }
   if (isCollabEnabled.value) {
     whenCollabSynced(() => {
       const doc = ensureCollabDoc();
@@ -2436,7 +2498,7 @@ const createFieldWithType = async (type) => {
       fieldMap.set('type', type);
       if (type === 'SELECT' || type === 'MULTI_SELECT') {
         fieldMap.set('options', normalizeFieldOptions({ options }));
-      } else if (type === 'RELATION') {
+      } else if (type === 'RELATION' || type === 'LINKED_FROM') {
         fieldMap.set('options', { ...options });
       } else {
         fieldMap.set('options', {});
@@ -3366,7 +3428,25 @@ onBeforeUnmount(() => {
               :placeholder="addFieldPlaceholder"
             />
           </div>
-          <div class="block-menu__panel-scroll">
+          <div v-if="addFieldLinkedFromChoices" class="block-menu__panel-scroll">
+            <div class="block-menu__panel-header">
+              <button class="block-menu__back" type="button" @click.stop="addFieldLinkedFromChoices = null">‹ Back</button>
+              <span class="block-menu__panel-title">Linked from</span>
+            </div>
+            <button
+              v-for="relation in addFieldLinkedFromChoices"
+              :key="linkedFromKey(relation)"
+              class="block-menu__item"
+              type="button"
+              @click="createFieldWithType('LINKED_FROM', { linkedFrom: relation })"
+            >
+              <span class="block-menu__icon">{{ fieldTypeIcons.LINKED_FROM }}</span>
+              <span class="block-menu__text">
+                <span class="block-menu__title">{{ relation.databaseTitle }} › {{ relation.fieldName }}</span>
+              </span>
+            </button>
+          </div>
+          <div v-else class="block-menu__panel-scroll">
             <button
               v-for="type in fieldTypes"
               :key="type.value"
@@ -3437,6 +3517,18 @@ onBeforeUnmount(() => {
                 <span class="block-menu__icon">Rel</span>
                 <span class="block-menu__text">
                   <span class="block-menu__title">Relation</span>
+                </span>
+                <span class="block-menu__chevron">›</span>
+              </button>
+              <button
+                v-if="isLinkedFromField(activeField) && !isReadonly"
+                class="block-menu__item block-menu__item--submenu"
+                type="button"
+                @click.stop="openLinkedFromPanel"
+              >
+                <span class="block-menu__icon">Lnk</span>
+                <span class="block-menu__text">
+                  <span class="block-menu__title">Linked from</span>
                 </span>
                 <span class="block-menu__chevron">›</span>
               </button>
@@ -3587,6 +3679,31 @@ onBeforeUnmount(() => {
                       Logging to: {{ pageMap.get(relationDraftHistoryPageId)?.title || 'Relation history' }}
                     </span>
                   </span>
+                </label>
+              </div>
+            </template>
+            <template v-else-if="panelState === 'linkedFrom'">
+              <div class="block-menu__panel-header">
+                <button class="block-menu__back" type="button" @click.stop="openPanel('root')">‹ Back</button>
+                <span class="block-menu__panel-title">Linked from</span>
+              </div>
+              <div class="block-menu__panel-scroll db-relation-settings">
+                <label class="db-relation-settings__field">
+                  <span class="db-relation-settings__label">Rows linking here through</span>
+                  <select
+                    class="db-form-field-select db-relation-settings__select"
+                    :value="activeLinkedFromKey"
+                    :disabled="incomingRelationsLoading && !incomingRelations.length"
+                    @change="chooseLinkedFrom($event.target.value)"
+                  >
+                    <option v-if="!incomingRelations.some((relation) => linkedFromKey(relation) === activeLinkedFromKey)" :value="activeLinkedFromKey">
+                      {{ incomingRelationsLoading ? 'Loading...' : 'A relation that no longer points here' }}
+                    </option>
+                    <option v-for="relation in incomingRelations" :key="linkedFromKey(relation)" :value="linkedFromKey(relation)">
+                      {{ relation.databaseTitle }} › {{ relation.fieldName }}
+                    </option>
+                  </select>
+                  <span class="db-relation-settings__hint">Shows the rows of that database whose relation links to each row here. Change the links from there.</span>
                 </label>
               </div>
             </template>

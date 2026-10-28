@@ -112,6 +112,72 @@ test.describe('databases', () => {
     for (const box of boxes) expect(box.x + box.width).toBeLessThanOrEqual(menuBox.x + menuBox.width);
   });
 
+  test('a "Linked from" column shows the rows of another database that link to each row, and follows changes', async ({ alice: page, workspaceId }) => {
+    const projects = await createPage(page, workspaceId, { title: unique('Projects'), kind: 'DATABASE' });
+    const tasksTitle = unique('Tasks');
+    const tasks = await createPage(page, workspaceId, { title: tasksTitle, kind: 'DATABASE' });
+    const relationCell = (row: number) => main(page).locator('tbody tr').nth(row).locator('select.db-cell-input');
+
+    await page.goto(`/doc/${projects}`);
+    await expect(main(page).getByRole('button', { name: 'Add row' })).toBeVisible();
+    await addNamedRow(page, projects, 'Website');
+    await addNamedRow(page, projects, 'App');
+
+    // Tasks link to a project
+    await page.goto(`/doc/${tasks}`);
+    await expect(main(page).getByRole('button', { name: 'Add row' })).toBeVisible();
+    await addNamedRow(page, tasks, 'Write copy');
+    await addNamedRow(page, tasks, 'Pick a font');
+    await main(page).locator('thead th').last().locator('button').first().click();
+    await page.locator('.db-add-column-menu .block-menu__item', { hasText: 'Relation' }).click();
+    await expect(main(page).locator('thead th')).toHaveCount(3);
+    await expect(relationCell(0).locator('option', { hasText: 'Website' })).toHaveCount(1);
+    await relationCell(0).selectOption({ label: 'Website' });
+    await relationCell(1).selectOption({ label: 'Website' });
+
+    // Bugs relate to projects too
+    const bugsTitle = unique('Bugs');
+    const bugs = await createPage(page, workspaceId, { title: bugsTitle, kind: 'DATABASE' });
+    await page.goto(`/doc/${bugs}`);
+    await expect(main(page).getByRole('button', { name: 'Add row' })).toBeVisible();
+    await main(page).locator('thead th').last().locator('button').first().click();
+    await page.locator('.db-add-column-menu .block-menu__item', { hasText: 'Relation' }).click();
+    await expect(main(page).locator('thead th')).toHaveCount(3);
+
+    // On Projects, a "Linked from" column: with two relations pointing here, it asks which to follow
+    await page.goto(`/doc/${projects}`);
+    await expect(main(page).getByRole('button', { name: 'Add row' })).toBeVisible();
+    await main(page).locator('thead th').last().locator('button').first().click();
+    const addMenu = page.locator('.db-add-column-menu');
+    await addMenu.locator('.block-menu__item', { hasText: 'Linked from' }).click();
+    await expect(addMenu.locator('.block-menu__item .block-menu__title')).toHaveText([`${bugsTitle} › Column 2`, `${tasksTitle} › Column 2`]);
+    await addMenu.locator('.block-menu__item', { hasText: tasksTitle }).click();
+    await expect(main(page).locator('thead th')).toHaveCount(3);
+    // Named after the database it shows
+    await expect(main(page).locator('thead th').nth(1)).toContainText(tasksTitle);
+    const linked = (row: number) => main(page).locator('tbody tr').nth(row).locator('td').nth(1);
+    await expect(linked(0).locator('.db-multi-pill')).toHaveText(['Pick a font', 'Write copy']);
+    await expect(linked(1)).toHaveText('—');
+    // It can't be edited here
+    await expect(linked(0).locator('input, select')).toHaveCount(0);
+
+    // Its menu says what it follows
+    await main(page).locator('thead th').nth(1).locator('button').first().click();
+    const menu = page.locator('.db-field-menu');
+    await menu.locator('.block-menu__item', { hasText: 'Linked from' }).click();
+    await expect(menu.locator('select option:checked')).toContainText('› Column 2');
+    await page.keyboard.press('Escape');
+
+    // Linking another task, from another tab, shows here without a reload
+    const other = await page.context().newPage();
+    await other.goto(`/doc/${tasks}`);
+    await expect(other.getByRole('main').locator('tbody tr')).toHaveCount(2);
+    await other.getByRole('main').locator('tbody tr').nth(1).locator('select.db-cell-input').selectOption({ label: 'App' });
+    await expect(linked(1).locator('.db-multi-pill')).toHaveText(['Pick a font'], { timeout: 20_000 });
+    await expect(linked(0).locator('.db-multi-pill')).toHaveText(['Write copy']);
+    await other.close();
+  });
+
   test('pauses editing while the table is connecting or reconnecting', async ({ alice: page, workspaceId }) => {
     // Hold back the live connection: each attempt is closed until allowed.
     let allowed = false;

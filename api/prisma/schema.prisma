@@ -231,6 +231,8 @@ enum DatabaseFieldType {
   MULTI_SELECT
   URL
   RELATION
+  // The other side of a relation: rows elsewhere that link here (worked out, not stored)
+  LINKED_FROM
 }
 
 enum BlockType {

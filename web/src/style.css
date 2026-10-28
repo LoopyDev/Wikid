@@ -2624,6 +2624,20 @@ button {
   outline: none;
 }
 
+/* A "Linked from" cell: read-only, its pills open the linked rows */
+.db-linked-cell {
+  cursor: default;
+  padding: 4px 0;
+}
+.db-linked-pill {
+  font: inherit;
+  cursor: pointer;
+}
+.db-linked-pill:hover,
+.db-linked-pill:focus-visible {
+  border-color: var(--text-muted);
+}
+
 .db-multi-pill {
   display: inline-flex;
   align-items: center;

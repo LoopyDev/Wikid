@@ -13,6 +13,7 @@ import { WorkspacesService } from './workspaces.service';
 import { UsersService } from './users.service';
 import { PdfService } from '../pdf/pdf.service';
 import { HtmlExportService } from '../export/html-export.service';
+import { DatabaseLinksService } from './database-links.service';
 import { AdminId, AuthUser, CurrentUser, CurrentUserId, CurrentUserName } from '../auth/auth.guard';
 import { AllowPendingPasswordChange, Public } from '../auth/public.decorator';
 import { SESSION_COOKIE, sessionCookieOptions, signSession } from '../auth/session.util';
@@ -35,6 +36,7 @@ export class PagesController {
     private readonly databases: DatabasesService,
     private readonly databaseForms: DatabaseFormsService,
     private readonly databaseViews: DatabaseViewsService,
+    private readonly databaseLinks: DatabaseLinksService,
     private readonly workspaces: WorkspacesService,
     private readonly users: UsersService,
     private readonly pdfService: PdfService,
@@ -369,6 +371,28 @@ export class PagesController {
     @CurrentUserName() userName?: string,
   ) {
     return this.databases.updateDatabaseRow(id, pickDefined(body, ['data', 'position']), { userId, userName });
+  }
+
+  // Relation columns elsewhere that point at this database, for a "Linked from" column to follow
+  @Get('pages/:id/database/incoming-relations')
+  listIncomingRelations(
+    @Param('id') id: string,
+    @CurrentUserId() userId?: string,
+    @CurrentUserName() userName?: string,
+  ) {
+    return this.databaseLinks.listIncomingRelations(id, { userId, userName });
+  }
+
+  // What a "Linked from" column shows: for each row here, the rows of another database linking to it
+  @Get('pages/:id/database/linked-rows')
+  getLinkedRows(
+    @Param('id') id: string,
+    @Query('sourcePageId') sourcePageId?: string,
+    @Query('fieldId') fieldId?: string,
+    @CurrentUserId() userId?: string,
+    @CurrentUserName() userName?: string,
+  ) {
+    return this.databaseLinks.getLinkedRows(id, sourcePageId || '', fieldId || '', { userId, userName });
   }
 
   @Get('database-rows/:id/backlinks')
