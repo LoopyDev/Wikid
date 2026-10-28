@@ -135,6 +135,30 @@ test.describe('sidebar', () => {
     expect(onTop).toBe(true);
   });
 
+  test("keeps a page highlighted while its menu is open, once the pointer leaves it", async ({ alice: page, workspaceId }) => {
+    const title = unique('Menu page');
+    await createPage(page, workspaceId, { title });
+    await openPage(page, await createPage(page, workspaceId));
+    const item = sidebarItem(page, title);
+    const background = () => item.evaluate((el) => getComputedStyle(el).backgroundColor);
+    await item.hover();
+    await page.waitForTimeout(300); // its background fades in
+    const hovered = await background();
+    await openItemMenu(page, title);
+
+    // Onto the menu, then right away from the sidebar
+    await page.locator('.page-menu').getByRole('button', { name: 'Rename' }).hover();
+    await expect.poll(background).toBe(hovered);
+    await page.mouse.move(900, 500);
+    await expect.poll(background).toBe(hovered);
+
+    // Closing the menu lets it go
+    await page.keyboard.press('Escape');
+    await page.mouse.click(900, 500);
+    await expect(page.locator('.page-menu')).toHaveCount(0);
+    await expect.poll(background).not.toBe(hovered);
+  });
+
   test("stays in the workspace after deleting its last page", async ({ alice: page, workspaceId }) => {
     const title = unique('Only page');
     const id = await createPage(page, workspaceId, { title });

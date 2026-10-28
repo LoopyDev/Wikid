@@ -650,7 +650,8 @@ button {
   padding: 0 6px;
 }
 
-.sidebar__item:hover .page-menu-btn {
+.sidebar__item:hover .page-menu-btn,
+.sidebar__item.menu-open .page-menu-btn {
   opacity: 1;
 }
 
@@ -756,10 +757,12 @@ button {
 .page-chevron.open .chevron-icon {
   transform: rotate(90deg);
 }
-.sidebar__item:hover .page-icon {
+.sidebar__item:hover .page-icon,
+.sidebar__item.menu-open .page-icon {
   opacity: 0;
 }
-.sidebar__item:hover .page-chevron {
+.sidebar__item:hover .page-chevron,
+.sidebar__item.menu-open .page-chevron {
   opacity: 1;
 }
 
@@ -815,7 +818,8 @@ button {
   transition: opacity 120ms ease, background 120ms ease;
 }
 
-.sidebar__item:hover .page-add-btn {
+.sidebar__item:hover .page-add-btn,
+.sidebar__item.menu-open .page-add-btn {
   opacity: 1;
 }
 .sidebar__item.menu-open .page-actions {
@@ -828,6 +832,7 @@ button {
   pointer-events: auto;
 }
 .sidebar__item:hover .sidebar__title,
+.sidebar__item.menu-open .sidebar__title,
 .sidebar__item:focus-within .sidebar__title {
   max-width: calc(100% - 90px);
 }
@@ -864,7 +869,9 @@ button {
   margin-bottom: 0;
 }
 
-.sidebar__item:hover:not(.menu-open) {
+.sidebar__item:hover,
+/* A page whose menu is open stays highlighted while the pointer is on the menu */
+.sidebar__item.menu-open {
   background: var(--sidebar-hover-bg);
 }
 
