@@ -640,6 +640,8 @@ const handleTitleYChange = (event) => {
 const applyIconFromY = () => {
   if (!iconYMap.value) return;
   const next = iconYMap.value.get('icon') || null;
+  // Before the server's copy arrives the live copy has no icon yet: keep showing the saved one
+  if (!next && !boundTitleProvider.value?.isSynced) return;
   workspace.applyCollabIcon(next);
 };
 

@@ -451,6 +451,7 @@ const setupCollabProvider = () => {
   currentDocName.value = props.collab.docName || null;
   initialContentSeeded.value = false;
   setupSeededAfterSync.value = false;
+  contentSynced.value = false;
   logSetup('provider', { docName: currentDocName.value });
   try {
     collabProvider.value = createCollabProvider({
@@ -489,8 +490,13 @@ const restoreAwarenessCursor = () => {
   updateAwarenessUser();
 };
 
+// The page's content is still on its way from the server, so it isn't really empty yet
+const contentSynced = ref(false);
+const waitingForContent = computed(() => isCollabEnabled.value && !contentSynced.value);
+
 const handleCollabSynced = (synced) => {
   if (!synced) return;
+  contentSynced.value = true;
   emitSavedWithDelay();
   const shouldAttemptSetupSeed =
     props.seedCollabOnMount && isCollabEnabled.value && editor.value && !setupSeededAfterSync.value;
@@ -1504,7 +1510,7 @@ defineExpose({
 </script>
 
 <template>
-  <div ref="wrapperRef" class="tiptap-wrapper">
+  <div ref="wrapperRef" class="tiptap-wrapper" :class="{ 'tiptap-wrapper--waiting': waitingForContent }">
     <TextBubbleMenu v-if="editor" :editor="editor" :ai-streaming="aiStreaming" :ai-enabled="workspace.aiEnabled" @ai-action="runAiBubbleAction" />
     <div
       v-if="editor && listHandleVisible"
