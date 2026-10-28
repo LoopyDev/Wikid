@@ -45,14 +45,18 @@ test.describe('sidebar', () => {
   });
 
   test("shows a page's icon from the icon set, in the sidebar and on the page", async ({ alice: page, workspaceId }) => {
+    await page.emulateMedia({ colorScheme: 'dark' });
     const title = unique('Pinned icon');
     const id = await createPage(page, workspaceId, { title });
     await page.request.patch(`/api/pages/${id}`, { data: { icon: 'icon:pin' } });
     await openPage(page, id);
+    const textColour = await main(page).getByRole('textbox').first().evaluate((el) => getComputedStyle(el).color);
     for (const icon of [sidebarItem(page, title), main(page).locator('.page-icon-main')]) {
       await expect(icon.locator('svg').first()).toBeVisible();
       await expect(icon).not.toContainText('[object');
     }
+    // With no colour chosen it's drawn in the text colour, not the browser's black for buttons
+    await expect(main(page).locator('.page-icon-main svg')).toHaveCSS('color', textColour);
   });
 
   test('deletes a page to the bin and restores it', async ({ alice: page, workspaceId }) => {
