@@ -201,13 +201,35 @@ export function useCellPresence({ emit, activeUser, collabProvider, isCollabEnab
       emit('collabpresence', []);
     }
   };
-  const setCellInputRef = (rowId, fieldId) => (el) => {
+  // A redraw of the table (a page arriving for another row, say) can replace the box being typed
+  // in. Its replacement then takes the cursor, once the redraw is done, so the typing carries on.
+  const setCellInputRef = (rowId, fieldId) => {
     const key = `${rowId}:${fieldId}`;
-    if (!el) {
-      cellInputRefs.delete(key);
-      return;
-    }
-    cellInputRefs.set(key, el);
+    let mine = null;
+    return (el) => {
+      if (el) {
+        mine = el;
+        cellInputRefs.set(key, el);
+        return;
+      }
+      // Vue can add the new box before removing this one, so only forget this one
+      if (cellInputRefs.get(key) === mine) cellInputRefs.delete(key);
+      const old = mine;
+      mine = null;
+      if (!old || old !== document.activeElement) return;
+      const { selectionStart, selectionEnd } = old;
+      queueMicrotask(() => {
+        const next = cellInputRefs.get(key);
+        const active = document.activeElement;
+        if (!next || next === old || !next.isConnected || next.disabled || (active && active !== document.body)) return;
+        next.focus();
+        try {
+          next.setSelectionRange(selectionStart, selectionEnd);
+        } catch {
+          // Not a text box
+        }
+      });
+    };
   };
   const getMeasureContext = () => {
     if (typeof document === 'undefined') return null;
