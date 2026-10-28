@@ -26,6 +26,12 @@ async function newDatabaseFromSidebar(page: Page, title: string) {
  * Open button, so a click lands on those as often as on the box.
  */
 async function addNamedRow(page: Page, databaseId: string, name: string) {
+  await typeNewRow(page, name);
+  await expect.poll(() => nameFieldValues(page, databaseId)).toContain(name);
+}
+
+/** Adds a row and types its name, without waiting for the server. */
+async function typeNewRow(page: Page, name: string) {
   const before = await rowNames(page).count();
   await main(page).getByRole('button', { name: 'Add row' }).click();
   await expect(rowNames(page)).toHaveCount(before + 1);
@@ -33,7 +39,6 @@ async function addNamedRow(page: Page, databaseId: string, name: string) {
   await input.focus();
   await page.keyboard.type(name, { delay: 50 });
   await page.keyboard.press('Enter');
-  await expect.poll(() => nameFieldValues(page, databaseId)).toContain(name);
 }
 
 test.describe('databases', () => {
@@ -51,6 +56,22 @@ test.describe('databases', () => {
     await page.goto(`/doc/${id}`);
     await expect(rowNames(page).nth(0)).toHaveValue('Write tests');
     await expect(rowNames(page).nth(1)).toHaveValue('Ship it');
+  });
+
+  test("keeps typing in a new row while the row before's page is still being made", async ({ alice: page, workspaceId }) => {
+    await openPage(page, await createPage(page, workspaceId));
+    const id = await newDatabaseFromSidebar(page, unique('Slow rows'));
+    await expect(main(page).getByText('No rows yet.')).toBeVisible();
+    // Each row's page arrives a little late, as on a slow server, so the first row's page lands
+    // while the second row's name is being typed, and the table is redrawn under it
+    await page.route(/\/api\/database-rows\/[^/]+\/page/, async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      await route.continue();
+    });
+
+    await typeNewRow(page, 'Write tests');
+    await typeNewRow(page, 'Ship it to everyone');
+    await expect.poll(() => nameFieldValues(page, id)).toEqual(['Write tests', 'Ship it to everyone']);
   });
 
   test('pauses editing while the table is connecting or reconnecting', async ({ alice: page, workspaceId }) => {
