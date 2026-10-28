@@ -1,5 +1,5 @@
 // Loaded from the bootstrap-icons package rather than a vendored copy
-const iconModules = import.meta.glob('@bootstrap-icons/icons/*.svg', { as: 'raw', eager: true });
+const iconModules = import.meta.glob('@bootstrap-icons/icons/*.svg', { query: '?raw', import: 'default', eager: true });
 
 const iconEntries = Object.entries(iconModules)
   .map(([path, svg]) => {
