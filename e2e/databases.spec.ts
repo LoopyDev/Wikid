@@ -285,7 +285,7 @@ test.describe('databases', () => {
     // By dragging Alpha's header onto the left half of Name's
     await main(page).locator('thead th', { hasText: 'Alpha' }).locator('.db-header-button').evaluate((button) => {
       const data = new DataTransfer();
-      const target = [...document.querySelectorAll('thead th')].find((th) => th.textContent?.includes('Name'))!;
+      const target = Array.from(document.querySelectorAll('thead th')).find((th) => th.textContent?.includes('Name'))!;
       const rect = target.getBoundingClientRect();
       const at = { clientX: rect.left + 4, clientY: rect.top + rect.height / 2, bubbles: true, cancelable: true, dataTransfer: data };
       button.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: data }));

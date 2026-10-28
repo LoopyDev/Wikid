@@ -146,7 +146,8 @@ test.describe('loading', () => {
     expect(Math.abs(lineBox.x - (await title.boundingBox())!.x)).toBeLessThan(24);
     await expect(editor(page)).toHaveText('Worth the wait');
     await expect(page.locator('.page-hold')).toHaveCount(0);
-    expect(await page.evaluate(() => (window as any).__stages)).toEqual(['none', 'hold', 'fade', 'skeleton', 'none']);
+    // The last stage is noted on the next frame after the page shows
+    await expect.poll(() => page.evaluate(() => (window as any).__stages)).toEqual(['none', 'hold', 'fade', 'skeleton', 'none']);
   });
 
   test('a page with an icon keeps its title as you come back to it', async ({ alice: page, workspaceId }) => {
