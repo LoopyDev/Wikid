@@ -11,6 +11,7 @@ import { DatabaseValuesService } from './database-values.service';
 import { DatabasesService } from './databases.service';
 import { DatabaseFormsService } from './database-forms.service';
 import { DatabaseViewsService } from './database-views.service';
+import { DatabaseLinksService } from './database-links.service';
 import { WorkspacesService } from './workspaces.service';
 import { UsersService } from './users.service';
 import { PdfService } from '../pdf/pdf.service';
@@ -32,6 +33,7 @@ import { LoginRateLimiter } from '../auth/login-rate-limiter';
     DatabasesService,
     DatabaseFormsService,
     DatabaseViewsService,
+    DatabaseLinksService,
     WorkspacesService,
     UsersService,
     PdfService,

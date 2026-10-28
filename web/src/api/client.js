@@ -249,6 +249,14 @@ export const api = {
       body: JSON.stringify(payload),
     });
   },
+  /** Relation columns elsewhere that point at this database (for a "Linked from" column). */
+  async listIncomingRelations(pageId, { userId, userName } = {}) {
+    return request(`/pages/${pageId}/database/incoming-relations${buildQs({ userId, userName })}`);
+  },
+  /** For each row of this database, the rows of `sourcePageId` whose relation `fieldId` links to it. */
+  async getLinkedRows(pageId, { sourcePageId, fieldId, userId, userName } = {}) {
+    return request(`/pages/${pageId}/database/linked-rows${buildQs({ sourcePageId, fieldId, userId, userName })}`);
+  },
   async getDatabaseRowBacklinks(rowId, { userId, userName } = {}) {
     return request(`/database-rows/${rowId}/backlinks${buildQs({ userId, userName })}`);
   },

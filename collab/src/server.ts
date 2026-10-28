@@ -59,6 +59,13 @@ const parseDocumentName = (documentName: string | undefined | null): WorkspaceDo
 // to everyone with the workspace open. It holds no content, so it's never loaded or saved.
 const EVENTS_DOC_ID = 'events';
 const eventsDocumentName = (workspaceId: string) => `ws:${workspaceId}:${EVENTS_DOC_ID}`;
+// A database's document, `ws:<workspace>:db:<page>`: its workspace and page, or null
+const parseDatabaseDocumentName = (documentName: string | undefined | null) => {
+  const parts = String(documentName || '').trim().split(':');
+  if (parts.length !== 4 || parts[0] !== 'ws' || parts[2] !== 'db' || !parts[1] || !parts[3]) return null;
+  return { workspaceId: parts[1], pageId: parts[3] };
+};
+
 const isEventsDocument = (documentName: string | undefined | null) => {
   const doc = parseDocumentName(documentName);
   return doc?.scope === 'ws' && doc.pageId === EVENTS_DOC_ID;
@@ -284,9 +291,16 @@ const server = new Server({
         if (isEventsDocument(documentName)) return null;
         return fetchDocState(documentName);
       },
-      store: async ({ documentName, state }) => {
+      store: async ({ documentName, state, instance }) => {
         if (isEventsDocument(documentName)) return;
         await storeDocState(documentName, state);
+        // Tell the workspace a database changed, once saved, so a "Linked from" column showing
+        // its links elsewhere can catch up
+        const database = parseDatabaseDocumentName(documentName);
+        const events = database ? instance.documents.get(eventsDocumentName(database.workspaceId)) : null;
+        if (database && events) {
+          events.broadcastStateless(JSON.stringify({ type: 'database-changed', workspaceId: database.workspaceId, pageId: database.pageId }));
+        }
       },
     }),
   ],

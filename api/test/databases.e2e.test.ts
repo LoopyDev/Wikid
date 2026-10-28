@@ -200,6 +200,47 @@ describe('relations', () => {
     expect(JSON.stringify(backlinks.body.backlinks)).toContain(task.body.id);
   });
 
+  it('works out a "Linked from" column from relations pointing here, leaving out databases the user cannot open', async () => {
+    const people = await createDatabase(unique('People'));
+    const tasks = await createDatabase(unique('Tasks'));
+    const ada = (await alice.post(`/pages/${people.pageId}/database/rows`, { data: { [people.titleFieldId]: 'Ada' } })).body;
+    const owner = await addField(tasks.pageId, { name: 'Owner', type: 'RELATION', options: { relation: { pageId: people.pageId } } });
+    const task = (await alice.post(`/pages/${tasks.pageId}/database/rows`, { data: { [tasks.titleFieldId]: 'Write tests', [owner.id]: ada.id } })).body;
+    const linkedFrom = await addField(people.pageId, {
+      name: 'Tasks',
+      type: 'LINKED_FROM',
+      options: { linkedFrom: { pageId: tasks.pageId, fieldId: owner.id } },
+    });
+    expect(linkedFrom).toMatchObject({ type: 'LINKED_FROM', options: { linkedFrom: { pageId: tasks.pageId, fieldId: owner.id } } });
+
+    // Alice's private database links to Ada too
+    const secret = await createPage(alice, workspaceId, { kind: 'DATABASE', title: unique('Secret'), visibility: 'PRIVATE' });
+    const secretDb = (await alice.get(`/pages/${secret.id}/database`)).body;
+    const secretTitle = secretDb.fields.find((f: any) => f.name === 'Name').id;
+    const secretOwner = await addField(secret.id, { name: 'Owner', type: 'RELATION', options: { relation: { pageId: people.pageId } } });
+    await alice.post(`/pages/${secret.id}/database/rows`, { data: { [secretTitle]: 'Hidden task', [secretOwner.id]: ada.id } });
+
+    const relationsFor = async (session: Session) => {
+      const res = await session.get(`/pages/${people.pageId}/database/incoming-relations`);
+      expect(res.status).toBe(200);
+      return res.body.relations.map((r: any) => `${r.databasePageId}:${r.fieldId}`);
+    };
+    expect(await relationsFor(alice)).toEqual(expect.arrayContaining([`${tasks.pageId}:${owner.id}`, `${secret.id}:${secretOwner.id}`]));
+    const bobSees = await relationsFor(bob);
+    expect(bobSees).toContain(`${tasks.pageId}:${owner.id}`);
+    expect(bobSees).not.toContain(`${secret.id}:${secretOwner.id}`);
+
+    const linkedRows = (session: Session, sourcePageId: string, fieldId: string) =>
+      session.get(`/pages/${people.pageId}/database/linked-rows?sourcePageId=${sourcePageId}&fieldId=${fieldId}`);
+    const fromTasks = await linkedRows(bob, tasks.pageId, owner.id);
+    expect(fromTasks.status).toBe(200);
+    expect(fromTasks.body.rows[ada.id]).toEqual([{ rowId: task.id, rowPageId: task.pageId ?? null, title: 'Write tests' }]);
+    expect((await linkedRows(alice, secret.id, secretOwner.id)).body.rows[ada.id]).toHaveLength(1);
+    expect((await linkedRows(bob, secret.id, secretOwner.id)).body.rows).toEqual({});
+    // A field that isn't a relation pointing here shows nothing
+    expect((await linkedRows(alice, tasks.pageId, tasks.titleFieldId)).body.rows).toEqual({});
+  });
+
   it('requires a valid relation target in the same workspace', async () => {
     const { pageId } = await createDatabase();
     const missing = await alice.post(`/pages/${pageId}/database/fields`, { name: 'Rel', type: 'RELATION' });

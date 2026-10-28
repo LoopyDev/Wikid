@@ -749,7 +749,8 @@ const relationRowsForPage = (pageId) => relationRowsByPageId.value[pageId] || []
 const formFieldOptions = computed(() => {
   const used = new Set(activeForm.value?.fields.map((field) => field.fieldId) ?? []);
   return fields.value
-    .filter((field) => field?.id && !used.has(field.id))
+    // A "Linked from" field is worked out from another database, so there's nothing to fill in
+    .filter((field) => field?.id && !used.has(field.id) && field.type !== 'LINKED_FROM')
     .map((field) => ({
       id: field.id,
       name: field.name || 'Field',

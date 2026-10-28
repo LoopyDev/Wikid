@@ -3,14 +3,14 @@ import PageIcon from '../components/PageIcon.vue';
 import { AUTO_SIZE_MULTI_MEMBERS_PLACEHOLDER, AUTO_SIZE_MULTI_PLACEHOLDER, AUTO_SIZE_RELATION_MULTI_PLACEHOLDER, AUTO_SIZE_RELATION_PLACEHOLDER, AUTO_SIZE_SELECT_PLACEHOLDER } from '../utils/database/columnLayout';
 import { formatDateTime } from '../utils/date-format';
 import { getAssetTagValue, getMultiSelectValues, valueForField } from '../utils/database/cellValues';
-import { getRelationConfig, isAssetTagField, isFieldReadOnly, isLastEditedField, isMembersField, isPageField, isPageFieldEditable } from '../utils/database/fieldOptions';
+import { getRelationConfig, isAssetTagField, isFieldReadOnly, isLastEditedField, isLinkedFromField, isMembersField, isPageField, isPageFieldEditable } from '../utils/database/fieldOptions';
 import { handleCellConfirmKeydown, handleNumberKeydown, handleNumberPaste, sanitizeNumberInput } from '../utils/database/cellInput';
 import { multiSelectPillStyle } from '../utils/database/colors';
 
 // Draws a table cell for its field type: text, number, date, checkbox, select and multi-select
 // pills, relations, members, asset tags, page titles (with their page link) and read-only values,
 // with the editing caret and who-is-here presence.
-export function useCellRenderer({ choiceColorForValue, getChoiceLabel, isReadonly, markCellFocus, markCellBlur, openMultiSelectMenu, getCellPresence, caretLeftForCell, openAssetTagPreview, rowPageId, getRowPageTitle, openRowPageOverlay, pageMap, workspace, resolveRowPage, ensureRowPage, applyLocalPageTitleUpdate, schedulePageTitleUpdate, tableWrapRef, pendingEnsureRowPages, scheduleSortRefresh, handleCaretNavigate, handleCaretMouse, markCellTyping, updateCell, setCellInputRef, resolveRowLastEdited, relationOptionsByPageId, relationOptionsLoading, loadRelationOptions, relationOptionsForPage, relationOptionsLoadingForPage, relationOptionsErrorForPage, getFieldChoices }) {
+export function useCellRenderer({ choiceColorForValue, getChoiceLabel, isReadonly, markCellFocus, markCellBlur, openMultiSelectMenu, getCellPresence, caretLeftForCell, openAssetTagPreview, rowPageId, getRowPageTitle, openRowPageOverlay, pageMap, workspace, resolveRowPage, ensureRowPage, applyLocalPageTitleUpdate, schedulePageTitleUpdate, tableWrapRef, pendingEnsureRowPages, scheduleSortRefresh, handleCaretNavigate, handleCaretMouse, markCellTyping, updateCell, setCellInputRef, resolveRowLastEdited, relationOptionsByPageId, relationOptionsLoading, loadRelationOptions, relationOptionsForPage, relationOptionsLoadingForPage, relationOptionsErrorForPage, getFieldChoices, linkedRowsFor }) {
   const renderMultiSelectCell = (row, field) => {
     const values = getMultiSelectValues(row, field);
     const placeholder =
@@ -243,6 +243,35 @@ export function useCellRenderer({ choiceColorForValue, getChoiceLabel, isReadonl
             'Open'
           ),
         ])
+      );
+    }
+    if (isLinkedFromField(field)) {
+      // Rows elsewhere linking to this one: shown here, changed there
+      const linked = linkedRowsFor?.(field.id, row.id) || [];
+      if (!linked.length) return presenceWrap(h('span', { class: 'db-readonly-cell' }, '—'));
+      return presenceWrap(
+        h(
+          'div',
+          { class: 'db-multi-cell db-linked-cell' },
+          linked.map((entry) =>
+            entry.rowPageId
+              ? h(
+                  'button',
+                  {
+                    key: entry.rowId,
+                    class: 'db-multi-pill db-linked-pill',
+                    type: 'button',
+                    title: `Open ${entry.title}`,
+                    onClick: (event) => {
+                      event.stopPropagation();
+                      openRowPageOverlay(entry.rowPageId);
+                    },
+                  },
+                  entry.title
+                )
+              : h('span', { key: entry.rowId, class: 'db-multi-pill' }, entry.title)
+          )
+        )
       );
     }
     if (isLastEditedField(field)) {
