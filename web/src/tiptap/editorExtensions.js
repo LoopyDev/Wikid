@@ -141,6 +141,9 @@ export function createEditorExtensions({
         },
       }).configure({
         resizable: true,
+        // Let the block handle select the whole table (as one block), so moving or deleting it
+        // takes the table itself, not just what's in its cells
+        allowTableNodeSelection: true,
       }),
       TableRow,
       TableHeader,
