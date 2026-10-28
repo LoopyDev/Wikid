@@ -107,9 +107,9 @@ test.describe('databases', () => {
     for (let i = 1; i < boxes.length; i += 1) {
       expect(boxes[i].y, `part ${i} starts below the one before`).toBeGreaterThanOrEqual(boxes[i - 1].y + boxes[i - 1].height - 1);
     }
-    // Each one fits in the menu
+    // Each one fits in the menu (give or take a pixel of rounding, which differs between systems)
     const menuBox = (await menu.boundingBox())!;
-    for (const box of boxes) expect(box.x + box.width).toBeLessThanOrEqual(menuBox.x + menuBox.width);
+    for (const box of boxes) expect(box.x + box.width).toBeLessThanOrEqual(menuBox.x + menuBox.width + 1);
   });
 
   test('pauses editing while the table is connecting or reconnecting', async ({ alice: page, workspaceId }) => {
