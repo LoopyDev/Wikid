@@ -2643,6 +2643,17 @@ button {
   border-color: var(--text-muted);
 }
 
+/* Dragging a column header to move the column: where it lands */
+.database-table__table th.db-header--dragging {
+  opacity: 0.5;
+}
+.database-table__table th.db-header--drop-before {
+  box-shadow: inset 2px 0 0 var(--accent, #3b82f6);
+}
+.database-table__table th.db-header--drop-after {
+  box-shadow: inset -2px 0 0 var(--accent, #3b82f6);
+}
+
 .db-multi-pill {
   display: inline-flex;
   align-items: center;

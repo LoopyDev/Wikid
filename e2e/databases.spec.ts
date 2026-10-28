@@ -196,6 +196,51 @@ test.describe('databases', () => {
     await other.close();
   });
 
+  test('moves columns from their menu or by dragging the header, and keeps the order', async ({ alice: page, workspaceId }) => {
+    const id = await createPage(page, workspaceId, { title: unique('Columns'), kind: 'DATABASE' });
+    await page.goto(`/doc/${id}`);
+    await expect(main(page).getByRole('button', { name: 'Add row' })).toBeVisible();
+    const headers = main(page).locator('thead th .db-header-label');
+    for (const name of ['Alpha', 'Beta']) {
+      await main(page).locator('thead th').last().locator('button').first().click();
+      await page.locator('.db-add-column-menu input').fill(name);
+      await page.locator('.db-add-column-menu .block-menu__item', { hasText: 'Text' }).click();
+      await expect(headers.last()).toHaveText(name);
+    }
+    await expect(headers).toHaveText(['Name', 'Alpha', 'Beta']);
+    const menu = page.locator('.db-field-menu');
+    const openMenu = (name: string) => main(page).locator('thead th', { hasText: name }).locator('.db-header-button').click();
+
+    // From the column's menu
+    await openMenu('Beta');
+    await menu.getByRole('button', { name: 'Move left' }).click();
+    await expect(headers).toHaveText(['Name', 'Beta', 'Alpha']);
+    // The first column can't go further left
+    await openMenu('Name');
+    await expect(menu.getByRole('button', { name: 'Move right' })).toBeVisible();
+    await expect(menu.getByRole('button', { name: 'Move left' })).toHaveCount(0);
+    await page.keyboard.press('Escape');
+    await page.mouse.click(5, 5);
+
+    // By dragging Alpha's header onto the left half of Name's
+    await main(page).locator('thead th', { hasText: 'Alpha' }).locator('.db-header-button').evaluate((button) => {
+      const data = new DataTransfer();
+      const target = [...document.querySelectorAll('thead th')].find((th) => th.textContent?.includes('Name'))!;
+      const rect = target.getBoundingClientRect();
+      const at = { clientX: rect.left + 4, clientY: rect.top + rect.height / 2, bubbles: true, cancelable: true, dataTransfer: data };
+      button.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: data }));
+      target.dispatchEvent(new DragEvent('dragover', at));
+      target.dispatchEvent(new DragEvent('drop', at));
+      button.dispatchEvent(new DragEvent('dragend', { bubbles: true, dataTransfer: data }));
+    });
+    await expect(headers).toHaveText(['Alpha', 'Name', 'Beta']);
+
+    // Kept after a reload
+    await page.waitForTimeout(500);
+    await page.reload();
+    await expect(headers).toHaveText(['Alpha', 'Name', 'Beta']);
+  });
+
   test('pauses editing while the table is connecting or reconnecting', async ({ alice: page, workspaceId }) => {
     // Hold back the live connection: each attempt is closed until allowed.
     let allowed = false;
