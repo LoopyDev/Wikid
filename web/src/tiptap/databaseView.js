@@ -26,6 +26,12 @@ export default Node.create({
       icon: stringAttr('icon'),
       view: jsonAttr('view'),
       viewId: stringAttr('viewId'),
+      // The database's title above the table (on unless turned off from the block menu)
+      showTitle: {
+        default: true,
+        parseHTML: (element) => element.getAttribute('data-show-title') !== 'false',
+        renderHTML: (attributes) => (attributes.showTitle === false ? { 'data-show-title': 'false' } : {}),
+      },
     };
   },
   parseHTML() {

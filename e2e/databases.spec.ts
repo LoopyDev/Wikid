@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test';
-import { test, expect, createPage, openPage, unique } from './fixtures';
+import { test, expect, createPage, openPage, unique, waitForSaved } from './fixtures';
 
 const nameFieldValues = async (page: Page, id: string) => {
   const db = await (await page.request.get(`/api/pages/${id}/database`)).json();
@@ -130,6 +130,56 @@ test.describe('databases', () => {
     await expect(picker).toHaveCSS('color-scheme', 'dark');
   });
 
+  test("a database view block's title opens the database, and can be hidden from the block's menu", async ({ alice: page, workspaceId }) => {
+    const dbTitle = unique('Stock');
+    const db = await createPage(page, workspaceId, { title: dbTitle, kind: 'DATABASE' });
+    const doc = await createPage(page, workspaceId, { title: unique('Report') });
+    await openPage(page, doc);
+    await page.evaluate((pageId) => {
+      (document.querySelector('.ProseMirror') as any).editor.chain().focus('end').insertContent({ type: 'databaseView', attrs: { pageId } }).run();
+    }, db);
+    const block = page.locator('.ce-database-view');
+    const title = block.getByRole('button', { name: dbTitle });
+    await expect(title).toBeVisible();
+
+    // The title opens the database's own page
+    await title.click();
+    await page.waitForURL(`**/doc/${db}`);
+    await expect(page.getByRole('main').getByRole('textbox').first()).toHaveValue(dbTitle);
+    await openPage(page, doc);
+    await expect(title).toBeVisible();
+
+    // Hidden from the block's menu; the table and its buttons stay
+    const toggleTitle = async () => {
+      await block.hover();
+      await page.locator('.drag-handle--floating:not(.drag-handle--list) .drag-handle__btn--drag').click();
+      await page.locator('.block-menu').getByRole('button', { name: 'Show title' }).click();
+    };
+    await toggleTitle();
+    await expect(block.locator('.ce-database-view__title')).toHaveCount(0);
+    await expect(block.locator('.database-table')).toBeVisible();
+    await waitForSaved(page);
+    await page.reload();
+    await expect(block.locator('.database-table')).toBeVisible();
+    await expect(block.locator('.ce-database-view__title')).toHaveCount(0);
+    await toggleTitle();
+    await expect(title).toBeVisible();
+  });
+
+  test('the printed page keeps a database view block\'s title hidden, or shows it as a link', async ({ alice: page, workspaceId }) => {
+    const dbTitle = unique('Stock');
+    const db = await createPage(page, workspaceId, { title: dbTitle, kind: 'DATABASE' });
+    const me = (await (await page.request.get('/api/auth/me')).json()).user;
+    for (const showTitle of [false, true]) {
+      const doc = await createPage(page, workspaceId, { title: unique('Report') });
+      const content = { type: 'doc', content: [{ type: 'databaseView', attrs: { pageId: db, showTitle } }] };
+      expect((await page.request.put(`/api/pages/${doc}/content`, { data: { content } })).status()).toBe(200);
+      await page.goto(`/print/${doc}?userId=${me.id}&userName=${encodeURIComponent(me.displayName)}`);
+      await expect(page.locator('.ce-database-view .database-table')).toBeVisible();
+      await expect(page.locator('.ce-database-view').getByRole('button', { name: dbTitle })).toHaveCount(showTitle ? 1 : 0);
+    }
+  });
+
   test('a "Linked from" column shows the rows of another database that link to each row, and follows changes', async ({ alice: page, workspaceId }) => {
     const projects = await createPage(page, workspaceId, { title: unique('Projects'), kind: 'DATABASE' });
     const tasksTitle = unique('Tasks');
@@ -194,6 +244,16 @@ test.describe('databases', () => {
     await expect(linked(1).locator('.db-multi-pill')).toHaveText(['Pick a font'], { timeout: 20_000 });
     await expect(linked(0).locator('.db-multi-pill')).toHaveText(['Write copy']);
     await other.close();
+
+    // A gallery shows them too, as a card's cover
+    expect((await page.request.post(`/api/pages/${projects}/database/views`, { data: { name: 'Cards', type: 'GALLERY', config: {} } })).status()).toBe(201);
+    await page.reload();
+    await main(page).getByRole('button', { name: 'Cards' }).click();
+    await main(page).locator('.db-view-config-bar select').selectOption({ label: tasksTitle });
+    const cards = main(page).locator('.db-gallery__card');
+    await expect(cards).toHaveCount(2);
+    await expect(cards.nth(0).locator('.db-gallery__cover')).toHaveText('Write copy');
+    await expect(cards.nth(1).locator('.db-gallery__cover')).toHaveText('Pick a font');
   });
 
   test('moves columns from their menu or by dragging the header, and keeps the order', async ({ alice: page, workspaceId }) => {
