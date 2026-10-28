@@ -114,6 +114,12 @@ const displayTitle = computed(() => {
 });
 
 const displayIcon = computed(() => resolvedPage.value?.icon || attrs.value.icon || '');
+// Hidden from the block menu; always there while choosing a database, which it names
+const showTitle = computed(() => attrs.value.showTitle !== false || !hasPage.value);
+const openDatabase = () => {
+  const open = props.extension.options?.openPage;
+  if (hasPage.value && typeof open === 'function') open(attrs.value.pageId);
+};
 const collabOverride = computed(() => {
   const pageId = attrs.value.pageId;
   if (!pageId) return null;
@@ -211,8 +217,20 @@ const handleHiddenFieldIdsUpdate = (next) => {
     contenteditable="false"
     data-type="database-view"
   >
-    <div class="ce-database-view__header">
-      <div class="ce-database-view__title">
+    <div class="ce-database-view__header" :class="{ 'ce-database-view__header--untitled': !showTitle }">
+      <button
+        v-if="showTitle && hasPage"
+        class="ce-database-view__title ce-database-view__title--link"
+        type="button"
+        :title="`Open ${displayTitle}`"
+        @click.stop="openDatabase"
+      >
+        <PageIcon class="ce-database-view__icon" :icon="displayIcon" fallback="DB" aria-hidden="true" />
+        <span class="ce-database-view__text">
+          <span class="ce-database-view__name">{{ displayTitle }}</span>
+        </span>
+      </button>
+      <div v-else-if="showTitle" class="ce-database-view__title">
         <PageIcon class="ce-database-view__icon" :icon="displayIcon" fallback="DB" aria-hidden="true" />
         <div class="ce-database-view__text">
           <span class="ce-database-view__name">{{ displayTitle }}</span>

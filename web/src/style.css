@@ -4306,6 +4306,28 @@ button {
   min-width: 0;
 }
 
+/* The title opens the database's own page */
+.ce-database-view__title--link {
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.ce-database-view__title--link:hover .ce-database-view__name,
+.ce-database-view__title--link:focus-visible .ce-database-view__name {
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+  text-decoration-thickness: 2px;
+}
+
+/* Title hidden from the block menu: the table's own buttons stay, on the right */
+.ce-database-view__header--untitled {
+  justify-content: flex-end;
+}
+
 .ce-database-view__icon {
   font-size: 1rem;
   font-weight: 700;
