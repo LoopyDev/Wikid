@@ -1,6 +1,6 @@
 import { reactive } from 'vue';
 import * as Y from 'yjs';
-import { HocuspocusProvider } from '@hocuspocus/provider';
+import { createCollabProvider } from '../services/collabSocket';
 import { api } from '../api/client';
 import { buildPageLinkFieldsFromCollab, buildPageLinkRowsFromCollab, isPageLinkCollabEmpty, resolvePageLinkRow } from '../utils/pageLinkAttributes';
 
@@ -124,7 +124,7 @@ export function usePageLinkAttributes({ getResolvedPage, workspace, activeWorksp
     rowOrder.observe(observer);
     state.observer = observer;
     try {
-      const provider = new HocuspocusProvider({
+      const provider = createCollabProvider({
         url: workspace.collabUrl,
         name: docName,
         token: () => workspace.collabToken,

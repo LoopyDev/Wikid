@@ -1,7 +1,6 @@
 <script setup>
 import { NodeViewWrapper } from '@tiptap/vue-3';
 import { computed, onBeforeUnmount, ref } from 'vue';
-import { useWorkspaceStore } from '../stores/workspace';
 
 const props = defineProps({
   editor: { type: Object, required: true },
@@ -12,7 +11,6 @@ const props = defineProps({
 });
 
 const containerRef = ref(null);
-const workspace = useWorkspaceStore();
 let startX = 0;
 let startWidth = 0;
 let dragging = false;
@@ -57,29 +55,14 @@ const imagePos = computed(() => {
   }
 });
 
-const displaySrc = computed(() => {
-  const src = props.node?.attrs?.src;
-  if (!src) return '';
-  const userId = workspace.activeUser?.id;
-  if (!userId) return src;
-  try {
-    const base = src.startsWith('http')
-      ? undefined
-      : (import.meta.env.VITE_API_URL || (typeof window !== 'undefined' ? window.location.origin : ''));
-    const url = new URL(src, base);
-    if (!url.pathname.startsWith('/uploads/')) return src;
-    if (!url.searchParams.get('userId')) {
-      url.searchParams.set('userId', userId);
-    }
-    const userName = workspace.activeUser?.name;
-    if (userName && !url.searchParams.get('userName')) {
-      url.searchParams.set('userName', userName);
-    }
-    return url.toString();
-  } catch {
-    return src;
-  }
-});
+// Its size when uploaded, so the space is kept while it loads instead of the text below jumping
+const naturalWidth = computed(() => Number(props.node?.attrs?.naturalWidth) || undefined);
+const naturalHeight = computed(() => Number(props.node?.attrs?.naturalHeight) || undefined);
+const containerWidth = computed(() => props.node?.attrs?.width || (naturalWidth.value && naturalHeight.value ? `${naturalWidth.value}px` : undefined));
+
+// Images further down a page load as you scroll to them, except when printing to PDF, which
+// captures the whole page at once
+const loading = typeof window !== 'undefined' && window.location.pathname.startsWith('/print/') ? 'eager' : 'lazy';
 </script>
 
 <template>
@@ -88,9 +71,16 @@ const displaySrc = computed(() => {
       class="tiptap-image-resizable"
       ref="containerRef"
       :data-pos="imagePos >= 0 ? imagePos : undefined"
-      :style="{ width: node?.attrs?.width || undefined, maxWidth: '100%' }"
+      :style="{ width: containerWidth, maxWidth: '100%' }"
     >
-      <img :src="displaySrc" :alt="node?.attrs?.alt || ''" />
+      <img
+        :src="node?.attrs?.src || ''"
+        :alt="node?.attrs?.alt || ''"
+        :width="naturalWidth && naturalHeight ? naturalWidth : undefined"
+        :height="naturalWidth && naturalHeight ? naturalHeight : undefined"
+        :loading="loading"
+        decoding="async"
+      />
       <button
         class="tiptap-image-resize-handle"
         type="button"

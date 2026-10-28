@@ -74,7 +74,12 @@ export class Session {
       headers: { 'Content-Type': 'application/json', ...(this.cookie ? { cookie: this.cookie } : {}) },
       body: init.body === undefined ? undefined : JSON.stringify(init.body),
     });
-    return { status: res.status, contentType: res.headers.get('content-type') || '', bytes: new Uint8Array(await res.arrayBuffer()) };
+    return {
+      status: res.status,
+      contentType: res.headers.get('content-type') || '',
+      cacheControl: res.headers.get('cache-control') || '',
+      bytes: new Uint8Array(await res.arrayBuffer()),
+    };
   }
 
   async login(email: string, password = DEMO_PASSWORD) {

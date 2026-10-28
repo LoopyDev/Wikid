@@ -1,4 +1,4 @@
-import { HocuspocusProvider } from '@hocuspocus/provider';
+import { createCollabProvider } from './collabSocket';
 
 // Live "something changed" messages for a workspace. The collab server relays them on a
 // content-free document per workspace (ws:<id>:events), sent by the API whenever pages are
@@ -9,7 +9,7 @@ import { HocuspocusProvider } from '@hocuspocus/provider';
  * reconnect, so an expired token is replaced). Returns a function that leaves the channel.
  */
 export function connectWorkspaceEvents({ url, workspaceId, getToken, onPagesChanged }) {
-  const provider = new HocuspocusProvider({
+  const provider = createCollabProvider({
     url,
     name: `ws:${workspaceId}:events`,
     token: getToken,

@@ -1496,6 +1496,8 @@ const toggleExpand = (id) => {
   expanded.value[id] = !expanded.value[id];
 };
 
+const prefetchSidebarPage = (page) => workspace.prefetchPage(page?.id);
+
 const handlePageItemClick = (page) => {
   if (activePageId.value === page.id) {
     toggleExpand(page.id);
@@ -2075,6 +2077,7 @@ if (typeof window !== 'undefined') {
             :is-expanded="isExpanded"
             :toggle-expand="toggleExpand"
             :select="handlePageItemClick"
+            :prefetch="prefetchSidebarPage"
             :toggle-tree="toggleTreeExpansion"
             :toggle-menu="toggleMenu"
             :duplicate="duplicatePage"
@@ -2115,6 +2118,7 @@ if (typeof window !== 'undefined') {
             :is-expanded="isExpanded"
             :toggle-expand="toggleExpand"
             :select="handlePageItemClick"
+            :prefetch="prefetchSidebarPage"
             :toggle-tree="toggleTreeExpansion"
             :toggle-menu="toggleMenu"
             :duplicate="duplicatePage"

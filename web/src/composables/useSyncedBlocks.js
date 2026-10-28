@@ -1,6 +1,6 @@
 import { computed, ref } from 'vue';
 import * as Y from 'yjs';
-import { HocuspocusProvider } from '@hocuspocus/provider';
+import { createCollabProvider } from '../services/collabSocket';
 import { ORIGIN_META_KEY, SYNCED_FROM_ATTR } from '../tiptap/editorShared';
 import { api } from '../api/client';
 import { createSyncedNodeFromSource, findBlockById, resolveWorkspaceSyncedKey, serializeSyncedNode, sourceKey, SYNCED_PAYLOAD_FROM, syncedPayloadContent, withSyncedOrigin, workspaceSyncedKey } from '../tiptap/syncedBlocks';
@@ -373,7 +373,7 @@ export function useSyncedBlocks({ props, workspace, activeWorkspaceId, getResolv
     bindSyncedWorkspaceRefsMap(doc);
     bindSyncedWorkspaceLocksMap(doc);
     try {
-      syncedWorkspaceProvider.value = new HocuspocusProvider({
+      syncedWorkspaceProvider.value = createCollabProvider({
         url: props.collab.url,
         name,
         token: () => props.collab?.token,

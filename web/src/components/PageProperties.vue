@@ -1,7 +1,7 @@
 <script setup>
 import { computed, inject, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import * as Y from 'yjs';
-import { HocuspocusProvider } from '@hocuspocus/provider';
+import { createCollabProvider } from '../services/collabSocket';
 import { api } from '../api/client';
 import { formatDateTime } from '../utils/date-format';
 import { useWorkspaceStore } from '../stores/workspace';
@@ -652,7 +652,7 @@ const ensureCollabProvider = () => {
   }
   if (collabProvider.value && currentCollabDocName.value === docName) return;
   try {
-    collabProvider.value = new HocuspocusProvider({
+    collabProvider.value = createCollabProvider({
       url: ctx.url,
       name: ctx.docName,
       token: () => collabContext.value?.token,

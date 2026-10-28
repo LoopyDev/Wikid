@@ -1,6 +1,6 @@
 import { computed, ref } from 'vue';
 import * as Y from 'yjs';
-import { HocuspocusProvider } from '@hocuspocus/provider';
+import { createCollabProvider } from '../services/collabSocket';
 import { ROW_ID_COLUMN_ID } from '../utils/database/columnLayout';
 import { clearYMap, getEntryValue, hydrateRow, readCollabOrder, toPlainValue } from '../utils/database/collabRows';
 import { normalizeFieldOptions } from '../utils/database/fieldOptions';
@@ -379,7 +379,7 @@ export function useDatabaseCollab({ props, workspace, fields, rows, sorting, col
       return;
     }
     try {
-      collabProvider.value = new HocuspocusProvider({
+      collabProvider.value = createCollabProvider({
         url: ctx.url,
         name: ctx.docName,
         token: () => collabContext.value?.token,
