@@ -45,6 +45,9 @@ export const useWorkspaceStore = defineStore('workspace', {
     deletingCascade: false,
     // An admin set this user's password; they choose their own before using the app.
     mustChangePassword: false,
+    // False until the server has said whether the remembered sign-in still works, and whether this
+    // user must choose a new password first; the app shows "Signing in…" meanwhile
+    sessionChecked: false,
     // The server has AI set up and the admin hasn't turned it off (see aiEnabled).
     aiAvailable: false,
     // Set when someone moves the open page (or a page it's inside) to the Bin:
@@ -146,8 +149,12 @@ export const useWorkspaceStore = defineStore('workspace', {
       }
     },
     async loadInitial() {
-      if (this.activeUser && this.mustChangePassword) return;
+      if (this.activeUser && this.mustChangePassword) {
+        this.sessionChecked = true;
+        return;
+      }
       if (!this.activeUser) {
+        this.sessionChecked = true;
         this.pages = [];
         this.binPages = [];
         this.activePageId = null;
@@ -190,6 +197,11 @@ export const useWorkspaceStore = defineStore('workspace', {
           this.titleDraft = 'Untitled page';
         }
       } catch (err) {
+        // An admin set this user's password: they choose their own before anything else. Not an error.
+        if (err?.status === 403 && err?.body?.code === 'PASSWORD_CHANGE_REQUIRED') {
+          this.mustChangePassword = true;
+          return;
+        }
         console.warn('Load pages failed', err?.message || err);
         this.pages = [];
         this.binPages = [];
@@ -204,6 +216,7 @@ export const useWorkspaceStore = defineStore('workspace', {
         this.error = err?.message || 'Failed to load pages';
       } finally {
         this.loadingPages = false;
+        this.sessionChecked = true;
       }
     },
     async refreshWorkspaces() {
@@ -444,6 +457,7 @@ export const useWorkspaceStore = defineStore('workspace', {
       this.activeUserName = null;
       this.activeUserEmail = null;
       this.mustChangePassword = false;
+      this.sessionChecked = false;
       this.userPreferences = {};
       this.activePageId = null;
       this.activePageWorkspaceId = null;
@@ -488,17 +502,16 @@ export const useWorkspaceStore = defineStore('workspace', {
     requirePasswordChange() {
       if (!this.activeUserId || this.mustChangePassword) return;
       this.mustChangePassword = true;
-      this.saveUserToStorage();
     },
     saveUserToStorage() {
       if (typeof localStorage === 'undefined' || !this.activeUserId) return;
       localStorage.setItem(
         'wikid:user',
+        // Just enough to remember who's signed in. The rest (email, whether they must choose a new
+        // password) comes from the server as the app loads.
         JSON.stringify({
           id: this.activeUserId,
           name: this.activeUserName,
-          email: this.activeUserEmail,
-          mustChangePassword: this.mustChangePassword,
         }),
       );
     },
@@ -510,8 +523,8 @@ export const useWorkspaceStore = defineStore('workspace', {
         if (entry?.id) {
           this.activeUserId = entry.id;
           this.activeUserName = entry.name || entry.id;
-          this.activeUserEmail = entry.email || null;
-          this.mustChangePassword = !!entry.mustChangePassword;
+          // Earlier versions also saved the email and the password-change flag here; save again without them
+          if ('email' in entry || 'mustChangePassword' in entry) this.saveUserToStorage();
         }
       } catch {
         // ignore
@@ -535,6 +548,7 @@ export const useWorkspaceStore = defineStore('workspace', {
           userName: this.activeUser.name,
         });
         this.setUserPreferences(user?.preferences || {});
+        if (user?.email !== undefined) this.activeUserEmail = user.email || null;
       } catch (err) {
         console.warn('Load user preferences failed', err);
       }

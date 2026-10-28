@@ -10234,3 +10234,14 @@ button {
   font-size: 0.75rem;
   opacity: 0.8;
 }
+
+/* Shown briefly on load while the server confirms the remembered sign-in */
+.app-signing-in {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--content-bg);
+  color: var(--text-muted);
+}
+
