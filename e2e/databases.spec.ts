@@ -112,6 +112,24 @@ test.describe('databases', () => {
     for (const box of boxes) expect(box.x + box.width).toBeLessThanOrEqual(menuBox.x + menuBox.width);
   });
 
+  test("a database view block's view picker follows the theme", async ({ alice: page, workspaceId }) => {
+    await page.emulateMedia({ colorScheme: 'dark' });
+    const db = await createPage(page, workspaceId, { title: unique('Viewed'), kind: 'DATABASE' });
+    expect((await page.request.post(`/api/pages/${db}/database/views`, { data: { name: 'Open tasks', config: {} } })).status()).toBe(201);
+    await openPage(page, await createPage(page, workspaceId));
+    await page.evaluate((pageId) => {
+      (document.querySelector('.ProseMirror') as any).editor.chain().focus('end').insertContent({ type: 'databaseView', attrs: { pageId } }).run();
+    }, db);
+    const picker = page.locator('.ce-database-view__view-select');
+    await expect(picker).toBeVisible();
+    await expect(picker.locator('option', { hasText: 'Open tasks' })).toHaveCount(1);
+    // In the page's colours, not the browser's white select, and its list drawn dark too
+    const textColour = await page.locator('.ProseMirror').evaluate((el) => getComputedStyle(el).color);
+    await expect(picker).toHaveCSS('color', textColour);
+    await expect(picker).not.toHaveCSS('background-color', 'rgb(255, 255, 255)');
+    await expect(picker).toHaveCSS('color-scheme', 'dark');
+  });
+
   test('pauses editing while the table is connecting or reconnecting', async ({ alice: page, workspaceId }) => {
     // Hold back the live connection: each attempt is closed until allowed.
     let allowed = false;
