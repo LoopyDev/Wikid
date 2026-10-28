@@ -8,6 +8,7 @@ export const fieldTypes = [
   { value: 'SELECT', label: 'Select' },
   { value: 'MULTI_SELECT', label: 'Multi-select' },
   { value: 'RELATION', label: 'Relation' },
+  { value: 'LINKED_FROM', label: 'Linked from' },
   { value: 'URL', label: 'URL' },
 ];
 
@@ -19,6 +20,7 @@ export const fieldTypeIcons = {
   SELECT: 'Sel',
   MULTI_SELECT: 'Mul',
   RELATION: 'Rel',
+  LINKED_FROM: 'Lnk',
   URL: 'URL',
 };
 
@@ -73,6 +75,19 @@ export const getRelationConfig = (field) => {
     history = { enabled: true, pageId: historyPageId || '' };
   }
   return { pageId, allowMultiple: relation.allowMultiple === true, history };
+};
+
+// The other side of a relation: the rows of another database whose relation links to each row.
+// Worked out from that relation, so its cells can't be edited here.
+export const isLinkedFromField = (field) => field?.type === 'LINKED_FROM';
+
+/** The relation a "Linked from" field follows: { pageId (its database), fieldId }, or null. */
+export const getLinkedFromConfig = (field) => {
+  const linkedFrom = normalizeFieldOptions(field)?.linkedFrom;
+  if (!linkedFrom || typeof linkedFrom !== 'object' || Array.isArray(linkedFrom)) return null;
+  const pageId = typeof linkedFrom.pageId === 'string' ? linkedFrom.pageId.trim() : '';
+  const fieldId = typeof linkedFrom.fieldId === 'string' ? linkedFrom.fieldId.trim() : '';
+  return pageId && fieldId ? { pageId, fieldId } : null;
 };
 
 export const isSystemField = (field) => {

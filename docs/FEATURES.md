@@ -54,7 +54,7 @@ What Wikid does today, and how much to rely on each part. Wikid is in early deve
 | Table view with inline editing | Stable | |
 | Field types: text, number, date, checkbox, select, multi-select, URL, relation | Stable | Also people, asset tags and "last edited" fields. |
 | Each row opens as its own page | Stable | |
-| Relations between databases, with backlinks | Beta | |
+| Relations between databases, with backlinks | Beta | A "Linked from" column shows a relation's other side (read-only; edit the link from the other database). |
 | Saved views with filters and sorts | Stable | |
 | Board and gallery views | Beta | |
 | Forms: builder, submissions straight into the database, QR codes | Beta | The builder and submissions are tested; QR codes aren't. |

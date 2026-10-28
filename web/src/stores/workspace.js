@@ -86,6 +86,9 @@ export const useWorkspaceStore = defineStore('workspace', {
     // Set when someone moves the open page (or a page it's inside) to the Bin:
     // { openPageId, pageId, pageTitle, pageIds, byName, byMe }. Only shown while that page is still open.
     remoteDeletion: null,
+    // When each database (by page id) last changed, as the collab server saved it: a "Linked from"
+    // column showing another database's links watches this to catch up
+    databaseChangedAt: {},
     collabToken: null,
     collabDocName: null,
     collabWorkspaceId: null,
@@ -373,6 +376,9 @@ export const useWorkspaceStore = defineStore('workspace', {
           return res?.token || '';
         },
         onPagesChanged: (message) => this.handlePagesChanged(message),
+        onDatabaseChanged: (message) => {
+          if (message?.pageId) this.databaseChangedAt = { ...this.databaseChangedAt, [message.pageId]: Date.now() };
+        },
       });
     },
     handlePagesChanged(message) {
