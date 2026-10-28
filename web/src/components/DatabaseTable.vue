@@ -962,6 +962,10 @@ const displayValueForField = (row, field) => {
   if (field.type === 'RELATION') {
     return getRelationDisplayValue(row, field);
   }
+  // The rows elsewhere linking here, by title: for gallery cards, sorting, filters and sizing
+  if (isLinkedFromField(field)) {
+    return linkedRowsFor(field.id, row.id).map((entry) => entry.title);
+  }
   if (field.type === 'SELECT') {
     return getChoiceLabel(field, valueForField(row, field));
   }

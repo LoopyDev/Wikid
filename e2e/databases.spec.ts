@@ -244,6 +244,16 @@ test.describe('databases', () => {
     await expect(linked(1).locator('.db-multi-pill')).toHaveText(['Pick a font'], { timeout: 20_000 });
     await expect(linked(0).locator('.db-multi-pill')).toHaveText(['Write copy']);
     await other.close();
+
+    // A gallery shows them too, as a card's cover
+    expect((await page.request.post(`/api/pages/${projects}/database/views`, { data: { name: 'Cards', type: 'GALLERY', config: {} } })).status()).toBe(201);
+    await page.reload();
+    await main(page).getByRole('button', { name: 'Cards' }).click();
+    await main(page).locator('.db-view-config-bar select').selectOption({ label: tasksTitle });
+    const cards = main(page).locator('.db-gallery__card');
+    await expect(cards).toHaveCount(2);
+    await expect(cards.nth(0).locator('.db-gallery__cover')).toHaveText('Write copy');
+    await expect(cards.nth(1).locator('.db-gallery__cover')).toHaveText('Pick a font');
   });
 
   test('pauses editing while the table is connecting or reconnecting', async ({ alice: page, workspaceId }) => {
