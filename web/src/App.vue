@@ -164,11 +164,41 @@ const {
   insets: pageHoldInsets,
   start: startPageHold,
   release: releasePageHold,
-} = usePageSwitchHold();
+  debug: debugPageSwitch,
+} = usePageSwitchHold({ describe: () => describePageShown() });
 // The live document whose content the editor has, once it's arrived
 const editorContentReadyFor = ref(null);
 const handleEditorContentReady = (docName) => {
+  debugPageSwitch('editor content ready', { docName: shortId(docName) });
   editorContentReadyFor.value = docName;
+};
+const shortId = (value) => (typeof value === 'string' ? value.slice(-6) : value ?? null);
+// What the page shows right now, for the page switch timeline
+const describePageShown = () => {
+  const surface = pageSurfaceRef.value;
+  const slot = surface?.querySelector(':scope > .page-body-slot');
+  const body = slot?.querySelector(':scope > .page-body');
+  const editorEl = body?.querySelector('.ProseMirror');
+  return {
+    page: shortId(activePageId.value),
+    kind: workspace.currentPage?.kind || null,
+    wiki: !!workspace.currentPage?.wikiConfig,
+    loadingDoc: loadingDoc.value,
+    error: error.value || null,
+    liveDoc: shortId(workspace.collabDocName),
+    hasToken: !!workspace.collabToken,
+    readyFor: shortId(editorContentReadyFor.value),
+    slot: slot ? slot.className : 'none',
+    loadingMessage: !!slot?.querySelector(':scope > .muted'),
+    body: body
+      ? {
+          opacity: getComputedStyle(body).opacity,
+          height: Math.round(body.getBoundingClientRect().height),
+          editor: editorEl ? { textLength: editorEl.textContent.length, blocks: editorEl.childElementCount, waiting: !!body.querySelector('.tiptap-wrapper--waiting') } : null,
+          database: !!body.querySelector('.database-table'),
+        }
+      : null,
+  };
 };
 const currentPageBody = () => pageSurfaceRef.value?.querySelector(':scope > .page-body-slot > .page-body') || null;
 watch(
@@ -176,7 +206,10 @@ watch(
   (next, previous) => {
     const pageToPage = previous && !previous.includes(':form:') && !next.includes(':form:') && !isSysadminView.value;
     // Only from a page that was on screen (not the app starting up)
-    if (!pageToPage || !pageSurfaceRef.value) return;
+    if (!pageToPage || !pageSurfaceRef.value) {
+      if (previous) debugPageSwitch('switched without holding', { pageToPage: !!pageToPage, hadPage: !!pageSurfaceRef.value });
+      return;
+    }
     editorContentReadyFor.value = null;
     startPageHold(currentPageBody());
   },
@@ -190,9 +223,11 @@ const checkPageReady = async () => {
   // A page without a live editor (a database, a wiki's list, an error) is ready once it's loaded;
   // one with an editor, once that has the page's content
   const hasEditor = !!body?.querySelector('.tiptap-wrapper');
-  if (error.value || !hasEditor || !workspace.collabDocName || editorContentReadyFor.value === workspace.collabDocName) {
-    releasePageHold();
-  }
+  if (error.value) releasePageHold('error');
+  else if (!hasEditor) releasePageHold(body ? 'loaded, no editor on the page' : 'loaded, no page body');
+  else if (!workspace.collabDocName) releasePageHold('loaded, no live document');
+  else if (editorContentReadyFor.value === workspace.collabDocName) releasePageHold('editor content synced');
+  else debugPageSwitch('waiting for the editor content');
 };
 watch([pageHoldStage, loadingDoc, error, editorContentReadyFor, () => workspace.collabDocName], checkPageReady, { flush: 'post' });
 const rowPageOverlayId = ref(null);
