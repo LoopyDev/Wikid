@@ -1,4 +1,4 @@
-import { computed, defineComponent, Fragment, h, ref, Teleport } from 'vue';
+import { computed, defineComponent, Fragment, h, onBeforeUnmount, ref, Teleport } from 'vue';
 import PageIcon from './PageIcon.vue';
 import { CHEVRON_RIGHT } from '../constants/icons';
 
@@ -77,7 +77,24 @@ export default defineComponent({
       return descendants.length > 0 && descendants.every((id) => props.isExpanded(id));
     };
 
-    const renderNode = (page, depth) => {
+    // The pointer's page, and the top-level page whose branch it's in: the rest of that branch is
+    // lit up faintly. It lingers a moment after the pointer leaves, so moving between pages
+    // doesn't flicker; one timer for the whole tree, so moving on can't clear the next highlight.
+    const hoveredBranch = ref(null);
+    let branchClearTimer = null;
+    const hoverBranch = (rootId, pageId) => {
+      clearTimeout(branchClearTimer);
+      hoveredBranch.value = { rootId, pageId };
+    };
+    const leaveBranch = () => {
+      clearTimeout(branchClearTimer);
+      branchClearTimer = setTimeout(() => {
+        hoveredBranch.value = null;
+      }, 300);
+    };
+    onBeforeUnmount(() => clearTimeout(branchClearTimer));
+
+    const renderNode = (page, depth, rootId = page.id) => {
           const isOpen = props.isExpanded(page.id);
           const children = childrenOf(page.id);
           const subtreeFullyExpanded = isSubtreeFullyExpanded(page.id);
@@ -178,7 +195,11 @@ export default defineComponent({
       const row = h(
         'div',
         {
-          class: ['sidebar__item', { active: page.id === props.activeId, 'menu-open': props.menuOpenFor === page.id }],
+          class: ['sidebar__item', {
+            active: page.id === props.activeId,
+            'menu-open': props.menuOpenFor === page.id,
+            'tree-hovered': hoveredBranch.value?.rootId === rootId && hoveredBranch.value.pageId !== page.id,
+          }],
           'data-depth': depth,
           'data-dragging': isDragging.value ? 'true' : 'false',
           'data-dragover': isDragOver.value ? 'true' : 'false',
@@ -202,44 +223,11 @@ export default defineComponent({
             if (props.prefetch && page.id !== props.activeId) {
               itemEl._prefetchTimer = setTimeout(() => props.prefetch(page), 150);
             }
-            if (itemEl._collapseTimer) {
-              clearTimeout(itemEl._collapseTimer);
-              itemEl._collapseTimer = null;
-            }
-            // highlight all items in the same tree branch
-            const itemDepth = parseInt(itemEl.dataset.depth) || 0;
-            const treeItems = [];
-            let root = itemDepth === 0 ? itemEl : null;
-            if (!root) {
-              let sib = itemEl.previousElementSibling;
-              while (sib) {
-                if (sib.classList.contains('sidebar__item') && (parseInt(sib.dataset.depth) || 0) === 0) {
-                  root = sib;
-                  break;
-                }
-                sib = sib.previousElementSibling;
-              }
-            }
-            if (root) {
-              if (root !== itemEl) treeItems.push(root);
-              let sib = root.nextElementSibling;
-              while (sib && sib.classList.contains('sidebar__item')) {
-                if ((parseInt(sib.dataset.depth) || 0) === 0) break;
-                if (sib !== itemEl) treeItems.push(sib);
-                sib = sib.nextElementSibling;
-              }
-            }
-            treeItems.forEach(el => el.classList.add('tree-hovered'));
-            itemEl._treeHoveredItems = treeItems;
+            hoverBranch(rootId, page.id);
           },
           onMouseleave: (e) => {
-            const itemEl = e.currentTarget;
-            clearTimeout(itemEl._prefetchTimer);
-            itemEl._collapseTimer = setTimeout(() => {
-              (itemEl._treeHoveredItems || []).forEach(el => el.classList.remove('tree-hovered'));
-              itemEl._treeHoveredItems = null;
-              itemEl._collapseTimer = null;
-            }, 300);
+            clearTimeout(e.currentTarget._prefetchTimer);
+            leaveBranch();
           },
         },
         [
@@ -344,7 +332,7 @@ export default defineComponent({
 
       const childrenNodes = isOpen
         ? children.length
-          ? children.map((child) => renderNode(child, depth + 1))
+          ? children.map((child) => renderNode(child, depth + 1, rootId))
           : [h('div', { class: 'page-empty', style: { paddingLeft: `${(depth + 1) * 12}px` } }, 'No pages inside')]
         : [];
 
