@@ -28,6 +28,7 @@ import UserMenu from './components/UserMenu.vue';
 import DeletePageModal from './components/DeletePageModal.vue';
 import BinModal from './components/BinModal.vue';
 import PageTree from './components/PageTree';
+import { usePageSwitchHold } from './composables/usePageSwitchHold';
 import { api, AUTH_EXPIRED_EVENT, PASSWORD_CHANGE_REQUIRED_EVENT } from './api/client';
 import { editorDocToMarkdown, editorDocToMarkdownAsync, fallbackDoc } from './utils/editorDoc';
 import { SYSTEM_ADMIN_ID } from './constants/system-admin';
@@ -153,6 +154,47 @@ const editorCollab = computed(() => {
   if (!workspace.collabDocName || !workspace.collabToken) return null;
   return { docName: workspace.collabDocName, token: workspace.collabToken, url: workspace.collabUrl };
 });
+
+// Moving between pages keeps the page being left on screen until the next one's content is in
+const pageSurfaceRef = ref(null);
+const {
+  stage: pageHoldStage,
+  revealing: pageRevealing,
+  holdEl: pageHoldRef,
+  insets: pageHoldInsets,
+  start: startPageHold,
+  release: releasePageHold,
+} = usePageSwitchHold();
+// The live document whose content the editor has, once it's arrived
+const editorContentReadyFor = ref(null);
+const handleEditorContentReady = (docName) => {
+  editorContentReadyFor.value = docName;
+};
+const currentPageBody = () => pageSurfaceRef.value?.querySelector(':scope > .page-body-slot > .page-body') || null;
+watch(
+  pageTransitionKey,
+  (next, previous) => {
+    const pageToPage = previous && !previous.includes(':form:') && !next.includes(':form:') && !isSysadminView.value;
+    // Only from a page that was on screen (not the app starting up)
+    if (!pageToPage || !pageSurfaceRef.value) return;
+    editorContentReadyFor.value = null;
+    startPageHold(currentPageBody());
+  },
+  { flush: 'pre' }
+);
+const checkPageReady = async () => {
+  if (!pageHoldStage.value || loadingDoc.value) return;
+  await nextTick();
+  if (!pageHoldStage.value) return;
+  const body = currentPageBody();
+  // A page without a live editor (a database, a wiki's list, an error) is ready once it's loaded;
+  // one with an editor, once that has the page's content
+  const hasEditor = !!body?.querySelector('.tiptap-wrapper');
+  if (error.value || !hasEditor || !workspace.collabDocName || editorContentReadyFor.value === workspace.collabDocName) {
+    releasePageHold();
+  }
+};
+watch([pageHoldStage, loadingDoc, error, editorContentReadyFor, () => workspace.collabDocName], checkPageReady, { flush: 'post' });
 const rowPageOverlayId = ref(null);
 const rowPageOverlayBaseId = ref(null);
 const openRowPageOverlay = (pageOrId) => {
@@ -2363,8 +2405,9 @@ if (typeof window !== 'undefined') {
             <p class="muted">Add pages to the workspace in the sidebar to get started.</p>
           </div>
         </template>
-        <Transition v-else name="page-slide" mode="out-in">
-          <div :key="pageTransitionKey" class="page-surface">
+        <!-- While holding on to the last page, swap straight away: it stays on screen meanwhile -->
+        <Transition v-else name="page-slide" :mode="pageHoldStage ? undefined : 'out-in'" :css="!pageHoldStage">
+          <div :key="pageTransitionKey" ref="pageSurfaceRef" class="page-surface">
             <div
               class="frame-heading"
               :class="{
@@ -2425,6 +2468,10 @@ if (typeof window !== 'undefined') {
                 <button class="ghost-btn" type="button" @click="workspace.leaveRemotelyDeletedPage()">Close</button>
               </span>
             </div>
+            <div
+              class="page-body-slot"
+              :class="{ 'page-body-slot--holding': pageHoldStage, 'page-body-slot--revealing': pageRevealing }"
+            >
             <div v-if="error" class="alert">{{ error }}</div>
             <div v-else-if="loadingDoc" class="muted">Loading page...</div>
             <section
@@ -2495,6 +2542,7 @@ if (typeof window !== 'undefined') {
                     @update:doc="handleUpdateDoc"
                     @status="handleCollabStatus"
                     @collabready="handleCollabReady"
+                    @contentready="handleEditorContentReady"
                   />
                   <div v-if="isSetupPage && !setupAutoCompleteTriggered" class="setup-callout">
                     <p class="muted">Or select from one of these page types:</p>
@@ -2564,6 +2612,26 @@ if (typeof window !== 'undefined') {
                 </div>
               </div>
             </section>
+            <!-- After the page's own body, so anything looking for the editor finds the live one -->
+            <div
+              v-if="pageHoldStage"
+              ref="pageHoldRef"
+              class="page-hold"
+              :class="`page-hold--${pageHoldStage}`"
+              :data-stage="pageHoldStage"
+              inert
+              aria-hidden="true"
+            >
+              <div class="page-hold__copy"></div>
+              <div
+                v-if="pageHoldStage === 'skeleton'"
+                class="page-hold__skeleton"
+                :style="pageHoldInsets ? { paddingLeft: `${pageHoldInsets.left}px`, paddingRight: `${pageHoldInsets.right}px` } : null"
+              >
+                <span v-for="line in 5" :key="line" class="page-hold__line"></span>
+              </div>
+            </div>
+            </div>
           </div>
         </Transition>
       </div><!-- /wikid-mainframe -->

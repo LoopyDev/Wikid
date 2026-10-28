@@ -1058,6 +1058,91 @@ button {
   }
 }
 
+/* Moving to another page: the page being left stays on screen, as a still copy over the new page's
+   body, until the new page's content is in (see usePageSwitchHold). A slower switch fades the
+   copy, a slow one shows placeholder lines, and the new content fades in once it's there. */
+.page-body-slot {
+  grid-column: 1;
+  position: relative;
+  min-width: 0;
+}
+.page-body-slot--holding > :not(.page-hold) {
+  opacity: 0;
+}
+.page-body-slot--revealing > :not(.page-hold) {
+  animation: page-reveal 160ms ease-out;
+}
+@keyframes page-reveal {
+  from {
+    opacity: 0;
+  }
+}
+.page-hold {
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: 1;
+  pointer-events: none;
+}
+.page-hold__copy {
+  transition: opacity 200ms ease, filter 200ms ease;
+}
+.page-hold--fade .page-hold__copy {
+  opacity: 0.5;
+  filter: blur(1.5px);
+}
+.page-hold--skeleton .page-hold__copy {
+  display: none;
+}
+.page-hold__embed {
+  max-width: 100%;
+  border-radius: 8px;
+  background: var(--surface-border);
+}
+.page-hold__skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-width: 720px;
+  padding-top: 8px;
+  animation: page-reveal 200ms ease-out;
+}
+.page-hold__line {
+  display: block;
+  height: 14px;
+  border-radius: 7px;
+  background: linear-gradient(90deg, var(--surface-border) 0%, color-mix(in srgb, var(--surface-border) 45%, transparent) 50%, var(--surface-border) 100%);
+  background-size: 200% 100%;
+  animation: page-hold-shimmer 1.4s ease-in-out infinite;
+}
+.page-hold__line:nth-child(3n + 1) {
+  width: 92%;
+}
+.page-hold__line:nth-child(3n + 2) {
+  width: 78%;
+}
+.page-hold__line:nth-child(3n) {
+  width: 60%;
+}
+@keyframes page-hold-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .page-hold__copy,
+  .page-hold__skeleton,
+  .page-body-slot--revealing > :not(.page-hold) {
+    transition: none;
+    animation: none;
+  }
+  .page-hold__line {
+    animation: none;
+  }
+}
+
 .frame-heading {
   grid-column: 1;
   display: flex;
