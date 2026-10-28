@@ -17,6 +17,17 @@ const ResizableImageExtension = Image.extend({
           return { width: attributes.width, style: `width: ${attributes.width}` };
         },
       },
+      // The image's own size in pixels, recorded when it's added, so its space can be kept while it loads
+      naturalWidth: {
+        default: null,
+        parseHTML: (element) => Number(element.getAttribute('data-natural-width')) || null,
+        renderHTML: (attributes) => (attributes.naturalWidth ? { 'data-natural-width': attributes.naturalWidth } : {}),
+      },
+      naturalHeight: {
+        default: null,
+        parseHTML: (element) => Number(element.getAttribute('data-natural-height')) || null,
+        renderHTML: (attributes) => (attributes.naturalHeight ? { 'data-natural-height': attributes.naturalHeight } : {}),
+      },
     };
   },
 

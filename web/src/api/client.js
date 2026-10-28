@@ -97,8 +97,8 @@ export const api = {
   async listPages({ workspaceId, userId, userName, includeDeleted, state } = {}) {
     return request(`/pages${buildQs({ workspaceId, userId, userName, includeDeleted, state })}`);
   },
-  async getPage(pageId, { userId, userName } = {}) {
-    return request(`/pages/${pageId}${buildQs({ userId, userName })}`);
+  async getPage(pageId, { userId, userName, priority } = {}) {
+    return request(`/pages/${pageId}${buildQs({ userId, userName })}`, priority ? { priority } : {});
   },
   async updatePageContent(pageId, content, { userId, userName } = {}) {
     return request(`/pages/${pageId}/content${buildQs({ userId, userName })}`, {

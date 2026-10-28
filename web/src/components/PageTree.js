@@ -27,6 +27,8 @@ export default defineComponent({
     openInSplit: { type: Function, required: false },
     openInMoveWorkspace: { type: Function, required: false },
     onReorder: { type: Function, required: false },
+    // Called with a page the pointer has rested on, to start loading it before the click
+    prefetch: { type: Function, required: false },
     indentStep: { type: Number, default: 16 },
   },
   setup(props) {
@@ -195,6 +197,11 @@ export default defineComponent({
           onDrop: handleDrop,
           onMouseenter: (e) => {
             const itemEl = e.currentTarget;
+            // Only once the pointer rests here, so sweeping down the sidebar doesn't load every page
+            clearTimeout(itemEl._prefetchTimer);
+            if (props.prefetch && page.id !== props.activeId) {
+              itemEl._prefetchTimer = setTimeout(() => props.prefetch(page), 150);
+            }
             if (itemEl._collapseTimer) {
               clearTimeout(itemEl._collapseTimer);
               itemEl._collapseTimer = null;
@@ -227,6 +234,7 @@ export default defineComponent({
           },
           onMouseleave: (e) => {
             const itemEl = e.currentTarget;
+            clearTimeout(itemEl._prefetchTimer);
             itemEl._collapseTimer = setTimeout(() => {
               (itemEl._treeHoveredItems || []).forEach(el => el.classList.remove('tree-hovered'));
               itemEl._treeHoveredItems = null;

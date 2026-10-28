@@ -125,6 +125,8 @@ describe('uploads', () => {
     expect(own.status).toBe(200);
     expect(own.contentType).toBe('image/png');
     expect(Buffer.from(own.bytes).equals(Buffer.from(PNG))).toBe(true);
+    // Upload names are unique and never reused, so browsers keep them, but only privately
+    expect(own.cacheControl).toBe('private, max-age=31536000, immutable');
     // Viewers can see it too.
     expect((await bob.download(`/uploads/${res.body.file.key}`)).status).toBe(200);
   });
@@ -143,7 +145,9 @@ describe('uploads', () => {
     const privatePage = await createPage(alice, ws);
     const up = await alice.upload('/uploads', { pageId: privatePage.id }, { field: 'image', name: 'dot.png', type: 'image/png', data: PNG });
     expect((await bob.download(`/uploads/${up.body.file.key}`)).status).toBe(403);
-    expect((await alice.download(`/uploads/${privatePage.id}/missing.png`)).status).toBe(404);
+    const missing = await alice.download(`/uploads/${privatePage.id}/missing.png`);
+    expect(missing.status).toBe(404);
+    expect(missing.cacheControl).not.toContain('immutable');
   });
 });
 

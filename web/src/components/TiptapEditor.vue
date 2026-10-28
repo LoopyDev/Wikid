@@ -3,7 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { EditorContent, useEditor } from '@tiptap/vue-3';
 import { TextSelection, NodeSelection } from 'prosemirror-state';
 import * as Y from 'yjs';
-import { HocuspocusProvider } from '@hocuspocus/provider';
+import { createCollabProvider, providerStatus } from '../services/collabSocket';
 import { ySyncPluginKey, yUndoPluginKey } from '@tiptap/y-tiptap';
 import { NodeRangeSelection } from '@tiptap/extension-node-range';
 import { editorDocToTiptap } from '../utils/editorDoc';
@@ -32,6 +32,7 @@ import { useSyncedBlocks } from '../composables/useSyncedBlocks';
 import { useSaveStatus } from '../composables/useSaveStatus';
 import { useClickPlaceholder } from '../composables/useClickPlaceholder';
 import { useCollabSeeding } from '../composables/useCollabSeeding';
+import { imageSizeAttrs, readImageSize } from '../utils/imageSize';
 const props = defineProps({
   doc: {
     type: Object,
@@ -289,7 +290,7 @@ const insertImageFromUpload = async (editor, range) => {
   if (props.readonly) return;
   const file = await pickImageFile();
   if (!file) return;
-  const src = await uploadImageFile(file);
+  const [src, size] = await Promise.all([uploadImageFile(file), readImageSize(file)]);
   if (!src) return;
   const chain = editor.chain().focus();
   if (range) {
@@ -297,7 +298,7 @@ const insertImageFromUpload = async (editor, range) => {
   }
   chain
     .insertContent([
-      { type: 'image', attrs: { src } },
+      { type: 'image', attrs: { src, ...imageSizeAttrs(size) } },
       { type: 'paragraph' },
     ])
     .run();
@@ -452,7 +453,7 @@ const setupCollabProvider = () => {
   setupSeededAfterSync.value = false;
   logSetup('provider', { docName: currentDocName.value });
   try {
-    collabProvider.value = new HocuspocusProvider({
+    collabProvider.value = createCollabProvider({
       url: props.collab.url,
       name: props.collab.docName,
       // Use a getter so reconnects always have the latest token
@@ -667,7 +668,7 @@ editor = useEditor({
       }
     }
     if (isCollabEnabled.value) {
-      if (collabProvider.value?.status === 'connected') {
+      if (providerStatus(collabProvider.value) === 'connected') {
         emitSaving();
         startUnsyncedWatcher();
       } else {
@@ -1063,8 +1064,8 @@ const replaceHoveredImageSrc = () => {
   if (!editor.value || !hoveredImage.value) return;
   const pos = hoveredImage.value.pos;
   pickImageFile()
-    .then((file) => (file ? uploadImageFile(file) : null))
-    .then((src) => {
+    .then((file) => (file ? Promise.all([uploadImageFile(file), readImageSize(file)]) : []))
+    .then(([src, size]) => {
       if (!src) return;
       editor.value
         .chain()
@@ -1072,7 +1073,7 @@ const replaceHoveredImageSrc = () => {
         .command(({ tr }) => {
           const node = tr.doc.nodeAt(pos);
           if (!node || node.type?.name !== 'image') return false;
-          tr.setNodeMarkup(pos, node.type, { ...node.attrs, src }, node.marks);
+          tr.setNodeMarkup(pos, node.type, { ...node.attrs, src, ...imageSizeAttrs(size) }, node.marks);
           return true;
         })
         .run();

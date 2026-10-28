@@ -1034,20 +1034,21 @@ button {
   min-height: 0;
 }
 
-.page-slide-enter-active,
-.page-slide-leave-active {
+/* The old page leaves at once (fading it out only added a blank moment), and the new one slides in */
+.page-slide-enter-active {
   will-change: transform, opacity;
-  transition: transform 260ms ease, opacity 220ms ease;
+  transition: transform 180ms ease-out, opacity 140ms ease-out;
 }
 
 .page-slide-enter-from {
-  transform: translateX(48px);
+  transform: translateX(24px);
   opacity: 0;
 }
 
-.page-slide-leave-to {
-  transform: translateX(-12px);
-  opacity: 0;
+@media (prefers-reduced-motion: reduce) {
+  .page-slide-enter-active {
+    transition: none;
+  }
 }
 
 .frame-heading {

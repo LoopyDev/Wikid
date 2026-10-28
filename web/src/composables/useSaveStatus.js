@@ -1,5 +1,6 @@
 import { ref } from 'vue';
 import { logSetup } from '../utils/editorDebug';
+import { providerStatus } from '../services/collabSocket';
 
 // The "Saving…/Saved/Offline" status shown in the page header: follows the live-editing
 // connection and whether it still has changes to send, and reports it with the `status` event.
@@ -35,7 +36,7 @@ export function useSaveStatus({ emit, isCollabEnabled, collabProvider, currentDo
       emitStatus('Offline', 'offline');
       return;
     }
-    const status = collabProvider.value.status;
+    const status = providerStatus(collabProvider.value);
     if (status === 'disconnected') {
       emitStatus('Offline', 'offline');
       return;
@@ -58,7 +59,7 @@ export function useSaveStatus({ emit, isCollabEnabled, collabProvider, currentDo
     }
   };
   const handleUnsyncedChanges = (count) => {
-    if (!collabProvider.value || collabProvider.value.status !== 'connected') {
+    if (!collabProvider.value || providerStatus(collabProvider.value) !== 'connected') {
       refreshSaveStatus();
       stopUnsyncedWatcher();
       return;
@@ -79,7 +80,7 @@ export function useSaveStatus({ emit, isCollabEnabled, collabProvider, currentDo
         return;
       }
       refreshSaveStatus();
-      if (collabProvider.value.status === 'connected' && collabProvider.value.hasUnsyncedChanges) {
+      if (providerStatus(collabProvider.value) === 'connected' && collabProvider.value.hasUnsyncedChanges) {
         unsyncedWatcher.value = requestAnimationFrame(tick);
       } else {
         stopUnsyncedWatcher();

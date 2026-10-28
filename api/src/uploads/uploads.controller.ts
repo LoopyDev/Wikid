@@ -109,7 +109,9 @@ export class UploadsController {
       if (result.ContentLength) {
         res?.setHeader('Content-Length', String(result.ContentLength));
       }
-      res?.setHeader('Cache-Control', 'private, max-age=0, no-cache, no-store, must-revalidate');
+      // An upload's name is unique and its file never changes, so the browser can keep it. Private:
+      // only in that person's browser, never in a shared cache.
+      res?.setHeader('Cache-Control', 'private, max-age=31536000, immutable');
       return new StreamableFile(body);
     } catch (err) {
       throw new NotFoundException('Upload not found');

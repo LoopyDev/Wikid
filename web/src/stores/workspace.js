@@ -7,6 +7,39 @@ import { connectWorkspaceEvents } from '../services/workspaceEvents';
 // The live events channel for the active workspace (kept outside the reactive state)
 const liveEvents = { workspaceId: null, disconnect: null, refreshTimer: null, changedIds: new Set(), settingUp: new Set() };
 
+// The live-editing pass covers a whole workspace, so moving between its pages reuses it instead of
+// asking the server again (which also mounted each page's editor twice: offline, then connected).
+// Reused only briefly, so a change in someone's access still applies within minutes.
+const COLLAB_TOKEN_REUSE_MS = 10 * 60 * 1000;
+let collabTokenCache = null;
+const collabTokenFor = (user, workspaceId) => {
+  const cached = collabTokenCache;
+  if (cached && cached.userId === user.id && cached.workspaceId === workspaceId && Date.now() - cached.at < COLLAB_TOKEN_REUSE_MS) {
+    return cached;
+  }
+  const entry = { userId: user.id, workspaceId, at: Date.now(), token: null };
+  entry.promise = api.collabToken({ userId: user.id, userName: user.name, workspaceId }).then((res) => {
+    if (!res?.token) throw new Error('Missing collab token');
+    entry.token = res.token;
+    return res.token;
+  });
+  entry.promise.catch(() => {
+    if (collabTokenCache === entry) collabTokenCache = null;
+  });
+  collabTokenCache = entry;
+  return entry;
+};
+
+// Pages fetched when the pointer rests on them in the sidebar, so a click shows them sooner. Kept
+// only briefly: the live-editing connection brings the latest content once the page is open.
+const PREFETCH_KEEP_MS = 10 * 1000;
+const prefetchedPages = new Map();
+const takePrefetchedPage = (pageId) => {
+  const entry = prefetchedPages.get(pageId);
+  prefetchedPages.delete(pageId);
+  return entry && Date.now() - entry.at < PREFETCH_KEEP_MS ? entry.promise : null;
+};
+
 // A path like "/collab" means the collab server sits behind the same origin as the app
 const resolveCollabUrl = (url) => {
   if (!url) return 'ws://localhost:1234';
@@ -344,6 +377,7 @@ export const useWorkspaceStore = defineStore('workspace', {
     },
     handlePagesChanged(message) {
       const pageIds = message?.pageIds || [];
+      pageIds.forEach((id) => prefetchedPages.delete(id));
       const openPageId = this.activePageId;
       if (message?.deleted?.pageId && openPageId && pageIds.includes(openPageId)) {
         this.remoteDeletion = {
@@ -383,10 +417,12 @@ export const useWorkspaceStore = defineStore('workspace', {
       this.loadingDoc = true;
       const docRevisionAtStart = this.docRevision;
       try {
-        const page = await api.getPage(pageId, {
-          userId: this.activeUser?.id,
-          userName: this.activeUser?.name,
-        });
+        const page =
+          (await takePrefetchedPage(pageId)) ||
+          (await api.getPage(pageId, {
+            userId: this.activeUser?.id,
+            userName: this.activeUser?.name,
+          }));
         this.activePageId = pageId;
         this.activePageWorkspaceId = page.workspaceId || null;
         if (page.workspaceId && page.workspaceId !== this.activeWorkspaceId) {
@@ -415,6 +451,18 @@ export const useWorkspaceStore = defineStore('workspace', {
       } finally {
         this.loadingDoc = false;
       }
+    },
+    /** Starts loading a page the pointer is resting on in the sidebar (see loadPageDoc). */
+    prefetchPage(pageId) {
+      if (!pageId || pageId === this.activePageId || !this.hasApi || !this.activeUser) return;
+      // The browser asks to save data (a setting, or a metered connection)
+      if (typeof navigator !== 'undefined' && navigator.connection?.saveData) return;
+      const existing = prefetchedPages.get(pageId);
+      if (existing && Date.now() - existing.at < PREFETCH_KEEP_MS) return;
+      const promise = api
+        .getPage(pageId, { userId: this.activeUser.id, userName: this.activeUser.name, priority: 'low' })
+        .catch(() => null);
+      prefetchedPages.set(pageId, { at: Date.now(), promise });
     },
     async selectWorkspaceById(workspaceId) {
       const entry = this.workspaces.find((item) => item.workspace?.id === workspaceId) || null;
@@ -445,6 +493,10 @@ export const useWorkspaceStore = defineStore('workspace', {
       this.titleDraft = localTitle || 'Untitled page';
       this.saveLastPageId(page.id);
       if (this.hasApi) {
+        // Point live editing at the new page now, so its editor isn't first set up for the old one
+        if (page.workspaceId && page.kind) {
+          this.updateCollabContext(...(page.setupStatus === 'PENDING' ? [null, null, null] : [page.workspaceId, page.id, page.kind]));
+        }
         this.loadPageDoc(page.id);
       } else {
         this.doc = fallbackDoc;
@@ -889,21 +941,22 @@ export const useWorkspaceStore = defineStore('workspace', {
       }
       const scope = pageKind === 'DATABASE' ? 'db' : null;
       const docName = scope ? `ws:${workspaceId}:${scope}:${pageId}` : `ws:${workspaceId}:${pageId}`;
-      this.collabToken = null;
+      const tokenEntry = collabTokenFor(this.activeUser, workspaceId);
       this.collabWorkspaceId = workspaceId;
       this.collabDocName = docName;
+      if (tokenEntry.token) {
+        this.collabToken = tokenEntry.token;
+        return;
+      }
+      this.collabToken = null;
       try {
-        const res = await api.collabToken({
-          userId: this.activeUser.id,
-          userName: this.activeUser.name,
-          workspaceId,
-        });
-        if (!res?.token) {
-          throw new Error('Missing collab token');
-        }
-        this.collabToken = res.token;
+        const token = await tokenEntry.promise;
+        // Another page may have been opened while this was on its way
+        if (this.collabDocName !== docName) return;
+        this.collabToken = token;
       } catch (err) {
         console.warn('Collab token fetch failed', err);
+        if (this.collabDocName !== docName) return;
         this.collabToken = null;
         this.collabDocName = null;
         this.collabWorkspaceId = null;
