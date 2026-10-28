@@ -43,7 +43,8 @@ export async function openPage(page: Page, id: string) {
   await page.waitForTimeout(1500);
 }
 
-export const editor = (page: Page) => page.locator('.ProseMirror');
+// Not the still copy of the last page, shown for a moment while moving between pages
+export const editor = (page: Page) => page.locator('.ProseMirror:not(.page-hold *)');
 
 /** The editor content as a compact outline: one entry per block, with its text. */
 export async function outline(page: Page): Promise<string[]> {

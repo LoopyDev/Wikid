@@ -56,6 +56,78 @@ test.describe('loading', () => {
     expect(sockets).toHaveLength(1);
   });
 
+  test('moving between pages never shows an empty page: the last one stays until the next is in', async ({ alice: page, workspaceId }) => {
+    const pages: { id: string; title: string; text: string }[] = [];
+    for (const label of ['First', 'Second']) {
+      const title = unique(label);
+      const id = await createPage(page, workspaceId, { title });
+      await openPage(page, id);
+      await editor(page).click();
+      await page.keyboard.type(`${label} page text`);
+      await waitForSaved(page);
+      pages.push({ id, title, text: `${label} page text` });
+    }
+    // A little delay, as on a real server
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send('Network.enable');
+    await cdp.send('Network.emulateNetworkConditions', { offline: false, latency: 80, downloadThroughput: -1, uploadThroughput: -1 });
+
+    for (const to of [pages[0], pages[1], pages[0]]) {
+      // Note any frame where the page body shows neither the last page nor this one's content
+      await page.evaluate((text) => {
+        const blank: string[] = [];
+        (window as any).__blank = blank;
+        const started = performance.now();
+        const tick = () => {
+          if (!document.querySelector('.page-hold')) {
+            const live = document.querySelector('.ProseMirror:not(.page-hold *)')?.textContent || '';
+            if (!live.trim()) blank.push(`${Math.round(performance.now() - started)}ms: ${live ? 'other text' : 'empty'}`);
+            else if (live !== text && performance.now() - started > 5) blank.push(`${Math.round(performance.now() - started)}ms: "${live}"`);
+          }
+          if (performance.now() - started < 1200) requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      }, to.text);
+      await sidebarItem(page, to.title).click();
+      await expect(editor(page)).toHaveText(to.text);
+      await page.waitForTimeout(1300);
+      // The page being left counts until the click lands; after that, only this one's text
+      const blank: string[] = await page.evaluate(() => (window as any).__blank);
+      expect(blank.filter((frame) => !frame.includes('"First page text"') && !frame.includes('"Second page text"'))).toEqual([]);
+    }
+  });
+
+  test('a slow page fades the last one, then shows placeholder lines, then its content', async ({ alice: page, workspaceId }) => {
+    const slowTitle = unique('Slow');
+    const slow = await createPage(page, workspaceId, { title: slowTitle });
+    await openPage(page, slow);
+    await editor(page).click();
+    await page.keyboard.type('Worth the wait');
+    await waitForSaved(page);
+    await openPage(page, await createPage(page, workspaceId));
+    await page.route(/\/api\/pages\/[0-9a-f-]{36}(\?|$)/, async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 900));
+      await route.continue();
+    });
+
+    await page.evaluate(() => {
+      const stages: string[] = [];
+      (window as any).__stages = stages;
+      const tick = () => {
+        const stage = (document.querySelector('.page-hold') as HTMLElement | null)?.dataset.stage || 'none';
+        if (stages[stages.length - 1] !== stage) stages.push(stage);
+        if (stages.length < 6) requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
+    await sidebarItem(page, slowTitle).click();
+    // The new page's title is there straight away
+    await expect(page.getByRole('main').getByRole('textbox').first()).toHaveValue(slowTitle);
+    await expect(editor(page)).toHaveText('Worth the wait');
+    await expect(page.locator('.page-hold')).toHaveCount(0);
+    expect(await page.evaluate(() => (window as any).__stages)).toEqual(['none', 'hold', 'fade', 'skeleton', 'none']);
+  });
+
   test('a page with an icon keeps its title as you come back to it', async ({ alice: page, workspaceId }) => {
     // Its icon used to be written in before the server's copy arrived, which made the connection
     // report the page synced too early, and the title was added again on every visit
@@ -102,12 +174,12 @@ test.describe('loading', () => {
         const started = performance.now();
         const tick = () => {
           // Once the new page's editor is in (the one before can show for a frame as it leaves)
-          if (!location.pathname.endsWith(id) || !document.querySelector('.ProseMirror')) {
+          if (!location.pathname.endsWith(id) || !document.querySelector('.ProseMirror:not(.page-hold *)')) {
             requestAnimationFrame(tick);
             return;
           }
           seen.add(`icon:${document.querySelector('.page-icon-main__icon')?.textContent?.trim()}`);
-          const empty = document.querySelector('.ProseMirror .is-editor-empty');
+          const empty = document.querySelector('.ProseMirror:not(.page-hold *) .is-editor-empty');
           if (empty && getComputedStyle(empty, '::before').content.includes('/')) seen.add('hint');
           if (performance.now() - started < 1500) requestAnimationFrame(tick);
         };
@@ -141,6 +213,45 @@ test.describe('loading', () => {
     await page.waitForTimeout(1000);
     await page.reload();
     await expect(title).toHaveValue(pageTitle);
+  });
+
+  test('an image comes from the browser cache when its page is opened again', async ({ alice: page, workspaceId }) => {
+    const pageId = await createPage(page, workspaceId, { title: unique('Cached image') });
+    await openPage(page, pageId);
+    const png = await makePng(page, 200, 100);
+    await editor(page).click();
+    await page.keyboard.type('/image');
+    const chooser = page.waitForEvent('filechooser');
+    await page.keyboard.press('Enter');
+    await (await chooser).setFiles({ name: 'cached.png', mimeType: 'image/png', buffer: png });
+    const img = editor(page).locator('img');
+    const shown = () => img.evaluate((el: HTMLImageElement) => el.complete && el.naturalWidth === 200 && el.currentSrc.includes('/api/uploads/'));
+    await expect.poll(shown).toBe(true);
+    await waitForSaved(page);
+
+    // Watch where the image comes from as the page opens again. Chrome reports one from its
+    // memory cache as served from the cache, and one from its disk cache with fromDiskCache.
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send('Network.enable');
+    const uploads = new Map<string, { cached: boolean }>();
+    cdp.on('Network.requestWillBeSent', (e: any) => {
+      if (e.request.url.includes('/api/uploads/')) uploads.set(e.requestId, { cached: false });
+    });
+    cdp.on('Network.requestServedFromCache', (e: any) => {
+      const upload = uploads.get(e.requestId);
+      if (upload) upload.cached = true;
+    });
+    cdp.on('Network.responseReceived', (e: any) => {
+      const upload = uploads.get(e.requestId);
+      if (upload && e.response.fromDiskCache) upload.cached = true;
+    });
+    await page.goto('/');
+    await page.goto(`/doc/${pageId}`);
+    await expect.poll(shown).toBe(true);
+    const loads = [...uploads.values()];
+    expect(loads.length).toBeGreaterThan(0);
+    // None of them went to the server
+    expect(loads.filter((load) => !load.cached)).toEqual([]);
   });
 
   test("keeps an uploaded image's space while it loads, and loads it lazily", async ({ alice: page, workspaceId }) => {

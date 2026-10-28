@@ -75,7 +75,7 @@ const props = defineProps({
   },
 });
 
-const emit = defineEmits(['update:doc', 'status', 'collabready']);
+const emit = defineEmits(['update:doc', 'status', 'collabready', 'contentready']);
 const workspace = useWorkspaceStore();
 
 const getResolvedPage = (pageId) => {
@@ -496,6 +496,8 @@ const waitingForContent = computed(() => isCollabEnabled.value && !contentSynced
 
 const handleCollabSynced = (synced) => {
   if (!synced) return;
+  // Tells the page its content is in (the first time), with the document's name
+  if (!contentSynced.value) emit('contentready', currentDocName.value);
   contentSynced.value = true;
   emitSavedWithDelay();
   const shouldAttemptSetupSeed =
