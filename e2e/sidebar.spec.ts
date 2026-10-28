@@ -44,6 +44,17 @@ test.describe('sidebar', () => {
     await expect(sidebarItem(page, childTitle)).toHaveAttribute('data-depth', '1');
   });
 
+  test("shows a page's icon from the icon set, in the sidebar and on the page", async ({ alice: page, workspaceId }) => {
+    const title = unique('Pinned icon');
+    const id = await createPage(page, workspaceId, { title });
+    await page.request.patch(`/api/pages/${id}`, { data: { icon: 'icon:pin' } });
+    await openPage(page, id);
+    for (const icon of [sidebarItem(page, title), main(page).locator('.page-icon-main')]) {
+      await expect(icon.locator('svg').first()).toBeVisible();
+      await expect(icon).not.toContainText('[object');
+    }
+  });
+
   test('deletes a page to the bin and restores it', async ({ alice: page, workspaceId }) => {
     // Another page to land on after the delete.
     const otherTitle = unique('Other');
