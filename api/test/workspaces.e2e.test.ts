@@ -78,6 +78,23 @@ describe('workspaces', () => {
   });
 });
 
+describe('listing workspaces', () => {
+  it('still lists them while workspaces are being deleted', async () => {
+    // Deleting a workspace in the moment between reading someone's memberships and their
+    // workspaces used to fail the whole list
+    for (let round = 0; round < 3; round += 1) {
+      const ids = await Promise.all(Array.from({ length: 6 }, () => createWorkspace(alice)));
+      const results = await Promise.all([
+        ...ids.map((id) => alice.delete(`/workspaces/${id}`)),
+        ...Array.from({ length: 24 }, () => alice.get('/workspaces')),
+      ]);
+      const lists = results.slice(ids.length);
+      expect(lists.map((res) => res.status)).toEqual(lists.map(() => 200));
+      for (const res of lists) expect(Array.isArray(res.body)).toBe(true);
+    }
+  });
+});
+
 describe('workspace members', () => {
   it('adds members by email, in any case, and lists them', async () => {
     const id = await createWorkspace(alice);

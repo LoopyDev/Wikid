@@ -59,11 +59,16 @@ export class WorkspacesService {
           workspace,
         }));
       }
-      return this.prisma.userWorkspace.findMany({
-        where: { userId },
-        include: { workspace: { select: workspaceSelect } },
-        orderBy: { createdAt: 'asc' },
+      // The workspaces first, then this user's membership of each. Reading the memberships first
+      // and then their workspaces failed outright ("workspace is required") when one was deleted
+      // in between; this way a workspace deleted meanwhile is just left out.
+      const workspaces = await this.prisma.workspace.findMany({
+        where: { memberships: { some: { userId } } },
+        select: { ...workspaceSelect, memberships: { where: { userId } } },
       });
+      return workspaces
+        .flatMap(({ memberships, ...workspace }) => (memberships[0] ? [{ ...memberships[0], workspace }] : []))
+        .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
     }
     return this.listSharedWorkspaces(adminId);
   }
