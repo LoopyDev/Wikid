@@ -13,6 +13,7 @@ import { api } from '../api/client';
 import { useWorkspaceStore } from '../stores/workspace';
 import PageIcon from './PageIcon.vue';
 import FormBuilder from './FormBuilder.vue';
+import { keptValueKey, notFitText, planTypeChange } from '../utils/database/typeChange';
 import { getAssetTagValue, getMultiSelectValues, getMultiSelectValuesFromRaw, getRelationEntries, getRowIdValue, normalizeCellValue, normalizeFilterValues, normalizeRelationEntry, pruneMultiSelectValues, renderRowIdCell, shouldClearCell, stringifyValue, valueForField } from '../utils/database/cellValues';
 import { clearYMap, cloneForSeed, ensureCollabRowDataMap, generateId, hydrateRow, readCollabOrder } from '../utils/database/collabRows';
 import { ROW_COLORS, ROW_COLOR_KEY, rowColor, multiSelectDotStyle, multiSelectPillStyle } from '../utils/database/colors';
@@ -1493,6 +1494,8 @@ const updateCell = (row, field, rawValue, options = {}) => {
         } else {
           dataMap.set(fieldId, value);
         }
+        // A new value replaces one kept from before the column's type changed
+        if (dataMap.has(keptValueKey(fieldId))) dataMap.delete(keptValueKey(fieldId));
       }, 'db-cell-update');
     });
     if (clearing) {
@@ -1500,6 +1503,7 @@ const updateCell = (row, field, rawValue, options = {}) => {
     } else {
       row.data[fieldId] = value;
     }
+    delete row.data[keptValueKey(fieldId)];
     if (!shouldDeferSort) {
       scheduleSortRefresh();
     }
@@ -1518,6 +1522,7 @@ const updateCell = (row, field, rawValue, options = {}) => {
   } else {
     row.data[field.id] = value;
   }
+  delete row.data[keptValueKey(field.id)];
   if (!shouldDeferSort) {
     scheduleSortRefresh();
   }
@@ -2452,7 +2457,24 @@ const setFieldType = async (field, type) => {
     if (!linked) return;
     options = { linkedFrom: linked.linkedFrom };
   }
-  await updateField(field, { type, options });
+  if (!isCollabEnabled.value || type === field.type) {
+    await updateField(field, { type, options });
+    closeFieldMenu();
+    return;
+  }
+  // Convert the cells that fit the new type; keep the rest beside them, so changing back brings them back
+  const { keptCount } = planTypeChange(rows.value, field, type, options);
+  if (keptCount) {
+    const cells = keptCount === 1 ? "1 cell doesn't fit" : `${keptCount} cells don't fit`;
+    const noun = notFitText(type).replace(/^Not /, '');
+    const confirmed = window.confirm(
+      type === 'LINKED_FROM'
+        ? `${cells} a Linked from column, which shows rows linking here instead. They'll be kept, and come back if you change the type back.`
+        : `${cells} the new type (${noun}). They'll be kept and shown greyed until replaced, and come back if you change the type back.`
+    );
+    if (!confirmed) return;
+  }
+  await updateField(field, { type, options }, { convertCells: (docRows) => planTypeChange(docRows, field, type, options) });
   closeFieldMenu();
 };
 
@@ -2778,7 +2800,19 @@ const createFieldWithType = async (type, { linkedFrom: chosenLinkedFrom = null }
   }
 };
 
-const updateField = async (field, changes) => {
+// Every row in the live document, as plain values
+const buildPlainRows = (rowsMap) => {
+  const plain = [];
+  rowsMap.forEach((entry, id) => {
+    const data = entry instanceof Y.Map ? entry.get('data') : entry?.data;
+    plain.push({ id: String(id), data: data instanceof Y.Map ? data.toJSON() : data && typeof data === 'object' ? data : {} });
+  });
+  return plain;
+};
+
+// convertCells: for a type change, plans the cells' new values from the rows in the live document,
+// written in the same change as the type so no one sees one without the other
+const updateField = async (field, changes, { convertCells = null } = {}) => {
   if (isReadonly.value) return;
   if (isFieldReadOnly(field) && ('name' in changes || 'type' in changes || 'options' in changes)) {
     return;
@@ -2792,7 +2826,8 @@ const updateField = async (field, changes) => {
   }
   if (!Object.keys(nextChanges).length) return;
   const nextType = nextChanges.type || field?.type;
-  const shouldCleanupMultiSelect = 'options' in nextChanges && nextType === 'MULTI_SELECT' && !isMembersField(field);
+  // A type change's conversion settles each cell itself
+  const shouldCleanupMultiSelect = 'options' in nextChanges && nextType === 'MULTI_SELECT' && !isMembersField(field) && !convertCells;
   if (isCollabEnabled.value) {
     if (!field?.id) return;
     let nextOptions = null;
@@ -2807,7 +2842,13 @@ const updateField = async (field, changes) => {
     whenCollabSynced(() => {
       const fieldMap = ensureCollabFieldMap(field.id);
       if (!fieldMap) return;
-      ensureCollabDoc().transact(() => {
+      const doc = ensureCollabDoc();
+      const rowsMap = collabRowsMap.value || doc.getMap('rows');
+      const conversion = convertCells && 'type' in nextChanges ? convertCells(buildPlainRows(rowsMap)) : null;
+      if (conversion && 'options' in nextChanges) {
+        nextOptions = conversion.options;
+      }
+      doc.transact(() => {
         if ('name' in nextChanges) {
           fieldMap.set('name', nextChanges.name ?? '');
         }
@@ -2817,6 +2858,15 @@ const updateField = async (field, changes) => {
         if ('options' in nextChanges) {
           fieldMap.set('options', nextOptions || {});
         }
+        conversion?.cells.forEach(({ rowId, value, kept }) => {
+          const rowMap = rowsMap.get(rowId);
+          if (!(rowMap instanceof Y.Map)) return;
+          const dataMap = ensureCollabRowDataMap(rowMap);
+          if (value === undefined) dataMap.delete(field.id);
+          else dataMap.set(field.id, value);
+          if (kept === undefined) dataMap.delete(keptValueKey(field.id));
+          else dataMap.set(keptValueKey(field.id), kept);
+        });
       }, 'db-field-update');
     });
     const updatedField = {

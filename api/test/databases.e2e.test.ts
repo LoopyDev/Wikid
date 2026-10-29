@@ -90,6 +90,23 @@ describe('fields', () => {
 });
 
 describe('rows', () => {
+  it("keeps a value that didn't fit when its column's type changed, until the cell gets a new one", async () => {
+    const { pageId, titleFieldId } = await createDatabase();
+    const amount = await addField(pageId, { name: 'Amount', type: 'NUMBER' });
+    const kept = `__kept:${amount.id}`;
+    const res = await alice.post(`/pages/${pageId}/database/rows`, {
+      data: { [titleFieldId]: 'Nuts', [kept]: '  about ten ', '__kept:00000000-0000-4000-8000-000000000000': 'no such column' },
+    });
+    expect(res.status).toBe(201);
+    expect(res.body.data[kept]).toBe('about ten');
+    expect(Object.keys(res.body.data).filter((key) => key.startsWith('__kept:'))).toEqual([kept]);
+
+    const replaced = await alice.patch(`/database-rows/${res.body.id}`, { data: { ...res.body.data, [amount.id]: '10' } });
+    expect(replaced.status).toBe(200);
+    expect(replaced.body.row.data[amount.id]).toBe(10);
+    expect(replaced.body.row.data[kept]).toBeUndefined();
+  });
+
   it('stores values according to the field types', async () => {
     const { pageId, titleFieldId } = await createDatabase();
     const num = await addField(pageId, { name: 'Number', type: 'NUMBER' });

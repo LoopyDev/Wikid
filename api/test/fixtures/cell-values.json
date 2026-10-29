@@ -1,0 +1,243 @@
+{
+ "_note": "What each column type keeps; null means the value doesn't fit. Checked by the API (api/test/cell-values.test.ts) and the web app (web/src/utils/database/cellValues.test.js).",
+ "cases": [
+  {
+   "type": "NUMBER",
+   "value": 12,
+   "expected": 12
+  },
+  {
+   "type": "NUMBER",
+   "value": " 12.5 ",
+   "expected": 12.5
+  },
+  {
+   "type": "NUMBER",
+   "value": "about ten",
+   "expected": null
+  },
+  {
+   "type": "NUMBER",
+   "value": "",
+   "expected": null
+  },
+  {
+   "type": "NUMBER",
+   "value": true,
+   "expected": null
+  },
+  {
+   "type": "NUMBER",
+   "value": [
+    "1"
+   ],
+   "expected": null
+  },
+  {
+   "type": "NUMBER",
+   "value": "1e3",
+   "expected": 1000
+  },
+  {
+   "type": "CHECKBOX",
+   "value": true,
+   "expected": true
+  },
+  {
+   "type": "CHECKBOX",
+   "value": "yes",
+   "expected": true
+  },
+  {
+   "type": "CHECKBOX",
+   "value": "Off",
+   "expected": false
+  },
+  {
+   "type": "CHECKBOX",
+   "value": "no",
+   "expected": false
+  },
+  {
+   "type": "CHECKBOX",
+   "value": "maybe",
+   "expected": true
+  },
+  {
+   "type": "CHECKBOX",
+   "value": 0,
+   "expected": false
+  },
+  {
+   "type": "CHECKBOX",
+   "value": "",
+   "expected": null
+  },
+  {
+   "type": "DATE",
+   "value": "2026-10-29",
+   "expected": "2026-10-29"
+  },
+  {
+   "type": "DATE",
+   "value": " 2026-10-29T10:00 ",
+   "expected": "2026-10-29T10:00"
+  },
+  {
+   "type": "DATE",
+   "value": "next Tuesday",
+   "expected": null
+  },
+  {
+   "type": "DATE",
+   "value": 5,
+   "expected": null
+  },
+  {
+   "type": "SELECT",
+   "choiceValues": [
+    "Open",
+    "Closed"
+   ],
+   "value": "Open",
+   "expected": "Open"
+  },
+  {
+   "type": "SELECT",
+   "choiceValues": [
+    "Open",
+    "Closed"
+   ],
+   "value": "Gone",
+   "expected": null
+  },
+  {
+   "type": "SELECT",
+   "choiceValues": null,
+   "value": " Anything ",
+   "expected": "Anything"
+  },
+  {
+   "type": "SELECT",
+   "value": [
+    "Open"
+   ],
+   "expected": null
+  },
+  {
+   "type": "MULTI_SELECT",
+   "choiceValues": null,
+   "value": "a, b,,c",
+   "expected": [
+    "a",
+    "b",
+    "c"
+   ]
+  },
+  {
+   "type": "MULTI_SELECT",
+   "choiceValues": [
+    "a"
+   ],
+   "value": [
+    "a",
+    "z"
+   ],
+   "expected": [
+    "a"
+   ]
+  },
+  {
+   "type": "MULTI_SELECT",
+   "choiceValues": [
+    "a"
+   ],
+   "value": [
+    "z"
+   ],
+   "expected": null
+  },
+  {
+   "type": "MULTI_SELECT",
+   "value": 3,
+   "expected": null
+  },
+  {
+   "type": "RELATION",
+   "allowMultiple": false,
+   "value": {
+    "id": "11111111-1111-4111-8111-111111111111",
+    "label": "Zone A"
+   },
+   "expected": {
+    "id": "11111111-1111-4111-8111-111111111111",
+    "label": "Zone A"
+   }
+  },
+  {
+   "type": "RELATION",
+   "allowMultiple": false,
+   "value": "11111111-1111-4111-8111-111111111111",
+   "expected": {
+    "id": "11111111-1111-4111-8111-111111111111",
+    "label": ""
+   }
+  },
+  {
+   "type": "RELATION",
+   "allowMultiple": true,
+   "value": [
+    {
+     "id": "11111111-1111-4111-8111-111111111111",
+     "label": "x"
+    },
+    {
+     "id": "nope"
+    }
+   ],
+   "expected": [
+    {
+     "id": "11111111-1111-4111-8111-111111111111",
+     "label": "x"
+    }
+   ]
+  },
+  {
+   "type": "RELATION",
+   "allowMultiple": false,
+   "value": "Zone A",
+   "expected": null
+  },
+  {
+   "type": "RELATION",
+   "allowMultiple": null,
+   "value": "11111111-1111-4111-8111-111111111111",
+   "expected": null
+  },
+  {
+   "type": "TEXT",
+   "value": " hello ",
+   "expected": "hello"
+  },
+  {
+   "type": "TEXT",
+   "value": 4,
+   "expected": "4"
+  },
+  {
+   "type": "TEXT",
+   "value": true,
+   "expected": null
+  },
+  {
+   "type": "TEXT",
+   "value": "   ",
+   "expected": null
+  },
+  {
+   "type": "URL",
+   "value": "https://x.test",
+   "expected": "https://x.test"
+  }
+ ]
+}

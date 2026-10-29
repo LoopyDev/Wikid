@@ -237,4 +237,64 @@ test.describe('databases', () => {
     await alice.reload();
     await expect(row.locator('.db-multi-pill', { hasText: 'Blue' })).toBeVisible();
   });
+
+  test("changing a column's type converts what fits and keeps the rest, until replaced or changed back", async ({ alice: page, workspaceId }) => {
+    const id = await createPage(page, workspaceId, { title: unique('Stock'), kind: 'DATABASE' });
+    const nameField = (await (await page.request.get(`/api/pages/${id}/database`)).json()).fields.find((f: any) => f.name === 'Name').id;
+    const amount = await (await page.request.post(`/api/pages/${id}/database/fields`, { data: { name: 'Amount', type: 'TEXT' } })).json();
+    for (const [name, value] of [['Bolts', '12'], ['Nuts', 'about ten'], ['Washers', 'n/a']]) {
+      await page.request.post(`/api/pages/${id}/database/rows`, { data: { data: { [nameField]: name, [amount.id]: value } } });
+    }
+    await page.goto(`/doc/${id}`);
+    await expect(main(page).locator('tbody tr')).toHaveCount(3);
+
+    const setType = async (label: string) => {
+      await main(page).locator('thead th', { hasText: 'Amount' }).locator('button').first().click();
+      const menu = page.locator('.db-field-menu');
+      await menu.locator('.block-menu__item', { hasText: 'Type' }).first().click();
+      await menu.locator('.block-menu__item', { has: page.locator('.block-menu__title', { hasText: new RegExp(`^${label}$`) }) }).click();
+    };
+    // (The server's saved copy, made from the live document a minute or so later, is checked in the API tests)
+    const reload = async () => {
+      await page.reload();
+      await expect(main(page).locator('tbody tr')).toHaveCount(3);
+    };
+    const amountInput = (name: string) =>
+      main(page).locator('tbody tr').nth(['Bolts', 'Nuts', 'Washers'].indexOf(name)).locator('td').nth(1).locator('input');
+
+    // To Number: a warning first, saying how many cells don't fit
+    let warning = '';
+    page.once('dialog', (dialog) => {
+      warning = dialog.message();
+      void dialog.accept();
+    });
+    await setType('Number');
+    await expect.poll(() => warning).toContain("2 cells don't fit");
+    // What doesn't fit is shown greyed in its cell
+    await expect(main(page).locator('.db-cell--kept')).toHaveCount(2);
+    await expect(main(page).locator('.db-cell--kept', { hasText: 'about ten' })).toBeVisible();
+    await expect(amountInput('Bolts')).toHaveValue('12');
+    await reload();
+    await expect(main(page).locator('.db-cell--kept')).toHaveCount(2);
+
+    // A new value replaces what was kept
+    await amountInput('Washers').focus();
+    await page.keyboard.type('7');
+    await page.keyboard.press('Enter');
+    await expect(main(page).locator('.db-cell--kept')).toHaveCount(1);
+
+    // Back to Text: the kept value comes back, with no warning as everything fits
+    page.once('dialog', (dialog) => {
+      warning = 'unexpected';
+      void dialog.dismiss();
+    });
+    await setType('Text');
+    await expect(amountInput('Nuts')).toHaveValue('about ten');
+    await expect(amountInput('Washers')).toHaveValue('7');
+    expect(warning).not.toBe('unexpected');
+    await reload();
+    await expect(amountInput('Nuts')).toHaveValue('about ten');
+    await expect(main(page).locator('.db-cell--kept')).toHaveCount(0);
+    await expect(main(page).locator('.db-cell--kept')).toHaveCount(0);
+  });
 });
