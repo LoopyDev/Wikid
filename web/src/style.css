@@ -2629,6 +2629,47 @@ button {
   outline: none;
 }
 
+/* A relation cell: pills open the linked rows, the button at the end changes them */
+.db-relation-cell--set {
+  cursor: default;
+  padding: 4px 0;
+}
+.db-relation-pill {
+  font: inherit;
+  cursor: pointer;
+}
+.db-relation-pill:hover,
+.db-relation-pill:focus-visible {
+  border-color: var(--text-muted);
+}
+/* In a row page's properties panel */
+.page-properties__relation {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+}
+
+.db-relation-change {
+  margin-left: auto;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.8rem;
+  padding: 2px 6px;
+  cursor: pointer;
+  opacity: 0.6;
+}
+.db-relation-change:hover,
+.db-relation-change:focus-visible,
+.db-row-cell:hover .db-relation-change {
+  opacity: 1;
+  background: rgba(148, 163, 184, 0.12);
+}
+
 /* A "Linked from" cell: read-only, its pills open the linked rows */
 .db-linked-cell {
   cursor: default;

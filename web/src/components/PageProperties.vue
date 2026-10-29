@@ -1,5 +1,5 @@
 <script setup>
-import { computed, inject, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import * as Y from 'yjs';
 import { createCollabProvider } from '../services/collabSocket';
 import { api } from '../api/client';
@@ -266,7 +266,8 @@ const loadRelationOptions = async (pageId) => {
         const data = rowEntry?.data && typeof rowEntry.data === 'object' && !Array.isArray(rowEntry.data) ? rowEntry.data : {};
         const label = titleFieldId ? stringifyValue(data[titleFieldId]) : '';
         const fallback = label || (rowEntry?.id ? String(rowEntry.id) : '');
-        return rowEntry?.id ? { id: rowEntry.id, label: fallback } : null;
+        // The row's own page, if it has one, for opening it from a relation's pill
+        return rowEntry?.id ? { id: rowEntry.id, label: fallback, pageId: rowEntry.pageId || null } : null;
       })
       .filter(Boolean);
     relationOptionsByPageId.value = { ...relationOptionsByPageId.value, [pageId]: options };
@@ -953,6 +954,45 @@ const openBacklink = async (entry) => {
   }
 };
 
+// A relation's values as pills that open the linked rows; its dropdown shows only while choosing
+const choosingRelationFieldId = ref(null);
+const relationEntriesFor = (field) => {
+  const raw = row.value?.data?.[field.id];
+  const ids = getRelationConfig(field)?.allowMultiple
+    ? getRelationMultiValues(raw)
+    : [normalizeRelationEntry(raw)?.id].filter(Boolean);
+  const options = relationOptionsForField(field);
+  return ids.map((id) => ({ id, label: options.find((option) => option.id === id)?.label || id }));
+};
+const chooseRelation = async (field) => {
+  choosingRelationFieldId.value = field.id;
+  await nextTick();
+  document.querySelector(`[data-relation-select="${field.id}"]`)?.focus();
+};
+const openRelatedRecord = async (field, entry) => {
+  const relation = getRelationConfig(field);
+  const option = relationOptionsForField(field).find((item) => item.id === entry.id);
+  let pageId = option?.pageId || '';
+  if (!pageId) {
+    if (!canEnsureBacklinkPages.value || !activeUser.value || !hasApi.value) return;
+    try {
+      const res = await api.ensureDatabaseRowPage(
+        entry.id,
+        { title: entry.label || 'Record', pageId: relation?.pageId },
+        { userId: activeUser.value.id, userName: activeUser.value.name }
+      );
+      const page = res?.page || null;
+      pageId = page?.id || res?.row?.pageId || '';
+      if (page) workspace.upsertPage(page);
+      if (option && pageId) option.pageId = pageId;
+    } catch (err) {
+      console.warn('Opening the linked row failed', err);
+      return;
+    }
+  }
+  if (pageId && typeof openRowPageOverlay === 'function') openRowPageOverlay(pageId);
+};
+
 const handleRelationSelectChange = (field, event) => {
   const relation = getRelationConfig(field);
   const target = event?.target;
@@ -1210,13 +1250,41 @@ onBeforeUnmount(() => {
             />
           </template>
           <template v-else-if="field.type === 'RELATION'">
+            <div
+              v-if="relationEntriesFor(field).length && choosingRelationFieldId !== field.id"
+              class="page-properties__relation"
+            >
+              <button
+                v-for="entry in relationEntriesFor(field)"
+                :key="entry.id"
+                class="db-multi-pill db-relation-pill"
+                type="button"
+                :title="`Open ${entry.label}`"
+                @click="openRelatedRecord(field, entry)"
+              >
+                {{ entry.label }}
+              </button>
+              <button
+                v-if="!readonly && !isFieldReadOnly(field)"
+                class="db-relation-change"
+                type="button"
+                :aria-label="`Change ${field.name || 'relation'}`"
+                title="Change"
+                @click="chooseRelation(field)"
+              >
+                ▾
+              </button>
+            </div>
+            <template v-else>
             <select
               v-if="getRelationConfig(field)?.allowMultiple"
               class="page-properties__input"
               multiple
+              :data-relation-select="field.id"
               :value="getRelationMultiValues(row.data?.[field.id])"
               :disabled="readonly || isFieldReadOnly(field)"
               @change="handleRelationSelectChange(field, $event)"
+              @blur="choosingRelationFieldId = null"
             >
               <option v-for="option in relationOptionsForField(field)" :key="option.id" :value="option.id">
                 {{ option.label || option.id }}
@@ -1225,15 +1293,18 @@ onBeforeUnmount(() => {
             <select
               v-else
               class="page-properties__input"
+              :data-relation-select="field.id"
               :value="normalizeRelationEntry(row.data?.[field.id])?.id || ''"
               :disabled="readonly || isFieldReadOnly(field)"
-              @change="handleRelationSelectChange(field, $event)"
+              @change="handleRelationSelectChange(field, $event); choosingRelationFieldId = null"
+              @blur="choosingRelationFieldId = null"
             >
               <option value="">Select record</option>
               <option v-for="option in relationOptionsForField(field)" :key="option.id" :value="option.id">
                 {{ option.label || option.id }}
               </option>
             </select>
+            </template>
             <div v-if="relationOptionsLoadingForField(field)" class="page-properties__note muted">
               Loading relation options...
             </div>
