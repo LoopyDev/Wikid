@@ -161,4 +161,51 @@ test.describe('database forms', () => {
     await page.getByRole('button', { name: /^Submit/ }).click();
     await expect.poll(dates).toEqual([yesterday]);
   });
+
+  test('a field can be required when a select is any of several choices', async ({ alice: page, workspaceId }) => {
+    await openPage(page, await createPage(page, workspaceId));
+    const id = await newDatabaseFromSidebar(page, unique('Reports'));
+    const kind = await (await page.request.post(`/api/pages/${id}/database/fields`, {
+      data: { name: 'Kind', type: 'SELECT', options: { choices: ['Bug', 'Outage', 'Idea'] } },
+    })).json();
+    await page.request.post(`/api/pages/${id}/database/fields`, { data: { name: 'Impact', type: 'TEXT' } });
+    await page.reload();
+    const forms = async () => (await (await page.request.get(`/api/pages/${id}/database`)).json()).forms ?? [];
+    await main(page).getByRole('button', { name: /^Forms/ }).click();
+    page.on('dialog', (dialog) => dialog.accept(dialog.type() === 'prompt' ? 'Report form' : undefined));
+    await main(page).getByRole('button', { name: 'New form' }).click();
+    await expect.poll(async () => (await forms()).length).toBe(1);
+
+    const impact = main(page)
+      .locator('.db-form-builder .db-form-field')
+      .filter({ has: page.locator('.db-form-field-name', { hasText: /^Impact$/ }) });
+    const control = (label: string) =>
+      impact.locator('.db-form-field-controls').filter({ has: page.locator('.db-form-field-label', { hasText: new RegExp(`^${label}$`) }) });
+    await control('Required when').locator('select').selectOption({ label: 'Kind' });
+    await control('Condition').locator('select').selectOption({ label: 'Is any of' });
+    const values = control('Condition values');
+    // Starts with the first choice, which can't be unticked while it's the only one
+    await expect(values.getByLabel('Bug')).toBeChecked();
+    await expect(values.getByLabel('Bug')).toBeDisabled();
+    await values.getByLabel('Outage').check();
+    const condition = async () => {
+      const [form] = await forms();
+      const fields = Array.isArray(form?.fields) ? form.fields : form?.fields?.fields ?? [];
+      return fields.find((f: any) => f.requiredWhen)?.requiredWhen ?? null;
+    };
+    await expect.poll(condition).toEqual({ fieldId: kind.id, op: 'isAnyOf', value: ['Bug', 'Outage'] });
+
+    // On the form, Impact is required for an outage or a bug, not an idea
+    const [form] = await forms();
+    await page.goto(`/form/${form.id}`);
+    const formField = (label: string) => page.locator('.form-field').filter({ has: page.locator('.form-field__label', { hasText: new RegExp(`^${label}$`) }) });
+    const impactRequired = formField('Impact').locator('.form-field__required');
+    await expect(impactRequired).toHaveCount(0);
+    await formField('Kind').locator('select').selectOption('Outage');
+    await expect(impactRequired).toBeVisible();
+    await formField('Kind').locator('select').selectOption('Idea');
+    await expect(impactRequired).toHaveCount(0);
+    await formField('Kind').locator('select').selectOption('Bug');
+    await expect(impactRequired).toBeVisible();
+  });
 });

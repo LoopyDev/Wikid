@@ -363,6 +363,39 @@ describe('forms', () => {
     expect(later.body.message).toContain('Happened');
   });
 
+  it('requires a field when a select is any of several choices', async () => {
+    const { pageId, titleFieldId } = await createDatabase();
+    const kind = await addField(pageId, { name: 'Kind', type: 'SELECT', options: { choices: ['Bug', 'Outage', 'Idea'] } });
+    const impact = await addField(pageId, { name: 'Impact', type: 'TEXT' });
+    const form = await alice.post(`/pages/${pageId}/database/forms`, {
+      name: 'Report',
+      fields: [
+        { fieldId: titleFieldId },
+        { fieldId: kind.id },
+        // Choices that aren't the select's are dropped, and so is the condition if none are left
+        { fieldId: impact.id, requiredWhen: { fieldId: kind.id, op: 'isAnyOf', value: ['Bug', 'Outage', 'Bug', 'Nope'] } },
+      ],
+    });
+    expect(form.status).toBe(201);
+    expect(form.body.fields[2].requiredWhen).toEqual({ fieldId: kind.id, op: 'isAnyOf', value: ['Bug', 'Outage'] });
+    const none = await alice.post(`/pages/${pageId}/database/forms`, {
+      name: 'Other',
+      fields: [{ fieldId: kind.id }, { fieldId: impact.id, requiredWhen: { fieldId: kind.id, op: 'isAnyOf', value: ['Nope'] } }],
+    });
+    expect(none.body.fields[1].requiredWhen).toBeUndefined();
+
+    const submit = (data: Record<string, unknown>) =>
+      alice.post(`/database-forms/${form.body.id}/submit`, { data: { [titleFieldId]: 'Entry', ...data } });
+    for (const choice of ['Bug', 'Outage']) {
+      const missing = await submit({ [kind.id]: choice });
+      expect(missing.status, choice).toBe(400);
+      expect(missing.body.message).toContain('Impact');
+    }
+    expect((await submit({ [kind.id]: 'Outage', [impact.id]: 'Site down' })).status).toBe(201);
+    expect((await submit({ [kind.id]: 'Idea' })).status).toBe(201);
+    expect((await submit({})).status).toBe(201);
+  });
+
   it('creates a form, reads it and submits entries', async () => {
     const { pageId, titleFieldId } = await createDatabase();
     const count = await addField(pageId, { name: 'Count', type: 'NUMBER' });
