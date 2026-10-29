@@ -1,5 +1,5 @@
 import { test, expect, createPage, unique } from './fixtures';
-import { main, chooseRelation, addNamedRow } from './database-helpers';
+import { main, chooseRelation, addNamedRow, openViewOptions } from './database-helpers';
 
 // Relations between databases: their settings, their values as pills, "Linked from" columns, and renames.
 
@@ -110,7 +110,8 @@ test.describe('database relations', () => {
     expect((await page.request.post(`/api/pages/${projects}/database/views`, { data: { name: 'Cards', type: 'GALLERY', config: {} } })).status()).toBe(201);
     await page.reload();
     await main(page).getByRole('button', { name: 'Cards' }).click();
-    await main(page).locator('.db-view-config-bar select').selectOption({ label: tasksTitle });
+    await openViewOptions(page);
+    await main(page).getByLabel('Cover').selectOption({ label: tasksTitle });
     const cards = main(page).locator('.db-gallery__card');
     await expect(cards).toHaveCount(2);
     await expect(cards.nth(0).locator('.db-gallery__cover-item')).toHaveText(['Write copy']);
