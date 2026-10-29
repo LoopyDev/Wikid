@@ -3474,6 +3474,23 @@ button {
   opacity: 0.6;
 }
 
+/* The choices an "Is any of" condition matches */
+.db-form-condition-values {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  min-width: 0;
+}
+
+.db-form-condition-value {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.8rem;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
 .db-form-rule-block__input {
   border: 1px solid var(--context-menu-border);
   border-radius: 8px;

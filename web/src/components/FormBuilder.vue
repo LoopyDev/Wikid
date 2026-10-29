@@ -5,7 +5,7 @@ import PageIcon from './PageIcon.vue';
 import { AUTO_SIZE_RELATION_PLACEHOLDER } from '../utils/database/columnLayout';
 import { api } from '../api/client';
 import { auditStatusOptions, DEFAULT_INITIAL_STATUS, GOVERNANCE_FILTER_ID, governanceFilterChoices, governanceFilterOption } from '../utils/database/compliance';
-import { buildFormField, DEFAULT_FORM_ICON, getConditionOpOptions, normalizeRequiredWhenOp } from '../utils/database/forms';
+import { buildFormField, conditionValues, DEFAULT_FORM_ICON, getConditionOpOptions, normalizeRequiredWhenOp } from '../utils/database/forms';
 import { formatFieldType, getFieldSource, getRelationConfig, isFieldReadOnly, normalizeFieldOptions } from '../utils/database/fieldOptions';
 import { normalizeFilterValues, stringifyValue } from '../utils/database/cellValues';
 
@@ -114,11 +114,18 @@ const buildRequiredWhenCondition = (conditionFieldId, op, value) => {
   if (!conditionField) return null;
   const normalizedOp = normalizeRequiredWhenOp(op);
   if (!normalizedOp) return null;
+  if (normalizedOp === 'isAnyOf') {
+    if (conditionField.type !== 'SELECT') return null;
+    const choices = normalizeFieldOptions(conditionField).choices;
+    if (!choices.length) return null;
+    const picked = conditionValues({ value }).filter((item) => choices.some((choice) => choice.value === item));
+    return { fieldId: trimmed, op: normalizedOp, value: picked.length ? [...new Set(picked)] : [choices[0].value] };
+  }
   if (normalizedOp === 'equals') {
     if (conditionField.type !== 'SELECT') return null;
     const choices = normalizeFieldOptions(conditionField).choices;
     if (!choices.length) return null;
-    const rawValue = typeof value === 'string' ? value.trim() : '';
+    const rawValue = conditionValues({ value })[0] || '';
     const nextValue = rawValue && choices.some((choice) => choice.value === rawValue) ? rawValue : choices[0].value;
     if (!nextValue) return null;
     return { fieldId: trimmed, op: normalizedOp, value: nextValue };
@@ -609,6 +616,24 @@ const updateFormFieldRequiredWhenOp = async (fieldId, op) => {
   await saveFormFields(form.id, nextFields);
 };
 
+// Ticks or unticks one of an "Is any of" condition's choices (key: requiredWhen or visibleWhen)
+const toggleFormFieldConditionValue = async (fieldId, key, choiceValue, checked) => {
+  if (!canCreateForms.value) return;
+  const form = activeForm.value;
+  if (!form || !fieldId) return;
+  const nextFields = form.fields.map((entry) => {
+    if (entry.fieldId !== fieldId) return entry;
+    const condition = entry?.[key];
+    if (!condition || condition.op !== 'isAnyOf') return entry;
+    const current = conditionValues(condition);
+    const next = checked ? [...new Set([...current, choiceValue])] : current.filter((value) => value !== choiceValue);
+    // The last choice stays ticked: a condition needs one
+    if (!next.length) return entry;
+    return { ...entry, [key]: { ...condition, value: next } };
+  });
+  await saveFormFields(form.id, nextFields);
+};
+
 const updateFormFieldVisibleWhenField = async (fieldId, conditionFieldId) => {
   if (!canCreateForms.value) return;
   const form = activeForm.value;
@@ -1077,6 +1102,7 @@ const resolvedActiveFormFields = computed(() => {
         : null;
     const requiredWhenFieldId = typeof requiredWhen?.fieldId === 'string' ? requiredWhen.fieldId : '';
     const requiredWhenValue = typeof requiredWhen?.value === 'string' ? requiredWhen.value : '';
+    const requiredWhenValues = conditionValues(requiredWhen);
     const requiredWhenOp = normalizeRequiredWhenOp(requiredWhen?.op);
     const requiredWhenField = requiredWhenFieldId ? fieldById.value.get(requiredWhenFieldId) : null;
     const requiredWhenFieldType = requiredWhenField?.type || null;
@@ -1088,6 +1114,7 @@ const resolvedActiveFormFields = computed(() => {
         : null;
     const visibleWhenFieldId = typeof visibleWhen?.fieldId === 'string' ? visibleWhen.fieldId : '';
     const visibleWhenValue = typeof visibleWhen?.value === 'string' ? visibleWhen.value : '';
+    const visibleWhenValues = conditionValues(visibleWhen);
     const visibleWhenOp = normalizeRequiredWhenOp(visibleWhen?.op);
     const visibleWhenField = visibleWhenFieldId ? fieldById.value.get(visibleWhenFieldId) : null;
     const visibleWhenFieldType = visibleWhenField?.type || null;
@@ -1120,12 +1147,14 @@ const resolvedActiveFormFields = computed(() => {
       requiredWhen,
       requiredWhenFieldId,
       requiredWhenValue,
+      requiredWhenValues,
       requiredWhenOp,
       requiredWhenFieldType,
       requiredWhenChoices,
       visibleWhen,
       visibleWhenFieldId,
       visibleWhenValue,
+      visibleWhenValues,
       visibleWhenOp,
       visibleWhenFieldType,
       visibleWhenChoices,
@@ -1515,6 +1544,25 @@ watch(
             </option>
           </select>
         </div>
+        <div v-if="field.requiredWhenFieldId && field.requiredWhenOp === 'isAnyOf'" class="db-form-field-controls">
+          <label class="db-form-field-label">Condition values</label>
+          <div class="db-form-condition-values">
+            <label v-for="choice in field.requiredWhenChoices" :key="choice.value" class="db-form-condition-value">
+              <input
+                type="checkbox"
+                :checked="field.requiredWhenValues.includes(choice.value)"
+                :disabled="
+                  field.missing ||
+                  field.locked ||
+                  isReadonly ||
+                  (field.requiredWhenValues.length === 1 && field.requiredWhenValues.includes(choice.value))
+                "
+                @change="toggleFormFieldConditionValue(field.id, 'requiredWhen', choice.value, $event.target.checked)"
+              />
+              {{ choice.label || choice.value }}
+            </label>
+          </div>
+        </div>
         <div v-if="field.type === 'SELECT'" class="db-form-field-controls">
           <label class="db-form-field-label">Options source</label>
           <select
@@ -1799,6 +1847,22 @@ watch(
                   {{ choice.label || choice.value }}
                 </option>
               </select>
+              <div v-if="field.requiredWhenOp === 'isAnyOf'" class="db-form-condition-values">
+                <label v-for="choice in field.requiredWhenChoices" :key="choice.value" class="db-form-condition-value">
+                  <input
+                    type="checkbox"
+                    :checked="field.requiredWhenValues.includes(choice.value)"
+                    :disabled="
+                      field.missing ||
+                      field.locked ||
+                      isReadonly ||
+                      (field.requiredWhenValues.length === 1 && field.requiredWhenValues.includes(choice.value))
+                    "
+                    @change="toggleFormFieldConditionValue(field.id, 'requiredWhen', choice.value, $event.target.checked)"
+                  />
+                  {{ choice.label || choice.value }}
+                </label>
+              </div>
               <span class="db-form-rule-block__pill">Then require</span>
               <span class="db-form-rule-block__target">{{ field.name }}</span>
               <button
@@ -1896,6 +1960,22 @@ watch(
                   {{ choice.label || choice.value }}
                 </option>
               </select>
+              <div v-if="field.visibleWhenOp === 'isAnyOf'" class="db-form-condition-values">
+                <label v-for="choice in field.visibleWhenChoices" :key="choice.value" class="db-form-condition-value">
+                  <input
+                    type="checkbox"
+                    :checked="field.visibleWhenValues.includes(choice.value)"
+                    :disabled="
+                      field.missing ||
+                      field.locked ||
+                      isReadonly ||
+                      (field.visibleWhenValues.length === 1 && field.visibleWhenValues.includes(choice.value))
+                    "
+                    @change="toggleFormFieldConditionValue(field.id, 'visibleWhen', choice.value, $event.target.checked)"
+                  />
+                  {{ choice.label || choice.value }}
+                </label>
+              </div>
               <span class="db-form-rule-block__pill">Then show</span>
               <span class="db-form-rule-block__target">{{ field.name }}</span>
               <button

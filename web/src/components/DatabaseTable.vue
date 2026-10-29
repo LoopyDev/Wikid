@@ -20,7 +20,7 @@ import { ROW_COLORS, ROW_COLOR_KEY, rowColor, multiSelectDotStyle, multiSelectPi
 import { ADD_COLUMN_ID, ADD_COLUMN_LABEL, ADD_COLUMN_SIZE, ASSET_TAG_COLUMN_SIZE, AUTO_SIZE_BASE, AUTO_SIZE_BUFFER, AUTO_SIZE_CHAR_LIMIT, AUTO_SIZE_CHAR_WIDTH, AUTO_SIZE_FIRST_EXTRA, AUTO_SIZE_MULTI_MEMBERS_PLACEHOLDER, AUTO_SIZE_MULTI_PILL_GAP, AUTO_SIZE_MULTI_PILL_PADDING, AUTO_SIZE_MULTI_PLACEHOLDER, AUTO_SIZE_PAGE_ICON_EXTRA, AUTO_SIZE_RELATION_PLACEHOLDER, AUTO_SIZE_SELECT_EXTRA, AUTO_SIZE_SELECT_PLACEHOLDER, COLUMN_DEFAULT_SIZE, COLUMN_MAX_SIZE, COLUMN_MIN_SIZE, FIRST_COLUMN_MIN_SIZE, ROW_ID_COLUMN_ID, ROW_ID_COLUMN_LABEL, ROW_ID_COLUMN_MIN_SIZE, ROW_ID_COLUMN_SIZE } from '../utils/database/columnLayout';
 import { AUDIT_VIEW_ID, DEFAULT_INITIAL_STATUS, GOVERNANCE_FILTER_ID, auditStatusOptions, getAuditStatusClass, getComplianceRecordId } from '../utils/database/compliance';
 import { fieldTypeIcons, fieldTypes, getFieldSource, getLinkedFromConfig, getMultiSelectChoiceValues, getRelationConfig, isAssetTagField, isLinkedFromField, isFieldDeleteLocked, isFieldOptionsLocked, isFieldReadOnly, isFieldTypeLocked, isLastEditedField, isMembersField, isPageField, isRelationField, isSelectField, normalizeFieldOptions } from '../utils/database/fieldOptions';
-import { DEFAULT_FORM_ICON, buildFormField, normalizeFormIcon } from '../utils/database/forms';
+import { DEFAULT_FORM_ICON, buildFormField, conditionValues, normalizeFormIcon } from '../utils/database/forms';
 import { OPERATOR_LABELS, operatorNeedsValue, operatorsForFieldType, sortByType } from '../utils/database/views';
 import { colorFromId } from '../utils/presenceColor';
 import { useCellPresence } from '../composables/useCellPresence';
@@ -309,10 +309,14 @@ const normalizeFormCondition = (raw) => {
     if (!field) return null;
     return { fieldId, op };
   }
-  if (op !== 'equals') return null;
+  if (op !== 'equals' && op !== 'isAnyOf') return null;
   const field = fields.value.find((entry) => entry?.id === fieldId);
   if (!field || field.type !== 'SELECT') return null;
   const choices = normalizeFieldOptions(field).choices.map((choice) => choice.value);
+  if (op === 'isAnyOf') {
+    const values = [...new Set(conditionValues(raw))].filter((value) => choices.includes(value));
+    return values.length ? { fieldId, op, value: values } : null;
+  }
   const rawValue = typeof raw.value === 'string' ? raw.value.trim() : '';
   if (!rawValue || !choices.includes(rawValue)) return null;
   return { fieldId, op, value: rawValue };
@@ -1284,24 +1288,26 @@ const optionDependencyWarnings = computed(() => {
     (form.fields || []).forEach((entry) => {
       const requiredWhen = entry?.requiredWhen;
       if (!requiredWhen || requiredWhen.fieldId !== field.id) return;
-      if (requiredWhen.op !== 'equals') return;
-      const value = typeof requiredWhen.value === 'string' ? requiredWhen.value.trim() : '';
-      if (!value || draftSet.has(value)) return;
-      const record = issues.get(value) || { value, forms: new Set(), reasons: new Set() };
-      record.forms.add(formName);
-      record.reasons.add('required rule');
-      issues.set(value, record);
+      if (requiredWhen.op !== 'equals' && requiredWhen.op !== 'isAnyOf') return;
+      conditionValues(requiredWhen).forEach((value) => {
+        if (draftSet.has(value)) return;
+        const record = issues.get(value) || { value, forms: new Set(), reasons: new Set() };
+        record.forms.add(formName);
+        record.reasons.add('required rule');
+        issues.set(value, record);
+      });
     });
     (form.fields || []).forEach((entry) => {
       const visibleWhen = entry?.visibleWhen;
       if (!visibleWhen || visibleWhen.fieldId !== field.id) return;
-      if (visibleWhen.op !== 'equals') return;
-      const value = typeof visibleWhen.value === 'string' ? visibleWhen.value.trim() : '';
-      if (!value || draftSet.has(value)) return;
-      const record = issues.get(value) || { value, forms: new Set(), reasons: new Set() };
-      record.forms.add(formName);
-      record.reasons.add('visibility rule');
-      issues.set(value, record);
+      if (visibleWhen.op !== 'equals' && visibleWhen.op !== 'isAnyOf') return;
+      conditionValues(visibleWhen).forEach((value) => {
+        if (draftSet.has(value)) return;
+        const record = issues.get(value) || { value, forms: new Set(), reasons: new Set() };
+        record.forms.add(formName);
+        record.reasons.add('visibility rule');
+        issues.set(value, record);
+      });
     });
   });
   return Array.from(issues.values()).map((entry) => ({

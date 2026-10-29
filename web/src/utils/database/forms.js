@@ -14,14 +14,21 @@ export const buildFormField = (field) => ({
 });
 
 export const normalizeRequiredWhenOp = (op) => {
-  if (op === 'equals' || op === 'isFilled' || op === 'isEmpty') return op;
+  if (op === 'equals' || op === 'isAnyOf' || op === 'isFilled' || op === 'isEmpty') return op;
   return '';
+};
+
+// The choices a condition matches: one for "Equals", several for "Is any of"
+export const conditionValues = (condition) => {
+  const raw = condition?.value;
+  const list = Array.isArray(raw) ? raw : [raw];
+  return list.filter((value) => typeof value === 'string' && value.trim()).map((value) => value.trim());
 };
 
 export const getConditionOpOptions = (fieldType, hasChoices) => {
   const options = [];
   if (fieldType === 'SELECT' && hasChoices) {
-    options.push({ value: 'equals', label: 'Equals' });
+    options.push({ value: 'equals', label: 'Equals' }, { value: 'isAnyOf', label: 'Is any of' });
   }
   options.push({ value: 'isFilled', label: 'Value is filled' }, { value: 'isEmpty', label: 'Value is empty' });
   return options;

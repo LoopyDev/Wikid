@@ -177,9 +177,17 @@ export class DatabaseValuesService {
         if (!field) return null;
         return { fieldId: rawFieldId, op };
       }
-      if (op !== 'equals') return null;
+      if (op !== 'equals' && op !== 'isAnyOf') return null;
       const field = fieldMap.get(rawFieldId);
       if (!field || field.type !== DatabaseFieldType.SELECT) return null;
+      if (op === 'isAnyOf') {
+        // Several of the select's choices, any of which meets the condition
+        const list = Array.isArray((raw as any).value) ? (raw as any).value : [(raw as any).value];
+        const values = [...new Set(list.map((item: unknown) => this.coerceDatabaseFieldValue(field, item)))].filter(
+          (item): item is string => typeof item === 'string'
+        );
+        return values.length ? { fieldId: rawFieldId, op, value: values } : null;
+      }
       const value = this.coerceDatabaseFieldValue(field, (raw as any).value);
       if (typeof value !== 'string') return null;
       return { fieldId: rawFieldId, op, value };

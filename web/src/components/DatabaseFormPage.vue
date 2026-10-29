@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { api } from '../api/client';
 import { useWorkspaceStore } from '../stores/workspace';
 import { useApiMutation } from '../composables/useApiMutation';
+import { conditionValues } from '../utils/database/forms';
 
 const props = defineProps({
   formId: {
@@ -691,13 +692,13 @@ const isRuleConditionMet = (condition) => {
     const missing = isMissingRequiredValue(conditionField, rawValue);
     return op === 'isEmpty' ? missing : !missing;
   }
-  if (op !== 'equals') return false;
-  const expected = typeof condition.value === 'string' ? condition.value.trim() : '';
-  if (!expected) return false;
+  if (op !== 'equals' && op !== 'isAnyOf') return false;
+  const expected = conditionValues(condition);
+  if (!expected.length) return false;
   if (Array.isArray(rawValue)) {
-    return rawValue.map((item) => String(item)).includes(expected);
+    return rawValue.some((item) => expected.includes(String(item)));
   }
-  return String(rawValue ?? '').trim() === expected;
+  return expected.includes(String(rawValue ?? '').trim());
 };
 
 const isFieldVisibleNow = (field) => {

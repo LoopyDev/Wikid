@@ -457,11 +457,13 @@ export class DatabaseFormsService {
         const missing = isMissingRequiredValue(field, value);
         return op === 'isEmpty' ? missing : !missing;
       }
-      if (op !== 'equals') return false;
-      const expected = typeof condition.value === 'string' ? condition.value.trim() : '';
-      if (!expected) return false;
+      if (op !== 'equals' && op !== 'isAnyOf') return false;
+      const expected = (Array.isArray(condition.value) ? condition.value : [condition.value])
+        .filter((item: unknown) => typeof item === 'string' && item.trim())
+        .map((item: string) => item.trim());
+      if (!expected.length) return false;
       const value = candidateData[fieldId];
-      return String(value ?? '').trim() === expected;
+      return expected.includes(String(value ?? '').trim());
     };
     const missingRequired = allowedFields
       .map((entry: any) => {
