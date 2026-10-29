@@ -258,8 +258,8 @@ test.describe('databases', () => {
     await main(page).locator('.db-view-config-bar select').selectOption({ label: tasksTitle });
     const cards = main(page).locator('.db-gallery__card');
     await expect(cards).toHaveCount(2);
-    await expect(cards.nth(0).locator('.db-gallery__cover')).toHaveText('Write copy');
-    await expect(cards.nth(1).locator('.db-gallery__cover')).toHaveText('Pick a font');
+    await expect(cards.nth(0).locator('.db-gallery__cover-item')).toHaveText(['Write copy']);
+    await expect(cards.nth(1).locator('.db-gallery__cover-item')).toHaveText(['Pick a font']);
   });
 
   test("a relation shows the rows it links to as pills that open them, and changes from its button", async ({ alice: page, workspaceId }) => {
@@ -346,6 +346,74 @@ test.describe('databases', () => {
     await page.waitForTimeout(500);
     await page.reload();
     await expect(headers).toHaveText(['Alpha', 'Name', 'Beta']);
+  });
+
+  test("a gallery's cover lists linked rows that open, up to a set number, and its cards show the columns chosen", async ({ alice: page, workspaceId }) => {
+    const projects = await createPage(page, workspaceId, { title: unique('Projects'), kind: 'DATABASE' });
+    const tasksTitle = unique('Tasks');
+    const tasks = await createPage(page, workspaceId, { title: tasksTitle, kind: 'DATABASE' });
+    await page.goto(`/doc/${projects}`);
+    await expect(main(page).getByRole('button', { name: 'Add row' })).toBeVisible();
+    await addNamedRow(page, projects, 'Website');
+
+    const taskNames = ['Brief', 'Copy', 'Design', 'Build', 'Launch'];
+    await page.goto(`/doc/${tasks}`);
+    await expect(main(page).getByRole('button', { name: 'Add row' })).toBeVisible();
+    for (const name of taskNames) await addNamedRow(page, tasks, name);
+    await main(page).locator('thead th').last().locator('button').first().click();
+    await page.locator('.db-add-column-menu .block-menu__item', { hasText: 'Relation' }).click();
+    await expect(main(page).locator('thead th')).toHaveCount(3);
+    for (let row = 0; row < taskNames.length; row += 1) await chooseRelation(page, row, 'Website');
+
+    // Projects: a "Linked from" column, a Notes column, and a gallery with the linked tasks as its cover
+    await page.goto(`/doc/${projects}`);
+    await expect(main(page).getByRole('button', { name: 'Add row' })).toBeVisible();
+    await main(page).locator('thead th').last().locator('button').first().click();
+    await page.locator('.db-add-column-menu .block-menu__item', { hasText: 'Linked from' }).click();
+    await main(page).locator('thead th').last().locator('button').first().click();
+    await page.locator('.db-add-column-menu input').fill('Notes');
+    await page.locator('.db-add-column-menu .block-menu__item', { hasText: 'Text' }).click();
+    await expect(main(page).locator('thead th')).toHaveCount(4);
+    expect((await page.request.post(`/api/pages/${projects}/database/views`, { data: { name: 'Cards', type: 'GALLERY', config: {} } })).status()).toBe(201);
+    await page.reload();
+    await main(page).getByRole('button', { name: 'Cards' }).click();
+    await main(page).locator('.db-view-config-bar select').selectOption({ label: tasksTitle });
+
+    const card = main(page).locator('.db-gallery__card').first();
+    const cells = card.locator('.db-gallery__cover-item:not(.db-gallery__cover-more)');
+    const more = card.locator('.db-gallery__cover-more');
+    // Named after its column, then three, then "Show more" for the rest
+    await expect(card.locator('.db-gallery__cover-label')).toHaveText(tasksTitle);
+    await expect(cells).toHaveCount(3);
+    await expect(more).toHaveText('Show 2 more');
+    await more.click();
+    await expect(cells).toHaveCount(5);
+    await expect(more).toHaveText('Show less');
+    await more.click();
+    await expect(cells).toHaveCount(3);
+    // Four at a time
+    await main(page).getByLabel('Linked rows shown on a card before Show more').fill('4');
+    await main(page).getByLabel('Linked rows shown on a card before Show more').press('Tab');
+    await expect(cells).toHaveCount(4);
+    await expect(more).toHaveText('Show 1 more');
+
+    // The card shows Notes, until it's unticked
+    await expect(card.locator('.db-gallery__field-name')).toHaveText(['Notes']);
+    await main(page).locator('.db-card-fields__toggle').click();
+    await main(page).locator('.db-card-fields__option', { hasText: 'Notes' }).locator('input').uncheck();
+    await expect(card.locator('.db-gallery__field')).toHaveCount(0);
+
+    // Kept with the view
+    await page.waitForTimeout(800);
+    await page.reload();
+    await main(page).getByRole('button', { name: 'Cards' }).click();
+    await expect(cells).toHaveCount(4);
+    await expect(card.locator('.db-gallery__field')).toHaveCount(0);
+
+    // A cell opens that task
+    const first = (await cells.first().textContent())!.trim();
+    await cells.first().click();
+    await expect(page.locator('.page-overlay .page-overlay__title-input')).toHaveValue(first);
   });
 
   test('pauses editing while the table is connecting or reconnecting', async ({ alice: page, workspaceId }) => {

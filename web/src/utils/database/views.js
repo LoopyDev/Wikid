@@ -117,5 +117,9 @@ export const normalizeViewConfig = (config) => {
     hiddenFieldIds,
     groupFieldId: typeof src.groupFieldId === 'string' ? src.groupFieldId : null,
     cardFieldId: typeof src.cardFieldId === 'string' ? src.cardFieldId : null,
+    // Gallery cards: the columns they show (null: every column the view shows), and how many of a
+    // cover's linked rows show before "Show more"
+    cardFieldIds: Array.isArray(src.cardFieldIds) ? src.cardFieldIds.filter((id) => typeof id === 'string') : null,
+    coverMaxItems: Number.isInteger(src.coverMaxItems) && src.coverMaxItems >= 1 ? src.coverMaxItems : null,
   };
 };

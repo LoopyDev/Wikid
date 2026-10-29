@@ -145,10 +145,17 @@ export function useViewRows({ fields, fieldById, tableRows, activeSavedView, isB
     const id = activeSavedView.value?.config?.cardFieldId;
     return id ? fieldById.value.get(id) || null : null;
   });
-  // Fields shown as card body lines in Gallery / Board (respecting hidden + card cover).
-  const cardBodyFields = computed(() =>
-    fields.value.filter((field) => !hiddenFieldIdSet.value.has(field.id) && field.id !== galleryCardField.value?.id)
-  );
+  // The columns a card could show under its title: all but the title (shown above) and the cover
+  const cardFieldCandidates = computed(() => {
+    const titleId = (fields.value.find((field) => isPageField(field)) || fields.value[0])?.id;
+    return fields.value.filter((field) => field.id !== titleId && field.id !== galleryCardField.value?.id);
+  });
+  // Those a Gallery / Board card does show: the ones chosen for the cards, else every one the view shows
+  const cardBodyFields = computed(() => {
+    const chosen = activeSavedView.value?.config?.cardFieldIds;
+    if (Array.isArray(chosen)) return cardFieldCandidates.value.filter((field) => chosen.includes(field.id));
+    return cardFieldCandidates.value.filter((field) => !hiddenFieldIdSet.value.has(field.id));
+  });
   const rowTitle = (row) => {
     const titleField = fields.value.find((field) => isPageField(field)) || fields.value[0];
     if (!titleField) return 'Untitled';
@@ -172,5 +179,5 @@ export function useViewRows({ fields, fieldById, tableRows, activeSavedView, isB
     if (targetPage && typeof openRowPageOverlay === 'function') openRowPageOverlay(targetPage);
   };
 
-  return { viewFilteredRows, viewSorting, boardColumns, cardBodyFields, galleryCardField, galleryCardValue, openRowCard, rowTitle };
+  return { viewFilteredRows, viewSorting, boardColumns, cardBodyFields, cardFieldCandidates, galleryCardField, galleryCardValue, openRowCard, rowTitle };
 }

@@ -1301,7 +1301,7 @@ watch(
 onBeforeUnmount(() => clearTimeout(connectionNoticeTimer));
 const { attachAwarenessListener, caretLeftForCell, clearLocalCellCursor, getCellPresence, handleCaretMouse, handleCaretNavigate, markCellBlur, markCellFocus, markCellTyping, onTableFocusOut, presenceUser, setCellInputRef, updateAwarenessUser } = useCellPresence({ emit, activeUser, collabProvider, isCollabEnabled, tableWrapRef, flushPendingEnsureRowPages, scheduleSortRefresh });
 
-const { savedViews, normalizeSavedView, createSavedView, deleteSavedView, renameSavedView, patchActiveViewConfig, activeViewFilters, activeViewSorts, activeFilterCount, setFilterMatch, addFilterRule, updateFilterRule, changeFilterRuleField, removeFilterRule, addSortRule, updateSortRule, removeSortRule, setBoardGroupField, setGalleryCardField, fieldChoices, filterMenu, filterMenuRef, filterMenuStyle, openFilterMenu, closeFilterMenu, sortMenu, sortMenuRef, sortMenuStyle, openSortMenu, closeSortMenu } = useSavedViews({ props, workspace, fields, fieldById, activeViewId, activeSavedView, hasApi, activeUser, error, canCreateForms, runWithSavingIndicator, closeFormMenu, closeColumnsMenu, getChoiceLabel, databaseRootRef });
+const { savedViews, normalizeSavedView, createSavedView, deleteSavedView, renameSavedView, patchActiveViewConfig, activeViewFilters, activeViewSorts, activeFilterCount, setFilterMatch, addFilterRule, updateFilterRule, changeFilterRuleField, removeFilterRule, addSortRule, updateSortRule, removeSortRule, setBoardGroupField, setGalleryCardField, setGalleryCardFields, setGalleryCoverMax, fieldChoices, filterMenu, filterMenuRef, filterMenuStyle, openFilterMenu, closeFilterMenu, sortMenu, sortMenuRef, sortMenuStyle, openSortMenu, closeSortMenu } = useSavedViews({ props, workspace, fields, fieldById, activeViewId, activeSavedView, hasApi, activeUser, error, canCreateForms, runWithSavingIndicator, closeFormMenu, closeColumnsMenu, getChoiceLabel, databaseRootRef });
 
 watch(
   () => [fieldMenu.value.open, fieldMenu.value.fieldId],
@@ -1905,7 +1905,50 @@ const tableRows = computed(() => {
   });
 });
 
-const { viewFilteredRows, viewSorting, boardColumns, cardBodyFields, galleryCardField, galleryCardValue, openRowCard, rowTitle } = useViewRows({ fields, fieldById, tableRows, activeSavedView, isBoardView, hiddenFieldIdSet, displayValueForField, getChoiceLabel, rowPageId, openRowPageOverlay, ensureRowPage, isReadonly, workspace });
+const { viewFilteredRows, viewSorting, boardColumns, cardBodyFields, cardFieldCandidates, galleryCardField, galleryCardValue, openRowCard, rowTitle } = useViewRows({ fields, fieldById, tableRows, activeSavedView, isBoardView, hiddenFieldIdSet, displayValueForField, getChoiceLabel, rowPageId, openRowPageOverlay, ensureRowPage, isReadonly, workspace });
+
+// A gallery cover listing linked rows ("Linked from" or a relation): stacked cells that open them,
+// as many as the view says before "Show more"
+const DEFAULT_COVER_MAX = 3;
+const isListCover = computed(() => {
+  const field = galleryCardField.value;
+  return !!field && (isLinkedFromField(field) || field.type === 'RELATION');
+});
+const coverMax = computed(() => activeSavedView.value?.config?.coverMaxItems || DEFAULT_COVER_MAX);
+const expandedCovers = ref(new Set());
+const coverItems = (row) => {
+  const field = galleryCardField.value;
+  if (!field) return [];
+  if (isLinkedFromField(field)) {
+    return linkedRowsFor(field.id, row.id).map((entry) => ({
+      key: entry.rowId,
+      label: entry.title,
+      open: entry.rowPageId ? () => (typeof openRowPageOverlay === 'function' ? openRowPageOverlay(entry.rowPageId) : workspace.loadPageDoc(entry.rowPageId)) : null,
+    }));
+  }
+  return getRelationEntries(row, field)
+    .filter((entry) => entry?.id)
+    .map((entry) => ({ key: entry.id, label: getRelationLabel(field, entry) || entry.id, open: () => openRelatedRow(field, entry.id) }));
+};
+const shownCoverItems = (row) => {
+  const items = coverItems(row);
+  return expandedCovers.value.has(row.id) ? items : items.slice(0, coverMax.value);
+};
+const moreCoverItems = (row) => Math.max(0, coverItems(row).length - coverMax.value);
+const toggleCoverExpanded = (rowId) => {
+  const next = new Set(expandedCovers.value);
+  if (next.has(rowId)) next.delete(rowId);
+  else next.add(rowId);
+  expandedCovers.value = next;
+};
+// Ticking which columns the cards show (once changed, the cards keep their own list)
+const cardFieldShown = (fieldId) => cardBodyFields.value.some((field) => field.id === fieldId);
+const toggleCardField = (fieldId) => {
+  const shown = new Set(cardBodyFields.value.map((field) => field.id));
+  if (shown.has(fieldId)) shown.delete(fieldId);
+  else shown.add(fieldId);
+  setGalleryCardFields(cardFieldCandidates.value.map((field) => field.id).filter((id) => shown.has(id)));
+};
 
 const table = useVueTable({
   get data() {
@@ -3350,19 +3393,63 @@ onBeforeUnmount(() => {
               <option value="">None</option>
               <option v-for="field in fields" :key="field.id" :value="field.id">{{ field.name || 'Field' }}</option>
             </select>
+            <template v-if="isListCover">
+              <label class="db-view-config-bar__label" for="db-gallery-cover-max">Show</label>
+              <input
+                id="db-gallery-cover-max"
+                class="db-view-config__number"
+                type="number"
+                min="1"
+                max="50"
+                :value="coverMax"
+                aria-label="Linked rows shown on a card before Show more"
+                @change="setGalleryCoverMax($event.target.value)"
+              />
+            </template>
+            <details class="db-card-fields">
+              <summary class="db-card-fields__toggle">Card fields</summary>
+              <div class="db-card-fields__menu">
+                <label v-for="field in cardFieldCandidates" :key="field.id" class="db-card-fields__option">
+                  <input type="checkbox" :checked="cardFieldShown(field.id)" @change="toggleCardField(field.id)" />
+                  {{ field.name || 'Field' }}
+                </label>
+                <div v-if="!cardFieldCandidates.length" class="db-card-fields__empty">No other columns</div>
+              </div>
+            </details>
           </div>
           <div v-if="!viewFilteredRows.length" class="database-table__empty muted">No matching rows.</div>
           <div v-else class="db-gallery__grid">
-            <button
+            <div
               v-for="row in viewFilteredRows"
               :key="row.id"
-              type="button"
+              role="button"
+              tabindex="0"
               class="db-gallery__card"
               @click="openRowCard(row)"
+              @keydown.enter.self.prevent="openRowCard(row)"
+              @keydown.space.self.prevent="openRowCard(row)"
             >
               <div class="db-gallery__title">{{ rowTitle(row) }}</div>
+              <div v-if="galleryCardField && isListCover" class="db-gallery__cover db-gallery__cover--list">
+                <span class="db-gallery__cover-label">{{ galleryCardField.name || 'Field' }}</span>
+                <template v-for="item in shownCoverItems(row)" :key="item.key">
+                  <button v-if="item.open" class="db-gallery__cover-item" type="button" :title="`Open ${item.label}`" @click.stop="item.open()">
+                    {{ item.label }}
+                  </button>
+                  <span v-else class="db-gallery__cover-item db-gallery__cover-item--plain">{{ item.label }}</span>
+                </template>
+                <button
+                  v-if="moreCoverItems(row)"
+                  class="db-gallery__cover-item db-gallery__cover-more"
+                  type="button"
+                  @click.stop="toggleCoverExpanded(row.id)"
+                >
+                  {{ expandedCovers.has(row.id) ? 'Show less' : `Show ${moreCoverItems(row)} more` }}
+                </button>
+                <span v-if="!coverItems(row).length" class="db-gallery__cover-empty">—</span>
+              </div>
               <div
-                v-if="galleryCardField"
+                v-else-if="galleryCardField"
                 class="db-gallery__cover"
               >{{ galleryCardValue(row, galleryCardField) }}</div>
               <div class="db-gallery__fields">
@@ -3371,7 +3458,7 @@ onBeforeUnmount(() => {
                   <span class="db-gallery__field-value">{{ galleryCardValue(row, field) }}</span>
                 </div>
               </div>
-            </button>
+            </div>
           </div>
         </div>
         <div v-else-if="isBoardView" class="db-board">

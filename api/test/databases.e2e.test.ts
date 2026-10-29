@@ -283,6 +283,23 @@ describe('views', () => {
     expect((await alice.get(`/pages/${pageId}/database`)).body.views).toEqual([]);
     expect((await alice.patch(`/database-views/${view.body.id}`, { name: 'x' })).status).toBe(404);
   });
+
+  it("keeps a gallery's card columns and how many of a cover's linked rows to show, tidied", async () => {
+    const { pageId, titleFieldId } = await createDatabase();
+    const notes = await addField(pageId, { name: 'Notes', type: 'TEXT' });
+    const view = await alice.post(`/pages/${pageId}/database/views`, {
+      name: 'Cards',
+      type: 'GALLERY',
+      config: { cardFieldIds: [notes.id, MISSING_ID, notes.id, 7], coverMaxItems: 500 },
+    });
+    expect(view.status).toBe(201);
+    expect(view.body.config).toMatchObject({ cardFieldIds: [notes.id], coverMaxItems: 50 });
+
+    const cleared = await alice.patch(`/database-views/${view.body.id}`, { config: { cardFieldIds: 'all', coverMaxItems: 0 } });
+    expect(cleared.body.config).toMatchObject({ cardFieldIds: null, coverMaxItems: null });
+    const chosen = await alice.patch(`/database-views/${view.body.id}`, { config: { cardFieldIds: [], coverMaxItems: 4, cardFieldId: titleFieldId } });
+    expect(chosen.body.config).toMatchObject({ cardFieldIds: [], coverMaxItems: 4, cardFieldId: titleFieldId });
+  });
 });
 
 describe('forms', () => {
