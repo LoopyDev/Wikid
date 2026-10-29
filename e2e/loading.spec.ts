@@ -163,6 +163,36 @@ test.describe('loading', () => {
     await expect.poll(() => page.evaluate(() => (window as any).__stages)).toEqual(['none', 'hold', 'fade', 'skeleton', 'none']);
   });
 
+  test("a slow page's placeholder lines line up with its text, full width or not", async ({ alice: page, workspaceId }) => {
+    await page.setViewportSize({ width: 1920, height: 1000 });
+    const normalTitle = unique('Normal');
+    const wideTitle = unique('Wide');
+    const normal = await createPage(page, workspaceId, { title: normalTitle });
+    const wide = await createPage(page, workspaceId, { title: wideTitle });
+    // Full width is kept in the browser, per page
+    await page.addInitScript((id) => localStorage.setItem(`wikid:page-full-width:${id}`, 'true'), wide);
+    await openPage(page, normal);
+    await page.route(/\/api\/pages\/[0-9a-f-]{36}(\?|$)/, async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 900));
+      await route.continue();
+    });
+    const title = page.getByRole('main').getByRole('textbox').first();
+    const line = page.locator('.page-hold[data-stage="skeleton"] .page-hold__line').first();
+    const lineFor = async (pageTitle: string) => {
+      await sidebarItem(page, pageTitle).click();
+      await expect(title).toHaveValue(pageTitle);
+      await expect(line).toBeVisible();
+      const box = (await line.boundingBox())!;
+      expect(Math.abs(box.x - (await title.boundingBox())!.x), 'lined up with the title').toBeLessThan(24);
+      await expect(page.locator('.page-hold')).toHaveCount(0);
+      return box.width;
+    };
+    // From a normal page to a full-width one: lines as long as its text
+    expect(await lineFor(wideTitle)).toBeGreaterThan(1000);
+    // And back: lines as long as a normal page's
+    expect(await lineFor(normalTitle)).toBeLessThan(800);
+  });
+
   test('a page with an icon keeps its title as you come back to it', async ({ alice: page, workspaceId }) => {
     // Its icon used to be written in before the server's copy arrived, which made the connection
     // report the page synced too early, and the title was added again on every visit
