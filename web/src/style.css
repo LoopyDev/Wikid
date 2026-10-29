@@ -10296,6 +10296,120 @@ button {
   flex-direction: column;
   gap: 4px;
 }
+.db-gallery__card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* A cover listing linked rows: one cell per row, each opening it, then "Show more" */
+.db-gallery__cover--list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px;
+}
+/* Names the column a list cover shows, like a card field's name */
+.db-gallery__cover-label {
+  padding: 0 2px 2px;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+.db-gallery__cover-item {
+  display: block;
+  width: 100%;
+  border: 1px solid var(--surface-border);
+  border-radius: 6px;
+  background: var(--modal-card-bg);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.85rem;
+  text-align: left;
+  padding: 6px 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+button.db-gallery__cover-item {
+  cursor: pointer;
+}
+button.db-gallery__cover-item:hover,
+button.db-gallery__cover-item:focus-visible {
+  border-color: var(--text-muted);
+}
+.db-gallery__cover-more {
+  color: var(--text-muted);
+  background: transparent;
+  border-style: dashed;
+}
+.db-gallery__cover-empty {
+  padding: 6px 8px;
+  color: var(--text-muted);
+}
+
+/* The gallery's settings: how many linked rows a cover shows, and which columns the cards show */
+.db-view-config__number {
+  width: 64px;
+  border: 1px solid var(--surface-border);
+  border-radius: 8px;
+  padding: 6px 8px;
+  background: var(--content-bg);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.85rem;
+}
+.db-card-fields {
+  position: relative;
+}
+.db-card-fields__toggle {
+  list-style: none;
+  border: 1px solid var(--surface-border);
+  border-radius: 8px;
+  padding: 6px 12px;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+.db-card-fields__toggle::-webkit-details-marker {
+  display: none;
+}
+.db-card-fields[open] .db-card-fields__toggle {
+  color: var(--text-primary);
+}
+.db-card-fields__menu {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 200px;
+  max-height: 280px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  border: 1px solid var(--context-menu-border);
+  border-radius: 10px;
+  background: var(--context-menu-bg);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+}
+.db-card-fields__option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+.db-card-fields__option:hover {
+  background: rgba(148, 163, 184, 0.12);
+}
+.db-card-fields__empty {
+  padding: 6px 8px;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
 .db-gallery__field,
 .db-board__card-field {
   display: flex;

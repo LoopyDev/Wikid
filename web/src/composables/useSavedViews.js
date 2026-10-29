@@ -164,6 +164,15 @@ export function useSavedViews({ props, workspace, fields, fieldById, activeViewI
   const setGalleryCardField = (fieldId) => {
     patchActiveViewConfig({ cardFieldId: fieldId || null });
   };
+  // Which columns a gallery's cards show (a list of ids; null for every column the view shows)
+  const setGalleryCardFields = (fieldIds) => {
+    patchActiveViewConfig({ cardFieldIds: Array.isArray(fieldIds) ? fieldIds : null });
+  };
+  // How many of a cover's linked rows show before "Show more"
+  const setGalleryCoverMax = (value) => {
+    const max = Number.parseInt(value, 10);
+    patchActiveViewConfig({ coverMaxItems: Number.isInteger(max) && max >= 1 ? Math.min(max, 50) : null });
+  };
   // --- Value input helpers for the condition builder ---
   const fieldChoices = (field) => {
     if (!field) return [];
@@ -229,5 +238,5 @@ export function useSavedViews({ props, workspace, fields, fieldById, activeViewI
   const filterMenuStyle = computed(() => ({ top: `${filterMenu.value.y}px`, left: `${filterMenu.value.x}px` }));
   const sortMenuStyle = computed(() => ({ top: `${sortMenu.value.y}px`, left: `${sortMenu.value.x}px` }));
 
-  return { savedViews, normalizeSavedView, createSavedView, deleteSavedView, renameSavedView, patchActiveViewConfig, activeViewFilters, activeViewSorts, activeFilterCount, setFilterMatch, addFilterRule, updateFilterRule, changeFilterRuleField, removeFilterRule, addSortRule, updateSortRule, removeSortRule, setBoardGroupField, setGalleryCardField, fieldChoices, filterMenu, filterMenuRef, filterMenuStyle, openFilterMenu, closeFilterMenu, sortMenu, sortMenuRef, sortMenuStyle, openSortMenu, closeSortMenu };
+  return { savedViews, normalizeSavedView, createSavedView, deleteSavedView, renameSavedView, patchActiveViewConfig, activeViewFilters, activeViewSorts, activeFilterCount, setFilterMatch, addFilterRule, updateFilterRule, changeFilterRuleField, removeFilterRule, addSortRule, updateSortRule, removeSortRule, setBoardGroupField, setGalleryCardField, setGalleryCardFields, setGalleryCoverMax, fieldChoices, filterMenu, filterMenuRef, filterMenuStyle, openFilterMenu, closeFilterMenu, sortMenu, sortMenuRef, sortMenuStyle, openSortMenu, closeSortMenu };
 }

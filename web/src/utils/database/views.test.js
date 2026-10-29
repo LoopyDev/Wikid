@@ -62,6 +62,8 @@ describe('view settings', () => {
         sorts: [{ fieldId: 'f1', direction: 'desc' }, { fieldId: 'f2', direction: 'sideways' }, {}],
         hiddenFieldIds: ['f3', 4],
         groupFieldId: 'f1',
+        cardFieldIds: ['f2', 7],
+        coverMaxItems: 0,
       }),
     ).toEqual({
       filters: { match: 'OR', rules: [{ fieldId: 'f1', operator: 'is', value: 'x' }] },
@@ -72,6 +74,8 @@ describe('view settings', () => {
       hiddenFieldIds: ['f3'],
       groupFieldId: 'f1',
       cardFieldId: null,
+      cardFieldIds: ['f2'],
+      coverMaxItems: null,
     });
   });
 
@@ -82,6 +86,8 @@ describe('view settings', () => {
       hiddenFieldIds: [],
       groupFieldId: null,
       cardFieldId: null,
+      cardFieldIds: null,
+      coverMaxItems: null,
     });
   });
 });

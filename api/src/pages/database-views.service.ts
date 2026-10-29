@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { databaseStateFromYjsState } from '../collab/collab-database.util';
 import { PageAccessService } from './page-access.service';
 import { DatabasesService } from './databases.service';
 import { POSITION_INCREMENT, normalizeFormIcon } from './pages.shared';
@@ -49,12 +50,35 @@ export class DatabaseViewsService {
     return last?.position ? last.position.plus(POSITION_INCREMENT) : POSITION_INCREMENT;
   }
 
-  private async sanitizeDatabaseViewConfig(databaseId: string, config: unknown) {
+  /**
+   * A database's column ids: saved ones, and those in its live document not yet saved (columns
+   * reach the database tables only every few minutes, and a view may already use a new one).
+   */
+  private async databaseFieldIds(databaseId: string) {
     const fields = await this.prisma.databaseField.findMany({
       where: { databaseId },
       select: { id: true },
     });
     const fieldIds = new Set(fields.map((f) => f.id));
+    const database = await this.prisma.database.findUnique({ where: { id: databaseId }, select: { pageId: true, workspaceId: true } });
+    if (database) {
+      const doc = await this.prisma.collabDoc.findUnique({
+        where: { documentName: `ws:${database.workspaceId}:db:${database.pageId}` },
+        select: { state: true },
+      });
+      if (doc?.state) {
+        try {
+          databaseStateFromYjsState(Buffer.from(doc.state)).fields.forEach((field) => fieldIds.add(field.id));
+        } catch {
+          // Saved columns only
+        }
+      }
+    }
+    return fieldIds;
+  }
+
+  private async sanitizeDatabaseViewConfig(databaseId: string, config: unknown) {
+    const fieldIds = await this.databaseFieldIds(databaseId);
     const source = config && typeof config === 'object' && !Array.isArray(config) ? (config as Record<string, any>) : {};
 
     const rawFilters = source.filters && typeof source.filters === 'object' ? source.filters : {};
@@ -88,6 +112,13 @@ export class DatabaseViewsService {
 
     const groupFieldId = fieldIds.has(source.groupFieldId) ? (source.groupFieldId as string) : null;
     const cardFieldId = fieldIds.has(source.cardFieldId) ? (source.cardFieldId as string) : null;
+    // Gallery cards: which columns they show (null: every column the view shows), and how many of
+    // a cover's linked rows before "Show more"
+    const cardFieldIds = Array.isArray(source.cardFieldIds)
+      ? [...new Set(source.cardFieldIds.filter((id: any) => typeof id === 'string' && fieldIds.has(id)))]
+      : null;
+    const rawMax = Number(source.coverMaxItems);
+    const coverMaxItems = Number.isInteger(rawMax) && rawMax >= 1 ? Math.min(rawMax, 50) : null;
 
     return {
       filters: { match, rules },
@@ -95,6 +126,8 @@ export class DatabaseViewsService {
       hiddenFieldIds,
       groupFieldId,
       cardFieldId,
+      cardFieldIds,
+      coverMaxItems,
     };
   }
 
