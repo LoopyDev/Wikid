@@ -241,6 +241,18 @@ describe('relations', () => {
     expect((await linkedRows(alice, tasks.pageId, tasks.titleFieldId)).body.rows).toEqual({});
   });
 
+  it("gives each row's current title, for relations pointing at a database", async () => {
+    const people = await createDatabase(unique('People'));
+    const ada = (await alice.post(`/pages/${people.pageId}/database/rows`, { data: { [people.titleFieldId]: 'Ada' } })).body;
+    const titles = await bob.get(`/pages/${people.pageId}/database/row-titles`);
+    expect(titles.status).toBe(200);
+    expect(titles.body.rows).toEqual([{ id: ada.id, pageId: ada.pageId ?? null, title: 'Ada' }]);
+
+    const secret = await createPage(alice, workspaceId, { kind: 'DATABASE', title: unique('Secret'), visibility: 'PRIVATE' });
+    expect((await alice.get(`/pages/${secret.id}/database/row-titles`)).status).toBe(200);
+    expect((await bob.get(`/pages/${secret.id}/database/row-titles`)).status).toBe(403);
+  });
+
   it('requires a valid relation target in the same workspace', async () => {
     const { pageId } = await createDatabase();
     const missing = await alice.post(`/pages/${pageId}/database/fields`, { name: 'Rel', type: 'RELATION' });

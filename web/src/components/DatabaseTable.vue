@@ -549,18 +549,17 @@ const relationOptionsForPage = (pageId) => relationOptionsByPageId.value[pageId]
 const relationOptionsLoadingForPage = (pageId) => relationOptionsLoading.value[pageId] === true;
 const relationOptionsErrorForPage = (pageId) => relationOptionsError.value[pageId] || '';
 
-const loadRelationOptions = async (pageId) => {
+const loadRelationOptions = async (pageId, { force = false } = {}) => {
   if (!pageId) return;
   if (!hasApi.value || !activeUser.value) return;
-  if (relationOptionsByPageId.value[pageId]) return;
+  if (!force && relationOptionsByPageId.value[pageId]) return;
   if (relationOptionsLoading.value[pageId]) return;
   relationOptionsLoading.value = { ...relationOptionsLoading.value, [pageId]: true };
   relationOptionsError.value = { ...relationOptionsError.value, [pageId]: '' };
   try {
-    const res = await api.getDatabase(pageId, {
-      userId: activeUser.value.id,
-      userName: activeUser.value.name,
-    });
+    const user = { userId: activeUser.value.id, userName: activeUser.value.name };
+    // The rows' names from the live document too: the saved rows can be a few minutes behind a rename
+    const [res, live] = await Promise.all([api.getDatabase(pageId, user), api.getRowTitles(pageId, user).catch(() => null)]);
     const targetFields = Array.isArray(res?.fields) ? res.fields : [];
     const targetRows = Array.isArray(res?.rows) ? res.rows : [];
     const fieldOptions = targetFields
@@ -578,15 +577,19 @@ const loadRelationOptions = async (pageId) => {
       .filter((row) => row.id);
     const titleFieldId =
       targetFields.find((field) => getFieldSource(field) === 'page')?.id || targetFields[0]?.id || null;
-    const options = targetRows
-      .map((row) => {
-        const data = row?.data && typeof row.data === 'object' && !Array.isArray(row.data) ? row.data : {};
-        const label = titleFieldId ? stringifyValue(data[titleFieldId]) : '';
-        const fallback = label || (row?.id ? String(row.id) : '');
-        // The row's own page, if it has one, for opening it from a relation's pill
-        return row?.id ? { id: row.id, label: fallback, pageId: row.pageId || null } : null;
-      })
-      .filter(Boolean);
+    // Each with the row's own page, if it has one, for opening it from a relation's pill
+    const savedOptions = () =>
+      targetRows
+        .map((row) => {
+          const data = row?.data && typeof row.data === 'object' && !Array.isArray(row.data) ? row.data : {};
+          const label = titleFieldId ? stringifyValue(data[titleFieldId]) : '';
+          const fallback = label || (row?.id ? String(row.id) : '');
+          return row?.id ? { id: row.id, label: fallback, pageId: row.pageId || null } : null;
+        })
+        .filter(Boolean);
+    const options = Array.isArray(live?.rows)
+      ? live.rows.filter((row) => row?.id).map((row) => ({ id: row.id, label: row.title || String(row.id), pageId: row.pageId || null }))
+      : savedOptions();
     relationOptionsByPageId.value = { ...relationOptionsByPageId.value, [pageId]: options };
     relationFieldsByPageId.value = { ...relationFieldsByPageId.value, [pageId]: fieldOptions };
     relationRowsByPageId.value = { ...relationRowsByPageId.value, [pageId]: rowEntries };
@@ -597,6 +600,19 @@ const loadRelationOptions = async (pageId) => {
     relationOptionsLoading.value = { ...relationOptionsLoading.value, [pageId]: false };
   }
 };
+
+// When a database these relations point at changes (renamed rows, say), load its names again
+const relationTargetsChangedAt = computed(() => {
+  const targets = [...new Set(fields.value.map((field) => getRelationConfig(field)?.pageId).filter(Boolean))];
+  return Object.fromEntries(targets.map((pageId) => [pageId, workspace.databaseChangedAt?.[pageId] || 0]));
+});
+watch(relationTargetsChangedAt, (next, previous = {}) => {
+  Object.entries(next).forEach(([pageId, changedAt]) => {
+    if (changedAt && changedAt !== previous[pageId] && relationOptionsByPageId.value[pageId]) {
+      void loadRelationOptions(pageId, { force: true });
+    }
+  });
+});
 
 const primeRelationOptions = (fieldList) => {
   const targets = new Set();
@@ -905,15 +921,16 @@ const getChoiceLabel = (field, value) => {
   return match?.value || String(value);
 };
 
+// The linked row's current name; the one stored with the link (from when it was made) only when
+// the row can't be looked up (not loaded yet, gone, or in a database this person can't open)
 const getRelationLabel = (field, entry) => {
   if (!entry) return '';
-  if (entry.label) return entry.label;
   const relation = getRelationConfig(field);
   if (relation?.pageId) {
     const match = relationOptionsForPage(relation.pageId).find((option) => option.id === entry.id);
     if (match?.label) return match.label;
   }
-  return entry.id || '';
+  return entry.label || entry.id || '';
 };
 
 const getRelationDisplayValue = (row, field) => {

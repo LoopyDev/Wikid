@@ -383,6 +383,16 @@ export class PagesController {
     return this.databaseLinks.listIncomingRelations(id, { userId, userName });
   }
 
+  // Each row's current title, for relations elsewhere pointing here
+  @Get('pages/:id/database/row-titles')
+  getRowTitles(
+    @Param('id') id: string,
+    @CurrentUserId() userId?: string,
+    @CurrentUserName() userName?: string,
+  ) {
+    return this.databaseLinks.getRowTitles(id, { userId, userName });
+  }
+
   // What a "Linked from" column shows: for each row here, the rows of another database linking to it
   @Get('pages/:id/database/linked-rows')
   getLinkedRows(

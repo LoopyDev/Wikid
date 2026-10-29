@@ -416,6 +416,37 @@ test.describe('databases', () => {
     await expect(page.locator('.page-overlay .page-overlay__title-input')).toHaveValue(first);
   });
 
+  test("a relation shows the linked row's new name when it's renamed elsewhere", async ({ alice: page, workspaceId }) => {
+    const projects = await createPage(page, workspaceId, { title: unique('Projects'), kind: 'DATABASE' });
+    const tasks = await createPage(page, workspaceId, { title: unique('Tasks'), kind: 'DATABASE' });
+    await page.goto(`/doc/${projects}`);
+    await expect(main(page).getByRole('button', { name: 'Add row' })).toBeVisible();
+    await addNamedRow(page, projects, 'Website');
+    await page.goto(`/doc/${tasks}`);
+    await expect(main(page).getByRole('button', { name: 'Add row' })).toBeVisible();
+    await addNamedRow(page, tasks, 'Write copy');
+    await main(page).locator('thead th').last().locator('button').first().click();
+    await page.locator('.db-add-column-menu .block-menu__item', { hasText: 'Relation' }).click();
+    await expect(main(page).locator('thead th')).toHaveCount(3);
+    await chooseRelation(page, 0, 'Website');
+    const pill = main(page).locator('tbody tr').nth(0).locator('.db-relation-pill');
+    await expect(pill).toHaveText('Website');
+
+    // Renamed in another tab
+    const other = await page.context().newPage();
+    await other.goto(`/doc/${projects}`);
+    const name = other.getByRole('main').locator('tbody .db-cell-input').first();
+    await expect(name).toHaveValue('Website');
+    await name.fill('Homepage');
+    await name.press('Enter');
+
+    // Here, without a reload, and after one
+    await expect(pill).toHaveText('Homepage', { timeout: 20_000 });
+    await other.close();
+    await page.reload();
+    await expect(main(page).locator('tbody tr').nth(0).locator('.db-relation-pill')).toHaveText('Homepage');
+  });
+
   test('a list view shows a row per line with the properties chosen, here and in a page block', async ({ alice: page, workspaceId }) => {
     const db = await createPage(page, workspaceId, { title: unique('Reading'), kind: 'DATABASE' });
     const database = await (await page.request.get(`/api/pages/${db}/database`)).json();

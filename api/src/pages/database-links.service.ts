@@ -71,6 +71,21 @@ export class DatabaseLinksService {
     return { rows };
   }
 
+  /**
+   * Each row's current title (and page), from the database's live document: what a relation
+   * pointing here shows, so a row renamed a moment ago shows its new name.
+   */
+  async getRowTitles(pageId: string, user: User) {
+    const { page } = await this.access.requirePageAccess(pageId, user);
+    const database = await this.prisma.database.findUnique({ where: { pageId }, select: { id: true } });
+    if (!database) throw new NotFoundException('Database not found');
+    const contents = await this.readDatabase(page.workspaceId, pageId, database.id, { rows: true });
+    const titleField = contents.fields.find((entry) => getFieldSource(entry.options) === 'page') || contents.fields[0];
+    return {
+      rows: contents.rows.map((row) => ({ id: row.id, pageId: row.pageId, title: this.titleOf(row.data, titleField?.id) })),
+    };
+  }
+
   /** The databases in a workspace this user can open (not in the Bin, not someone else's private page). */
   private async readableDatabases(workspaceId: string, user: User) {
     const hidden = new Set(await this.access.listHiddenPageIds(workspaceId, user.userId || ''));
