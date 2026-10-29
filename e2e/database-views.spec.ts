@@ -1,5 +1,5 @@
 import { test, expect, createPage, openPage, unique, editor } from './fixtures';
-import { main, chooseRelation, rowNames, newDatabaseFromSidebar, addNamedRow } from './database-helpers';
+import { main, chooseRelation, rowNames, newDatabaseFromSidebar, addNamedRow, openViewOptions } from './database-helpers';
 
 // A database's saved views: filters and sorts, gallery and list views, and each view's menu.
 
@@ -66,7 +66,8 @@ test.describe('database views', () => {
     expect((await page.request.post(`/api/pages/${projects}/database/views`, { data: { name: 'Cards', type: 'GALLERY', config: {} } })).status()).toBe(201);
     await page.reload();
     await main(page).getByRole('button', { name: 'Cards' }).click();
-    await main(page).locator('.db-view-config-bar select').selectOption({ label: tasksTitle });
+    await openViewOptions(page);
+    await main(page).getByLabel('Cover').selectOption({ label: tasksTitle });
 
     const card = main(page).locator('.db-gallery__card').first();
     const cells = card.locator('.db-gallery__cover-item:not(.db-gallery__cover-more)');
@@ -81,6 +82,7 @@ test.describe('database views', () => {
     await more.click();
     await expect(cells).toHaveCount(3);
     // Four at a time
+    await openViewOptions(page);
     await main(page).getByLabel('Linked rows shown on a card before Show more').fill('4');
     await main(page).getByLabel('Linked rows shown on a card before Show more').press('Tab');
     await expect(cells).toHaveCount(4);
@@ -88,7 +90,7 @@ test.describe('database views', () => {
 
     // The card shows Notes, until it's unticked
     await expect(card.locator('.db-gallery__field-name')).toHaveText(['Notes']);
-    await main(page).locator('.db-card-fields__toggle').click();
+    await openViewOptions(page);
     await main(page).locator('.db-card-fields__option', { hasText: 'Notes' }).locator('input').uncheck();
     await expect(card.locator('.db-gallery__field')).toHaveCount(0);
 
@@ -248,7 +250,7 @@ test.describe('database views', () => {
       }
       await route.continue();
     });
-    await main(page).locator('.db-card-fields__toggle').click();
+    await openViewOptions(page);
     await main(page).locator('.db-card-fields__option', { hasText: 'Notes' }).locator('input').uncheck();
     await expect.poll(() => held).toBe(true);
     const show = main(page).getByLabel('Linked rows shown on a card before Show more');
@@ -258,5 +260,50 @@ test.describe('database views', () => {
     await expect(show).toHaveValue('4');
     await expect(cells).toHaveCount(4);
     await expect(main(page).locator('.db-gallery__card').first().locator('.db-gallery__cover-more')).toHaveText('Show 1 more');
+  });
+  test("a gallery can show its colours: a card's own, its select values' and its linked rows'", async ({ alice: page, workspaceId }) => {
+    const api = page.request;
+    const titleOf = async (id: string) => (await (await api.get(`/api/pages/${id}/database`)).json()).fields.find((f: any) => f.name === 'Name').id;
+    const zones = await createPage(page, workspaceId, { title: unique('Thematic zones'), kind: 'DATABASE' });
+    const exhibits = await createPage(page, workspaceId, { title: unique('Exhibits'), kind: 'DATABASE' });
+    const egypt = await (await api.post(`/api/pages/${zones}/database/rows`, { data: { data: { [await titleOf(zones)]: 'Ancient Egypt', __color: '#f97316' } } })).json();
+    const floor = await (await api.post(`/api/pages/${exhibits}/database/fields`, {
+      data: { name: 'Floor', type: 'SELECT', options: { choices: [{ value: 'Ground', color: '#22c55e' }] } },
+    })).json();
+    const zone = await (await api.post(`/api/pages/${exhibits}/database/fields`, { data: { name: 'Zone', type: 'RELATION', options: { relation: { pageId: zones } } } })).json();
+    await api.post(`/api/pages/${exhibits}/database/rows`, {
+      data: { data: { [await titleOf(exhibits)]: 'Mummy case', [floor.id]: 'Ground', [zone.id]: egypt.id, __color: '#0ea5e9' } },
+    });
+    await api.post(`/api/pages/${exhibits}/database/views`, { data: { name: 'Cards', type: 'GALLERY', config: {} } });
+    await page.goto(`/doc/${exhibits}`);
+    await main(page).getByRole('button', { name: 'Cards' }).click();
+
+    const card = main(page).locator('.db-gallery__card').first();
+    const value = (name: string) => card.locator('.db-gallery__field', { hasText: name }).locator('.db-gallery__field-value');
+    // Plain, until asked
+    await expect(value('Floor')).toHaveText('Ground');
+    await expect(value('Floor').locator('.db-multi-pill')).toHaveCount(0);
+    await expect(value('Zone')).toHaveText('Ancient Egypt');
+
+    await openViewOptions(page);
+    await main(page).locator('.db-card-fields__option', { hasText: 'Show colours' }).locator('input').check();
+    await expect(card).toHaveCSS('border-left-color', 'rgb(14, 165, 233)');
+    await expect(value('Floor').locator('.db-multi-pill')).toHaveCSS('background-color', 'rgba(34, 197, 94, 0.18)');
+    await expect(value('Zone').locator('.db-multi-pill')).toHaveCSS('background-color', 'rgba(249, 115, 22, 0.18)');
+
+    // Kept with the view
+    await page.waitForTimeout(800);
+    await page.reload();
+    await main(page).getByRole('button', { name: 'Cards' }).click();
+    await expect(card).toHaveCSS('border-left-color', 'rgb(14, 165, 233)');
+    // The zone's pill opens that zone
+    await value('Zone').locator('.db-relation-pill').click();
+    await expect(page.locator('.page-overlay .page-overlay__title-input')).toHaveValue('Ancient Egypt');
+    await page.keyboard.press('Escape');
+
+    // And off again
+    await openViewOptions(page);
+    await main(page).locator('.db-card-fields__option', { hasText: 'Show colours' }).locator('input').uncheck();
+    await expect(value('Floor').locator('.db-multi-pill')).toHaveCount(0);
   });
 });

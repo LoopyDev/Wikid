@@ -1327,7 +1327,7 @@ watch(
 onBeforeUnmount(() => clearTimeout(connectionNoticeTimer));
 const { attachAwarenessListener, caretLeftForCell, clearLocalCellCursor, getCellPresence, handleCaretMouse, handleCaretNavigate, markCellBlur, markCellFocus, markCellTyping, onTableFocusOut, presenceUser, setCellInputRef, updateAwarenessUser } = useCellPresence({ emit, activeUser, collabProvider, isCollabEnabled, tableWrapRef, flushPendingEnsureRowPages, scheduleSortRefresh });
 
-const { savedViews, normalizeSavedView, createSavedView, deleteSavedView, renameSavedView, patchActiveViewConfig, activeViewFilters, activeViewSorts, activeFilterCount, setFilterMatch, addFilterRule, updateFilterRule, changeFilterRuleField, removeFilterRule, addSortRule, updateSortRule, removeSortRule, setBoardGroupField, setGalleryCardField, setGalleryCardFields, setGalleryCoverMax, fieldChoices, filterMenu, filterMenuRef, filterMenuStyle, openFilterMenu, closeFilterMenu, sortMenu, sortMenuRef, sortMenuStyle, openSortMenu, closeSortMenu } = useSavedViews({ props, workspace, fields, fieldById, activeViewId, activeSavedView, hasApi, activeUser, error, canCreateForms, runWithSavingIndicator, closeFormMenu, closeColumnsMenu, getChoiceLabel, databaseRootRef });
+const { savedViews, normalizeSavedView, createSavedView, deleteSavedView, renameSavedView, patchActiveViewConfig, activeViewFilters, activeViewSorts, activeFilterCount, setFilterMatch, addFilterRule, updateFilterRule, changeFilterRuleField, removeFilterRule, addSortRule, updateSortRule, removeSortRule, setBoardGroupField, setGalleryCardField, setGalleryCardFields, setGalleryCoverMax, setGalleryShowColors, fieldChoices, filterMenu, filterMenuRef, filterMenuStyle, openFilterMenu, closeFilterMenu, sortMenu, sortMenuRef, sortMenuStyle, openSortMenu, closeSortMenu } = useSavedViews({ props, workspace, fields, fieldById, activeViewId, activeSavedView, hasApi, activeUser, error, canCreateForms, runWithSavingIndicator, closeFormMenu, closeColumnsMenu, getChoiceLabel, databaseRootRef });
 
 watch(
   () => [fieldMenu.value.open, fieldMenu.value.fieldId],
@@ -2032,6 +2032,19 @@ const linkItemsFor = (row, field) => {
     }));
 };
 const coverItems = (row) => linkItemsFor(row, galleryCardField.value);
+// "Show colours" in the gallery's view options: cards in their own row's colour, select values
+// and linked rows as pills in theirs
+const galleryShowColors = computed(() => activeSavedView.value?.config?.showColors === true);
+const galleryCardStyle = (row) => (galleryShowColors.value && rowColor(row) ? { borderLeftColor: rowColor(row) } : null);
+const galleryPills = (row, field) => {
+  if (!galleryShowColors.value || !field) return null;
+  if (field.type === 'SELECT' || field.type === 'MULTI_SELECT') {
+    const values = field.type === 'SELECT' ? [valueForField(row, field)].filter(Boolean) : getMultiSelectValues(row, field);
+    return values.map((value) => ({ key: value, label: getChoiceLabel(field, value) || value, color: choiceColorForValue(field, value) }));
+  }
+  if (isLinkedFromField(field) || field.type === 'RELATION') return linkItemsFor(row, field);
+  return null;
+};
 const shownCoverItems = (row) => {
   const items = coverItems(row);
   return expandedCovers.value.has(row.id) ? items : items.slice(0, coverMax.value);
@@ -3550,32 +3563,43 @@ onBeforeUnmount(() => {
         </template>
         <div v-else-if="isGalleryView" class="db-gallery">
           <div v-if="!embedded" class="db-view-config-bar">
-            <label class="db-view-config-bar__label">Cover</label>
-            <select
-              class="db-view-config__select"
-              :value="activeSavedView?.config?.cardFieldId || ''"
-              @change="setGalleryCardField($event.target.value)"
-            >
-              <option value="">None</option>
-              <option v-for="field in fields" :key="field.id" :value="field.id">{{ field.name || 'Field' }}</option>
-            </select>
-            <template v-if="isListCover">
-              <label class="db-view-config-bar__label" for="db-gallery-cover-max">Show</label>
-              <input
-                id="db-gallery-cover-max"
-                class="db-view-config__number"
-                type="number"
-                min="1"
-                max="50"
-                :value="coverMax"
-                aria-label="Linked rows shown on a card before Show more"
-                @input="handleCoverMaxInput"
-                @change="handleCoverMaxChange"
-              />
-            </template>
-            <details class="db-card-fields">
-              <summary class="db-card-fields__toggle">Card fields</summary>
-              <div class="db-card-fields__menu">
+            <details class="db-card-fields db-view-options">
+              <summary class="db-card-fields__toggle">
+                <i class="bi bi-sliders" aria-hidden="true"></i>
+                View options
+              </summary>
+              <div class="db-card-fields__menu db-view-options__menu">
+                <label class="db-view-options__row">
+                  <span class="db-view-options__label">Cover</span>
+                  <select
+                    class="db-view-config__select"
+                    aria-label="Cover"
+                    :value="activeSavedView?.config?.cardFieldId || ''"
+                    @change="setGalleryCardField($event.target.value)"
+                  >
+                    <option value="">None</option>
+                    <option v-for="field in fields" :key="field.id" :value="field.id">{{ field.name || 'Field' }}</option>
+                  </select>
+                </label>
+                <label v-if="isListCover" class="db-view-options__row" for="db-gallery-cover-max">
+                  <span class="db-view-options__label">Show</span>
+                  <input
+                    id="db-gallery-cover-max"
+                    class="db-view-config__number"
+                    type="number"
+                    min="1"
+                    max="50"
+                    :value="coverMax"
+                    aria-label="Linked rows shown on a card before Show more"
+                    @input="handleCoverMaxInput"
+                    @change="handleCoverMaxChange"
+                  />
+                </label>
+                <label class="db-card-fields__option">
+                  <input type="checkbox" :checked="galleryShowColors" @change="setGalleryShowColors($event.target.checked)" />
+                  Show colours
+                </label>
+                <div class="db-view-options__heading">Card fields</div>
                 <label v-for="field in cardFieldCandidates" :key="field.id" class="db-card-fields__option">
                   <input type="checkbox" :checked="cardFieldShown(field.id)" @change="toggleCardField(field.id)" />
                   {{ field.name || 'Field' }}
@@ -3592,6 +3616,8 @@ onBeforeUnmount(() => {
               role="button"
               tabindex="0"
               class="db-gallery__card"
+              :class="{ 'db-gallery__card--colored': galleryCardStyle(row) }"
+              :style="galleryCardStyle(row)"
               @click="openRowCard(row)"
               @keydown.enter.self.prevent="openRowCard(row)"
               @keydown.space.self.prevent="openRowCard(row)"
@@ -3603,10 +3629,10 @@ onBeforeUnmount(() => {
                   <button
                     v-if="item.open"
                     class="db-gallery__cover-item"
-                    :class="{ 'db-gallery__cover-item--colored': item.color }"
+                    :class="{ 'db-gallery__cover-item--colored': galleryShowColors && item.color }"
                     type="button"
                     :title="`Open ${item.label}`"
-                    :style="item.color ? { borderLeftColor: item.color } : null"
+                    :style="galleryShowColors && item.color ? { borderLeftColor: item.color } : null"
                     @click.stop="item.open()"
                   >
                     {{ item.label }}
@@ -3630,7 +3656,20 @@ onBeforeUnmount(() => {
               <div class="db-gallery__fields">
                 <div v-for="field in cardBodyFields" :key="field.id" class="db-gallery__field">
                   <span class="db-gallery__field-name">{{ field.name }}</span>
-                  <span class="db-gallery__field-value">{{ galleryCardValue(row, field) }}</span>
+                  <span v-if="galleryPills(row, field)" class="db-gallery__field-value db-gallery__field-pills">
+                    <template v-for="item in galleryPills(row, field)" :key="item.key">
+                      <button
+                        v-if="item.open"
+                        class="db-multi-pill db-relation-pill"
+                        type="button"
+                        :title="`Open ${item.label}`"
+                        :style="multiSelectPillStyle(item.color)"
+                        @click.stop="item.open()"
+                      >{{ item.label }}</button>
+                      <span v-else class="db-multi-pill" :style="multiSelectPillStyle(item.color)">{{ item.label }}</span>
+                    </template>
+                  </span>
+                  <span v-else class="db-gallery__field-value">{{ galleryCardValue(row, field) }}</span>
                 </div>
               </div>
             </div>

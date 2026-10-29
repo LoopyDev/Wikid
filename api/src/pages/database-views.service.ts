@@ -119,6 +119,8 @@ export class DatabaseViewsService {
       : null;
     const rawMax = Number(source.coverMaxItems);
     const coverMaxItems = Number.isInteger(rawMax) && rawMax >= 1 ? Math.min(rawMax, 50) : null;
+    // Gallery cards in their colours: select options, linked rows' and their own row's
+    const showColors = source.showColors === true;
 
     return {
       filters: { match, rules },
@@ -128,6 +130,7 @@ export class DatabaseViewsService {
       cardFieldId,
       cardFieldIds,
       coverMaxItems,
+      showColors,
     };
   }
 

@@ -121,5 +121,7 @@ export const normalizeViewConfig = (config) => {
     // cover's linked rows show before "Show more"
     cardFieldIds: Array.isArray(src.cardFieldIds) ? src.cardFieldIds.filter((id) => typeof id === 'string') : null,
     coverMaxItems: Number.isInteger(src.coverMaxItems) && src.coverMaxItems >= 1 ? src.coverMaxItems : null,
+    // Gallery cards in their colours (select options, linked rows', their own row's)
+    showColors: src.showColors === true,
   };
 };

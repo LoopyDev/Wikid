@@ -10690,6 +10690,44 @@ button.db-gallery__cover-item:focus-visible {
 .db-card-fields__option:hover {
   background: rgba(148, 163, 184, 0.12);
 }
+/* A gallery's view options: cover, how many linked rows it lists, colours, and card fields */
+.db-view-options__menu {
+  min-width: 260px;
+  gap: 4px;
+}
+.db-view-options__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 4px 8px;
+  font-size: 0.85rem;
+  color: var(--text-primary);
+}
+.db-view-options__row .db-view-config__select {
+  min-width: 0;
+  max-width: 170px;
+}
+.db-view-options__label {
+  color: var(--text-muted);
+}
+.db-view-options__heading {
+  margin-top: 6px;
+  padding: 6px 8px 2px;
+  border-top: 1px solid var(--context-menu-border);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+/* "Show colours": a card in its own row's colour, its values as coloured pills */
+.db-gallery__card--colored {
+  border-left-width: 4px;
+}
+.db-gallery__field-pills {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
 .db-card-fields__empty {
   padding: 6px 8px;
   font-size: 0.85rem;

@@ -49,3 +49,9 @@ export async function typeNewRow(page: Page, name: string) {
   await page.keyboard.type(name, { delay: 50 });
   await page.keyboard.press('Enter');
 }
+
+/** Opens a gallery's View options menu (cover, colours, card fields), if it isn't open already. */
+export async function openViewOptions(page: Page) {
+  const menu = main(page).locator('.db-view-options');
+  if (!(await menu.evaluate((el) => (el as HTMLDetailsElement).open))) await menu.locator('summary').click();
+}
