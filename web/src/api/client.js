@@ -249,6 +249,10 @@ export const api = {
       body: JSON.stringify(payload),
     });
   },
+  /** Each row's current title and page, for relations pointing at this database. */
+  async getRowTitles(pageId, { userId, userName } = {}) {
+    return request(`/pages/${pageId}/database/row-titles${buildQs({ userId, userName })}`);
+  },
   /** Relation columns elsewhere that point at this database (for a "Linked from" column). */
   async listIncomingRelations(pageId, { userId, userName } = {}) {
     return request(`/pages/${pageId}/database/incoming-relations${buildQs({ userId, userName })}`);
