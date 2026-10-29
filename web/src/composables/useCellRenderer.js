@@ -2,7 +2,7 @@ import { h } from 'vue';
 import PageIcon from '../components/PageIcon.vue';
 import { AUTO_SIZE_MULTI_MEMBERS_PLACEHOLDER, AUTO_SIZE_MULTI_PLACEHOLDER, AUTO_SIZE_RELATION_MULTI_PLACEHOLDER, AUTO_SIZE_RELATION_PLACEHOLDER, AUTO_SIZE_SELECT_PLACEHOLDER } from '../utils/database/columnLayout';
 import { formatDateTime } from '../utils/date-format';
-import { getAssetTagValue, getMultiSelectValues, valueForField } from '../utils/database/cellValues';
+import { getAssetTagValue, getMultiSelectValues, getRelationEntries, valueForField } from '../utils/database/cellValues';
 import { getRelationConfig, isAssetTagField, isFieldReadOnly, isLastEditedField, isLinkedFromField, isMembersField, isPageField, isPageFieldEditable } from '../utils/database/fieldOptions';
 import { handleCellConfirmKeydown, handleNumberKeydown, handleNumberPaste, sanitizeNumberInput } from '../utils/database/cellInput';
 import { multiSelectPillStyle } from '../utils/database/colors';
@@ -10,7 +10,7 @@ import { multiSelectPillStyle } from '../utils/database/colors';
 // Draws a table cell for its field type: text, number, date, checkbox, select and multi-select
 // pills, relations, members, asset tags, page titles (with their page link) and read-only values,
 // with the editing caret and who-is-here presence.
-export function useCellRenderer({ choiceColorForValue, getChoiceLabel, isReadonly, markCellFocus, markCellBlur, openMultiSelectMenu, getCellPresence, caretLeftForCell, openAssetTagPreview, rowPageId, getRowPageTitle, openRowPageOverlay, pageMap, workspace, resolveRowPage, ensureRowPage, applyLocalPageTitleUpdate, schedulePageTitleUpdate, tableWrapRef, pendingEnsureRowPages, scheduleSortRefresh, handleCaretNavigate, handleCaretMouse, markCellTyping, updateCell, setCellInputRef, resolveRowLastEdited, relationOptionsByPageId, relationOptionsLoading, loadRelationOptions, relationOptionsForPage, relationOptionsLoadingForPage, relationOptionsErrorForPage, getFieldChoices, linkedRowsFor }) {
+export function useCellRenderer({ choiceColorForValue, getChoiceLabel, isReadonly, markCellFocus, markCellBlur, openMultiSelectMenu, getCellPresence, caretLeftForCell, openAssetTagPreview, rowPageId, getRowPageTitle, openRowPageOverlay, pageMap, workspace, resolveRowPage, ensureRowPage, applyLocalPageTitleUpdate, schedulePageTitleUpdate, tableWrapRef, pendingEnsureRowPages, scheduleSortRefresh, handleCaretNavigate, handleCaretMouse, markCellTyping, updateCell, setCellInputRef, resolveRowLastEdited, relationOptionsByPageId, relationOptionsLoading, loadRelationOptions, relationOptionsForPage, relationOptionsLoadingForPage, relationOptionsErrorForPage, getFieldChoices, linkedRowsFor, getRelationLabel, openRelatedRow }) {
   const renderMultiSelectCell = (row, field) => {
     const values = getMultiSelectValues(row, field);
     const placeholder =
@@ -45,6 +45,74 @@ export function useCellRenderer({ choiceColorForValue, getChoiceLabel, isReadonl
       pills
     );
   };
+  // A relation: the rows it links to as pills, each opening that row's page, and a button to
+  // change them. Empty, the whole cell chooses one.
+  const renderRelationCell = (row, field, cellDisabled) => {
+    const relation = getRelationConfig(field);
+    if (relation?.pageId && !relationOptionsByPageId.value[relation.pageId] && !relationOptionsLoading.value[relation.pageId]) {
+      void loadRelationOptions(relation.pageId);
+    }
+    const entries = getRelationEntries(row, field).filter((entry) => entry?.id);
+    const canChange = !cellDisabled && !!relation?.pageId;
+    const choose = (event) => {
+      event.stopPropagation();
+      openMultiSelectMenu(row, field, event);
+    };
+    if (!entries.length) {
+      const loading = relation?.pageId ? relationOptionsLoadingForPage(relation.pageId) : false;
+      const loadError = relation?.pageId ? relationOptionsErrorForPage(relation.pageId) : '';
+      const placeholder = loadError ? 'Failed to load' : loading ? 'Loading...' : relation?.allowMultiple ? AUTO_SIZE_RELATION_MULTI_PLACEHOLDER : AUTO_SIZE_RELATION_PLACEHOLDER;
+      return h(
+        'button',
+        {
+          class: 'db-multi-cell db-relation-cell',
+          type: 'button',
+          disabled: !canChange,
+          onFocus: (event) => markCellFocus(row.id, field.id, event.target),
+          onBlur: () => markCellBlur(),
+          onClick: choose,
+          ref: setCellInputRef(row.id, field.id),
+        },
+        [h('span', { class: 'db-multi-placeholder' }, canChange ? placeholder : '—')]
+      );
+    }
+    return h('div', { class: 'db-multi-cell db-relation-cell db-relation-cell--set' }, [
+      ...entries.map((entry) => {
+        const label = getRelationLabel(field, entry) || entry.id;
+        return h(
+          'button',
+          {
+            key: entry.id,
+            class: 'db-multi-pill db-relation-pill',
+            type: 'button',
+            title: `Open ${label}`,
+            onClick: (event) => {
+              event.stopPropagation();
+              void openRelatedRow(field, entry.id);
+            },
+          },
+          label
+        );
+      }),
+      canChange
+        ? h(
+            'button',
+            {
+              class: 'db-relation-change',
+              type: 'button',
+              'aria-label': `Change ${field.name || 'relation'}`,
+              title: 'Change',
+              onFocus: (event) => markCellFocus(row.id, field.id, event.target),
+              onBlur: () => markCellBlur(),
+              onClick: choose,
+              ref: setCellInputRef(row.id, field.id),
+            },
+            '▾'
+          )
+        : null,
+    ]);
+  };
+
   const renderCellInput = (row, field) => {
     const presence = getCellPresence(row.id, field.id);
     const typing = presence.find((entry) => entry.mode === 'typing');
@@ -346,40 +414,7 @@ export function useCellRenderer({ choiceColorForValue, getChoiceLabel, isReadonl
       );
     }
     if (field.type === 'RELATION') {
-      const relation = getRelationConfig(field);
-      if (relation?.allowMultiple) {
-        if (relation.pageId && !relationOptionsByPageId.value[relation.pageId] && !relationOptionsLoading.value[relation.pageId]) {
-          void loadRelationOptions(relation.pageId);
-        }
-        return presenceWrap(renderMultiSelectCell(row, field));
-      }
-      if (relation?.pageId) {
-        if (!relationOptionsByPageId.value[relation.pageId] && !relationOptionsLoading.value[relation.pageId]) {
-          void loadRelationOptions(relation.pageId);
-        }
-      }
-      const options = relation?.pageId ? relationOptionsForPage(relation.pageId) : [];
-      const loading = relation?.pageId ? relationOptionsLoadingForPage(relation.pageId) : false;
-      const loadError = relation?.pageId ? relationOptionsErrorForPage(relation.pageId) : '';
-      const placeholder = loadError ? 'Failed to load' : loading ? 'Loading...' : AUTO_SIZE_RELATION_PLACEHOLDER;
-      return presenceWrap(
-        h(
-          'select',
-          {
-            class: 'db-cell-input',
-            value: valueForField(row, field),
-            disabled: cellDisabled || !relation?.pageId,
-            onFocus: (event) => markCellFocus(row.id, field.id, event.target),
-            onBlur: () => markCellBlur(),
-            onChange: (event) => updateCell(row, field, event.target.value),
-            ref: setCellInputRef(row.id, field.id),
-          },
-          [
-            h('option', { value: '' }, placeholder),
-            ...options.map((option) => h('option', { key: option.id, value: option.id }, option.label || option.id)),
-          ]
-        )
-      );
+      return presenceWrap(renderRelationCell(row, field, cellDisabled));
     }
     if (field.type === 'SELECT') {
       const choices = getFieldChoices(field);

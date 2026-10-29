@@ -582,7 +582,8 @@ const loadRelationOptions = async (pageId) => {
         const data = row?.data && typeof row.data === 'object' && !Array.isArray(row.data) ? row.data : {};
         const label = titleFieldId ? stringifyValue(data[titleFieldId]) : '';
         const fallback = label || (row?.id ? String(row.id) : '');
-        return row?.id ? { id: row.id, label: fallback } : null;
+        // The row's own page, if it has one, for opening it from a relation's pill
+        return row?.id ? { id: row.id, label: fallback, pageId: row.pageId || null } : null;
       })
       .filter(Boolean);
     relationOptionsByPageId.value = { ...relationOptionsByPageId.value, [pageId]: options };
@@ -1127,6 +1128,10 @@ const activeRowMenuRow = computed(() => {
 const activeMultiSelectValues = computed(() => {
   const field = activeMultiSelectField.value;
   const row = activeMultiSelectRow.value;
+  // A single relation's picker uses the same menu, with its one value
+  if (field?.type === 'RELATION' && !getRelationConfig(field)?.allowMultiple) {
+    return getRelationEntries(row, field).map((entry) => entry.id).filter(Boolean);
+  }
   return getMultiSelectValues(row, field);
 });
 
@@ -1135,7 +1140,7 @@ const activeMultiSelectChoices = computed(() => {
   if (!field) return [];
   if (field.type === 'RELATION') {
     const relation = getRelationConfig(field);
-    if (!relation?.allowMultiple || !relation.pageId) return [];
+    if (!relation?.pageId) return [];
     return relationOptionsForPage(relation.pageId).map((option) => ({
       value: option.id,
       label: option.label || option.id,
@@ -1622,8 +1627,8 @@ const openAddFieldMenu = async (event) => {
 const openMultiSelectMenu = (row, field, event) => {
   if (!row || !field || !event) return;
   const relation = field.type === 'RELATION' ? getRelationConfig(field) : null;
-  const isRelationMulti = field.type === 'RELATION' && relation?.allowMultiple === true;
-  if (field.type !== 'MULTI_SELECT' && !isRelationMulti) return;
+  if (field.type !== 'MULTI_SELECT' && !relation?.pageId) return;
+  if (relation?.pageId) void loadRelationOptions(relation.pageId);
   if (isReadonly.value) return;
   if (isFieldReadOnly(field)) return;
   const isSame =
@@ -1652,9 +1657,6 @@ const openMultiSelectMenu = (row, field, event) => {
     if (y > maxY) y = Math.max(padding, maxY);
   }
   multiSelectMenu.value = { open: true, fieldId: field.id, rowId: row.id, x, y };
-  if (isRelationMulti && relation?.pageId) {
-    void loadRelationOptions(relation.pageId);
-  }
 };
 
 const openRowMenu = (row, event) => {
@@ -1823,7 +1825,7 @@ const choiceColorForValue = (field, value) => {
   return match?.color || null;
 };
 
-const { renderCellInput } = useCellRenderer({ choiceColorForValue, getChoiceLabel, isReadonly, markCellFocus, markCellBlur, openMultiSelectMenu, getCellPresence, caretLeftForCell, openAssetTagPreview, rowPageId, getRowPageTitle, openRowPageOverlay, pageMap, workspace, resolveRowPage, ensureRowPage, applyLocalPageTitleUpdate, schedulePageTitleUpdate, tableWrapRef, pendingEnsureRowPages, scheduleSortRefresh, handleCaretNavigate, handleCaretMouse, markCellTyping, updateCell, setCellInputRef, resolveRowLastEdited, relationOptionsByPageId, relationOptionsLoading, loadRelationOptions, relationOptionsForPage, relationOptionsLoadingForPage, relationOptionsErrorForPage, getFieldChoices, linkedRowsFor });
+const { renderCellInput } = useCellRenderer({ choiceColorForValue, getChoiceLabel, isReadonly, markCellFocus, markCellBlur, openMultiSelectMenu, getCellPresence, caretLeftForCell, openAssetTagPreview, rowPageId, getRowPageTitle, openRowPageOverlay, pageMap, workspace, resolveRowPage, ensureRowPage, applyLocalPageTitleUpdate, schedulePageTitleUpdate, tableWrapRef, pendingEnsureRowPages, scheduleSortRefresh, handleCaretNavigate, handleCaretMouse, markCellTyping, updateCell, setCellInputRef, resolveRowLastEdited, relationOptionsByPageId, relationOptionsLoading, loadRelationOptions, relationOptionsForPage, relationOptionsLoadingForPage, relationOptionsErrorForPage, getFieldChoices, linkedRowsFor, getRelationLabel, openRelatedRow: (field, rowId) => openRelatedRow(field, rowId) });
 
 const getColumnSizeForField = (fieldId) => {
   const raw = columnSizing.value?.[fieldId] ?? COLUMN_DEFAULT_SIZE;
@@ -2170,11 +2172,47 @@ const chooseLinkedFrom = async (key) => {
 
 const isMultiSelectOptionSelected = (value) => activeMultiSelectValues.value.includes(value);
 
+// Opens the page of a row a relation links to, making the page first if that row has none yet
+// (which only someone who can edit can do)
+const openRelatedRow = async (field, rowId) => {
+  const relation = getRelationConfig(field);
+  if (!relation?.pageId || !rowId) return;
+  const option = relationOptionsForPage(relation.pageId).find((entry) => entry.id === rowId);
+  let pageId = option?.pageId || null;
+  if (!pageId) {
+    if (isReadonly.value || !hasApi.value || !activeUser.value) return;
+    try {
+      const res = await api.ensureDatabaseRowPage(
+        rowId,
+        { title: option?.label, pageId: relation.pageId },
+        { userId: activeUser.value.id, userName: activeUser.value.name }
+      );
+      const page = res?.page || null;
+      pageId = page?.id || res?.row?.pageId || null;
+      if (page) workspace.upsertPage(page);
+      if (option && pageId) option.pageId = pageId;
+    } catch (err) {
+      console.warn('Opening the linked row failed', err);
+      error.value = err?.message || 'Failed to open the linked row';
+      return;
+    }
+  }
+  if (!pageId) return;
+  if (typeof openRowPageOverlay === 'function') openRowPageOverlay(pageId);
+  else workspace.loadPageDoc(pageId);
+};
+
 const toggleMultiSelectOption = (value) => {
   if (isReadonly.value) return;
   const row = activeMultiSelectRow.value;
   const field = activeMultiSelectField.value;
   if (!row || !field || !value) return;
+  // A single relation: choosing sets it (choosing it again clears it), and the picker closes
+  if (field.type === 'RELATION' && !getRelationConfig(field)?.allowMultiple) {
+    updateCell(row, field, activeMultiSelectValues.value.includes(value) ? '' : value);
+    closeMultiSelectMenu();
+    return;
+  }
   const current = new Set(getMultiSelectValues(row, field));
   if (current.has(value)) {
     current.delete(value);
