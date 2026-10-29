@@ -257,7 +257,7 @@ const loadRelationOptions = async (pageId, { force = false } = {}) => {
     // The rows' current names, from the live document (the saved rows can be a few minutes behind)
     const live = await api.getRowTitles(pageId, user).catch(() => null);
     if (Array.isArray(live?.rows)) {
-      const options = live.rows.filter((row) => row?.id).map((row) => ({ id: row.id, label: row.title || String(row.id), pageId: row.pageId || null }));
+      const options = live.rows.filter((row) => row?.id).map((row) => ({ id: row.id, label: row.title || String(row.id), pageId: row.pageId || null, color: row.color || null }));
       relationOptionsByPageId.value = { ...relationOptionsByPageId.value, [pageId]: options };
       return;
     }
@@ -980,7 +980,10 @@ const relationEntriesFor = (field) => {
     ? getRelationMultiValues(raw)
     : [normalizeRelationEntry(raw)?.id].filter(Boolean);
   const options = relationOptionsForField(field);
-  return ids.map((id) => ({ id, label: options.find((option) => option.id === id)?.label || id }));
+  return ids.map((id) => {
+    const option = options.find((entry) => entry.id === id);
+    return { id, label: option?.label || id, color: option?.color || null };
+  });
 };
 const chooseRelation = async (field) => {
   choosingRelationFieldId.value = field.id;
@@ -1278,6 +1281,7 @@ onBeforeUnmount(() => {
                 class="db-multi-pill db-relation-pill"
                 type="button"
                 :title="`Open ${entry.label}`"
+                :style="multiSelectPillStyle(entry.color)"
                 @click="openRelatedRecord(field, entry)"
               >
                 {{ entry.label }}

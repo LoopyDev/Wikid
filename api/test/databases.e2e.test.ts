@@ -234,7 +234,7 @@ describe('relations', () => {
       session.get(`/pages/${people.pageId}/database/linked-rows?sourcePageId=${sourcePageId}&fieldId=${fieldId}`);
     const fromTasks = await linkedRows(bob, tasks.pageId, owner.id);
     expect(fromTasks.status).toBe(200);
-    expect(fromTasks.body.rows[ada.id]).toEqual([{ rowId: task.id, rowPageId: task.pageId ?? null, title: 'Write tests' }]);
+    expect(fromTasks.body.rows[ada.id]).toEqual([{ rowId: task.id, rowPageId: task.pageId ?? null, title: 'Write tests', color: null }]);
     expect((await linkedRows(alice, secret.id, secretOwner.id)).body.rows[ada.id]).toHaveLength(1);
     expect((await linkedRows(bob, secret.id, secretOwner.id)).body.rows).toEqual({});
     // A field that isn't a relation pointing here shows nothing
@@ -246,7 +246,7 @@ describe('relations', () => {
     const ada = (await alice.post(`/pages/${people.pageId}/database/rows`, { data: { [people.titleFieldId]: 'Ada' } })).body;
     const titles = await bob.get(`/pages/${people.pageId}/database/row-titles`);
     expect(titles.status).toBe(200);
-    expect(titles.body.rows).toEqual([{ id: ada.id, pageId: ada.pageId ?? null, title: 'Ada' }]);
+    expect(titles.body.rows).toEqual([{ id: ada.id, pageId: ada.pageId ?? null, title: 'Ada', color: null }]);
 
     const secret = await createPage(alice, workspaceId, { kind: 'DATABASE', title: unique('Secret'), visibility: 'PRIVATE' });
     expect((await alice.get(`/pages/${secret.id}/database/row-titles`)).status).toBe(200);

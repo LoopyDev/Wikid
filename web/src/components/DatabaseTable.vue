@@ -15,8 +15,8 @@ import PageIcon from './PageIcon.vue';
 import FormBuilder from './FormBuilder.vue';
 import { getAssetTagValue, getMultiSelectValues, getMultiSelectValuesFromRaw, getRelationEntries, getRowIdValue, normalizeCellValue, normalizeFilterValues, normalizeRelationEntry, pruneMultiSelectValues, renderRowIdCell, shouldClearCell, stringifyValue, valueForField } from '../utils/database/cellValues';
 import { clearYMap, cloneForSeed, ensureCollabRowDataMap, generateId, hydrateRow, readCollabOrder } from '../utils/database/collabRows';
-import { multiSelectDotStyle } from '../utils/database/colors';
-import { ADD_COLUMN_ID, ADD_COLUMN_LABEL, ADD_COLUMN_SIZE, ASSET_TAG_COLUMN_SIZE, AUTO_SIZE_BASE, AUTO_SIZE_BUFFER, AUTO_SIZE_CHAR_LIMIT, AUTO_SIZE_CHAR_WIDTH, AUTO_SIZE_FIRST_EXTRA, AUTO_SIZE_MULTI_MEMBERS_PLACEHOLDER, AUTO_SIZE_MULTI_PILL_GAP, AUTO_SIZE_MULTI_PILL_PADDING, AUTO_SIZE_MULTI_PLACEHOLDER, AUTO_SIZE_PAGE_ICON_EXTRA, AUTO_SIZE_RELATION_PLACEHOLDER, AUTO_SIZE_SELECT_EXTRA, AUTO_SIZE_SELECT_PLACEHOLDER, COLUMN_DEFAULT_SIZE, COLUMN_MAX_SIZE, COLUMN_MIN_SIZE, ROW_ID_COLUMN_ID, ROW_ID_COLUMN_LABEL, ROW_ID_COLUMN_MIN_SIZE, ROW_ID_COLUMN_SIZE } from '../utils/database/columnLayout';
+import { ROW_COLORS, ROW_COLOR_KEY, rowColor, multiSelectDotStyle, multiSelectPillStyle } from '../utils/database/colors';
+import { ADD_COLUMN_ID, ADD_COLUMN_LABEL, ADD_COLUMN_SIZE, ASSET_TAG_COLUMN_SIZE, AUTO_SIZE_BASE, AUTO_SIZE_BUFFER, AUTO_SIZE_CHAR_LIMIT, AUTO_SIZE_CHAR_WIDTH, AUTO_SIZE_FIRST_EXTRA, AUTO_SIZE_MULTI_MEMBERS_PLACEHOLDER, AUTO_SIZE_MULTI_PILL_GAP, AUTO_SIZE_MULTI_PILL_PADDING, AUTO_SIZE_MULTI_PLACEHOLDER, AUTO_SIZE_PAGE_ICON_EXTRA, AUTO_SIZE_RELATION_PLACEHOLDER, AUTO_SIZE_SELECT_EXTRA, AUTO_SIZE_SELECT_PLACEHOLDER, COLUMN_DEFAULT_SIZE, COLUMN_MAX_SIZE, COLUMN_MIN_SIZE, FIRST_COLUMN_MIN_SIZE, ROW_ID_COLUMN_ID, ROW_ID_COLUMN_LABEL, ROW_ID_COLUMN_MIN_SIZE, ROW_ID_COLUMN_SIZE } from '../utils/database/columnLayout';
 import { AUDIT_VIEW_ID, DEFAULT_INITIAL_STATUS, GOVERNANCE_FILTER_ID, auditStatusOptions, getAuditStatusClass, getComplianceRecordId } from '../utils/database/compliance';
 import { fieldTypeIcons, fieldTypes, getFieldSource, getLinkedFromConfig, getMultiSelectChoiceValues, getRelationConfig, isAssetTagField, isLinkedFromField, isFieldDeleteLocked, isFieldOptionsLocked, isFieldReadOnly, isFieldTypeLocked, isLastEditedField, isMembersField, isPageField, isRelationField, isSelectField, normalizeFieldOptions } from '../utils/database/fieldOptions';
 import { DEFAULT_FORM_ICON, buildFormField, normalizeFormIcon } from '../utils/database/forms';
@@ -584,11 +584,11 @@ const loadRelationOptions = async (pageId, { force = false } = {}) => {
           const data = row?.data && typeof row.data === 'object' && !Array.isArray(row.data) ? row.data : {};
           const label = titleFieldId ? stringifyValue(data[titleFieldId]) : '';
           const fallback = label || (row?.id ? String(row.id) : '');
-          return row?.id ? { id: row.id, label: fallback, pageId: row.pageId || null } : null;
+          return row?.id ? { id: row.id, label: fallback, pageId: row.pageId || null, color: rowColor(row) } : null;
         })
         .filter(Boolean);
     const options = Array.isArray(live?.rows)
-      ? live.rows.filter((row) => row?.id).map((row) => ({ id: row.id, label: row.title || String(row.id), pageId: row.pageId || null }))
+      ? live.rows.filter((row) => row?.id).map((row) => ({ id: row.id, label: row.title || String(row.id), pageId: row.pageId || null, color: row.color || null }))
       : savedOptions();
     relationOptionsByPageId.value = { ...relationOptionsByPageId.value, [pageId]: options };
     relationFieldsByPageId.value = { ...relationFieldsByPageId.value, [pageId]: fieldOptions };
@@ -687,7 +687,7 @@ const getAutoColumnSizing = (fields, rows) => {
     const iconExtra = index === 0 && isPageField(field) ? AUTO_SIZE_PAGE_ICON_EXTRA : 0;
     const padding = AUTO_SIZE_BASE + AUTO_SIZE_BUFFER + (index === 0 ? AUTO_SIZE_FIRST_EXTRA : 0) + iconExtra + maxExtra;
     const rawSize = Math.ceil(maxChars * AUTO_SIZE_CHAR_WIDTH + padding);
-    sizing[field.id] = Math.min(COLUMN_MAX_SIZE, Math.max(COLUMN_MIN_SIZE, rawSize));
+    sizing[field.id] = Math.min(COLUMN_MAX_SIZE, Math.max(index === 0 ? FIRST_COLUMN_MIN_SIZE : COLUMN_MIN_SIZE, rawSize));
   });
   return sizing;
 };
@@ -931,6 +931,13 @@ const getRelationLabel = (field, entry) => {
     if (match?.label) return match.label;
   }
   return entry.label || entry.id || '';
+};
+
+// The colour a linked row was given (its row menu), for its pill
+const getRelationColor = (field, rowId) => {
+  const relation = getRelationConfig(field);
+  if (!relation?.pageId || !rowId) return null;
+  return relationOptionsForPage(relation.pageId).find((option) => option.id === rowId)?.color || null;
 };
 
 const getRelationDisplayValue = (row, field) => {
@@ -1677,6 +1684,27 @@ const openMultiSelectMenu = (row, field, event) => {
   multiSelectMenu.value = { open: true, fieldId: field.id, rowId: row.id, x, y };
 };
 
+// A row's own colour (from its menu), which pills linking to it show in; null clears it
+const setRowColor = (row, color) => {
+  if (!row?.id || isReadonly.value) return;
+  if (!row.data || typeof row.data !== 'object') row.data = {};
+  if (color) row.data[ROW_COLOR_KEY] = color;
+  else delete row.data[ROW_COLOR_KEY];
+  closeRowMenu();
+  if (isCollabEnabled.value) {
+    whenCollabSynced(() => {
+      const dataMap = ensureCollabRowDataMap(ensureCollabRowMap(row.id));
+      if (!dataMap) return;
+      ensureCollabDoc().transact(() => {
+        if (color) dataMap.set(ROW_COLOR_KEY, color);
+        else dataMap.delete(ROW_COLOR_KEY);
+      }, 'db-row-color');
+    });
+    return;
+  }
+  scheduleRowUpdate(row, { ...row.data });
+};
+
 const openRowMenu = (row, event) => {
   if (!row?.id || !event) return;
   if (isReadonly.value) return;
@@ -1693,7 +1721,8 @@ const openRowMenu = (row, event) => {
   closeMultiSelectMenu();
   closeColumnsMenu();
   closeFormMenu();
-  const rect = event.currentTarget?.getBoundingClientRect?.();
+  // From a right-click, at the pointer; from the handle, under it
+  const rect = event.type === 'contextmenu' ? null : event.currentTarget?.getBoundingClientRect?.();
   const rootRect = databaseRootRef.value?.getBoundingClientRect?.();
   const rootLeft = rootRect?.left ?? 0;
   const rootTop = rootRect?.top ?? 0;
@@ -1889,11 +1918,12 @@ const choiceColorForValue = (field, value) => {
   return match?.color || null;
 };
 
-const { renderCellInput } = useCellRenderer({ choiceColorForValue, getChoiceLabel, isReadonly, markCellFocus, markCellBlur, openMultiSelectMenu, getCellPresence, caretLeftForCell, openAssetTagPreview, rowPageId, getRowPageTitle, openRowPageOverlay, pageMap, workspace, resolveRowPage, ensureRowPage, applyLocalPageTitleUpdate, schedulePageTitleUpdate, tableWrapRef, pendingEnsureRowPages, scheduleSortRefresh, handleCaretNavigate, handleCaretMouse, markCellTyping, updateCell, setCellInputRef, resolveRowLastEdited, relationOptionsByPageId, relationOptionsLoading, loadRelationOptions, relationOptionsForPage, relationOptionsLoadingForPage, relationOptionsErrorForPage, getFieldChoices, linkedRowsFor, getRelationLabel, openRelatedRow: (field, rowId) => openRelatedRow(field, rowId) });
+const { renderCellInput } = useCellRenderer({ choiceColorForValue, getChoiceLabel, isReadonly, markCellFocus, markCellBlur, openMultiSelectMenu, getCellPresence, caretLeftForCell, openAssetTagPreview, rowPageId, getRowPageTitle, openRowPageOverlay, pageMap, workspace, resolveRowPage, ensureRowPage, applyLocalPageTitleUpdate, schedulePageTitleUpdate, tableWrapRef, pendingEnsureRowPages, scheduleSortRefresh, handleCaretNavigate, handleCaretMouse, markCellTyping, updateCell, setCellInputRef, resolveRowLastEdited, relationOptionsByPageId, relationOptionsLoading, loadRelationOptions, relationOptionsForPage, relationOptionsLoadingForPage, relationOptionsErrorForPage, getFieldChoices, linkedRowsFor, getRelationLabel, getRelationColor, openRelatedRow: (field, rowId) => openRelatedRow(field, rowId) });
 
 const getColumnSizeForField = (fieldId) => {
   const raw = columnSizing.value?.[fieldId] ?? COLUMN_DEFAULT_SIZE;
-  return Math.min(COLUMN_MAX_SIZE, Math.max(COLUMN_MIN_SIZE, raw));
+  const min = fields.value[0]?.id === fieldId ? FIRST_COLUMN_MIN_SIZE : COLUMN_MIN_SIZE;
+  return Math.min(COLUMN_MAX_SIZE, Math.max(min, raw));
 };
 
 const addColumnSize = computed(() => {
@@ -1922,14 +1952,14 @@ const columns = computed(() => {
     minSize: ROW_ID_COLUMN_MIN_SIZE,
     maxSize: COLUMN_MAX_SIZE,
   };
-  const baseColumns = fields.value.map((field) => ({
+  const baseColumns = fields.value.map((field, index) => ({
     id: field.id,
     accessorFn: (row) => displayValueForField(row, field),
     header: () => field.name || 'Field',
     cell: ({ row }) => renderCellInput(row.original, field),
     sortingFn: (rowA, rowB, columnId) => sortByType(field.type, rowA.getValue(columnId), rowB.getValue(columnId)),
     size: COLUMN_DEFAULT_SIZE,
-    minSize: COLUMN_MIN_SIZE,
+    minSize: index === 0 ? FIRST_COLUMN_MIN_SIZE : COLUMN_MIN_SIZE,
     maxSize: COLUMN_MAX_SIZE,
   }));
   const addColumn = {
@@ -1987,12 +2017,18 @@ const linkItemsFor = (row, field) => {
     return linkedRowsFor(field.id, row.id).map((entry) => ({
       key: entry.rowId,
       label: entry.title,
+      color: entry.color || null,
       open: entry.rowPageId ? () => (typeof openRowPageOverlay === 'function' ? openRowPageOverlay(entry.rowPageId) : workspace.loadPageDoc(entry.rowPageId)) : null,
     }));
   }
   return getRelationEntries(row, field)
     .filter((entry) => entry?.id)
-    .map((entry) => ({ key: entry.id, label: getRelationLabel(field, entry) || entry.id, open: () => openRelatedRow(field, entry.id) }));
+    .map((entry) => ({
+      key: entry.id,
+      label: getRelationLabel(field, entry) || entry.id,
+      color: getRelationColor(field, entry.id),
+      open: () => openRelatedRow(field, entry.id),
+    }));
 };
 const coverItems = (row) => linkItemsFor(row, galleryCardField.value);
 const shownCoverItems = (row) => {
@@ -3440,6 +3476,7 @@ onBeforeUnmount(() => {
             <tr
               v-for="row in table.getRowModel().rows"
               :key="row.id"
+              @contextmenu="!readonly && !$event.target.closest('input, textarea, select, [contenteditable]') && ($event.preventDefault(), openRowMenu(row.original, $event))"
               :class="['db-row', getAuditRowClass(row.original), { 'db-row--menu-open': rowMenu.open && rowMenu.rowId === row.id, 'db-row--selected': selectedRowIds.size && selectedRowIds.has(row.original.id) }]"
             >
               <td
@@ -3551,7 +3588,15 @@ onBeforeUnmount(() => {
               <div v-if="galleryCardField && isListCover" class="db-gallery__cover db-gallery__cover--list">
                 <span class="db-gallery__cover-label">{{ galleryCardField.name || 'Field' }}</span>
                 <template v-for="item in shownCoverItems(row)" :key="item.key">
-                  <button v-if="item.open" class="db-gallery__cover-item" type="button" :title="`Open ${item.label}`" @click.stop="item.open()">
+                  <button
+                    v-if="item.open"
+                    class="db-gallery__cover-item"
+                    :class="{ 'db-gallery__cover-item--colored': item.color }"
+                    type="button"
+                    :title="`Open ${item.label}`"
+                    :style="item.color ? { borderLeftColor: item.color } : null"
+                    @click.stop="item.open()"
+                  >
                     {{ item.label }}
                   </button>
                   <span v-else class="db-gallery__cover-item db-gallery__cover-item--plain">{{ item.label }}</span>
@@ -3603,8 +3648,15 @@ onBeforeUnmount(() => {
                 <span v-for="field in listFields" :key="field.id" class="db-list__property" :title="field.name">
                   <template v-if="isLinkField(field)">
                     <template v-for="item in linkItemsFor(row, field)" :key="item.key">
-                      <button v-if="item.open" class="db-multi-pill db-relation-pill" type="button" :title="`Open ${item.label}`" @click="item.open()">{{ item.label }}</button>
-                      <span v-else class="db-multi-pill">{{ item.label }}</span>
+                      <button
+                        v-if="item.open"
+                        class="db-multi-pill db-relation-pill"
+                        type="button"
+                        :title="`Open ${item.label}`"
+                        :style="multiSelectPillStyle(item.color)"
+                        @click="item.open()"
+                      >{{ item.label }}</button>
+                      <span v-else class="db-multi-pill" :style="multiSelectPillStyle(item.color)">{{ item.label }}</span>
                     </template>
                   </template>
                   <template v-else>{{ galleryCardValue(row, field) }}</template>
@@ -4311,6 +4363,27 @@ onBeforeUnmount(() => {
       <div class="block-menu__panel-stack">
         <div class="block-menu__panel">
           <div class="block-menu__panel-scroll">
+            <div class="block-menu__group-title">Colour</div>
+            <div class="db-row-colors" role="group" aria-label="Row colour">
+              <button
+                class="db-row-color db-row-color--none"
+                type="button"
+                aria-label="No colour"
+                :aria-pressed="!rowColor(activeRowMenuRow)"
+                @click="setRowColor(activeRowMenuRow, null)"
+              ></button>
+              <button
+                v-for="swatch in ROW_COLORS"
+                :key="swatch.value"
+                class="db-row-color"
+                type="button"
+                :style="{ background: swatch.value }"
+                :aria-label="swatch.label"
+                :aria-pressed="rowColor(activeRowMenuRow) === swatch.value"
+                @click="setRowColor(activeRowMenuRow, swatch.value)"
+              ></button>
+            </div>
+            <div class="block-menu__divider" role="separator" aria-hidden="true"></div>
             <button class="block-menu__item" type="button" @click="deleteRow(activeRowMenuRow)">
               <span class="block-menu__icon">×</span>
               <span class="block-menu__text">

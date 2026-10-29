@@ -188,4 +188,46 @@ test.describe('database relations', () => {
     await page.reload();
     await expect(main(page).locator('tbody tr').nth(0).locator('.db-relation-pill')).toHaveText('Homepage');
   });
+  test("a row's own colour shows on the pills of relations linking to it", async ({ alice: page, workspaceId }) => {
+    const zonesTitle = unique('Thematic zones');
+    const zones = await createPage(page, workspaceId, { title: zonesTitle, kind: 'DATABASE' });
+    const exhibits = await createPage(page, workspaceId, { title: unique('Exhibits'), kind: 'DATABASE' });
+    await page.goto(`/doc/${zones}`);
+    await expect(main(page).getByRole('button', { name: 'Add row' })).toBeVisible();
+    await addNamedRow(page, zones, 'Ancient Egypt');
+    await addNamedRow(page, zones, 'Ocean Life');
+    await page.goto(`/doc/${exhibits}`);
+    await expect(main(page).getByRole('button', { name: 'Add row' })).toBeVisible();
+    await addNamedRow(page, exhibits, 'Mummy case');
+    await main(page).locator('thead th').last().locator('button').first().click();
+    await page.locator('.db-add-column-menu .block-menu__item', { hasText: 'Relation' }).click();
+    await expect(main(page).locator('thead th')).toHaveCount(3);
+    await chooseRelation(page, 0, 'Ancient Egypt');
+    const pill = main(page).locator('tbody tr').nth(0).locator('.db-relation-pill');
+    await expect(pill).toHaveText('Ancient Egypt');
+    await expect(pill).toHaveCSS('background-color', 'rgba(148, 163, 184, 0.12)');
+
+    // Ancient Egypt is orange, from its row menu
+    await page.goto(`/doc/${zones}`);
+    const egypt = main(page).locator('tbody tr').nth(0);
+    await egypt.hover();
+    await egypt.getByRole('button', { name: 'Row actions' }).click();
+    await page.locator('.db-row-menu').getByRole('button', { name: 'Orange' }).click();
+    await expect(egypt.locator('.db-row-color-dot')).toHaveCSS('background-color', 'rgb(249, 115, 22)');
+    await expect(main(page).locator('tbody tr').nth(1).locator('.db-row-color-dot')).toHaveCount(0);
+
+    // So its pill on the exhibit is orange, and still after a reload
+    await page.waitForTimeout(800);
+    await page.goto(`/doc/${exhibits}`);
+    await expect(pill).toHaveCSS('background-color', 'rgba(249, 115, 22, 0.18)');
+    await page.reload();
+    await expect(pill).toHaveCSS('background-color', 'rgba(249, 115, 22, 0.18)');
+
+    // Cleared again with None, this time from a right-click on the row
+    await page.goto(`/doc/${zones}`);
+    await egypt.locator('td').last().click({ button: 'right' });
+    await expect(page.locator('.db-row-menu').getByRole('button', { name: 'Orange' })).toHaveAttribute('aria-pressed', 'true');
+    await page.locator('.db-row-menu').getByRole('button', { name: 'No colour' }).click();
+    await expect(egypt.locator('.db-row-color-dot')).toHaveCount(0);
+  });
 });
