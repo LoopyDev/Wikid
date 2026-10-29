@@ -6,6 +6,7 @@ import { getAssetTagValue, getMultiSelectValues, getRelationEntries, valueForFie
 import { getRelationConfig, isAssetTagField, isFieldReadOnly, isLastEditedField, isLinkedFromField, isMembersField, isPageField, isPageFieldEditable } from '../utils/database/fieldOptions';
 import { handleCellConfirmKeydown, handleNumberKeydown, handleNumberPaste, sanitizeNumberInput } from '../utils/database/cellInput';
 import { multiSelectPillStyle, rowColor } from '../utils/database/colors';
+import { keptValueFor, keptValueText, notFitText } from '../utils/database/typeChange';
 
 // Draws a table cell for its field type: text, number, date, checkbox, select and multi-select
 // pills, relations, members, asset tags, page titles (with their page link) and read-only values,
@@ -133,6 +134,9 @@ export function useCellRenderer({ choiceColorForValue, getChoiceLabel, isReadonl
           : null;
     const isReadOnlyCell = isFieldReadOnly(field);
     const cellDisabled = isReadonly.value || isReadOnlyCell;
+    // What the cell held before its column's type changed, when it doesn't fit the new type:
+    // shown greyed until a new value replaces it
+    const kept = isReadOnlyCell || isLinkedFromField(field) ? undefined : keptValueFor(row, field);
     const presenceWrap = (node) =>
       h(
         'div',
@@ -142,7 +146,12 @@ export function useCellRenderer({ choiceColorForValue, getChoiceLabel, isReadonl
             presence.length ? 'db-cell--presence' : '',
             typing ? 'db-cell--typing' : '',
             isReadOnlyCell ? 'db-cell--readonly' : '',
+            kept !== undefined ? `db-cell--kept db-cell--kept-${field.type.toLowerCase()}` : '',
           ],
+          title:
+            kept !== undefined
+              ? `${notFitText(field.type)}: kept from before this column's type changed. ${cellDisabled ? '' : 'Enter a new value to replace it.'}`.trim()
+              : undefined,
           style: primary
             ? {
                 '--presence-color': primary.color,
@@ -155,6 +164,12 @@ export function useCellRenderer({ choiceColorForValue, getChoiceLabel, isReadonl
             ? h('div', { class: 'db-cell-presence' })
             : null,
           node,
+          kept !== undefined
+            ? h('span', { class: 'db-cell-kept' }, [
+                h('i', { class: 'bi bi-exclamation-triangle', 'aria-hidden': 'true' }),
+                h('span', { class: 'db-cell-kept__text' }, keptValueText(kept)),
+              ])
+            : null,
         ]
       );
     if (isAssetTagField(field)) {
@@ -355,7 +370,7 @@ export function useCellRenderer({ choiceColorForValue, getChoiceLabel, isReadonl
         h('input', {
         class: 'db-cell-input',
         type: 'checkbox',
-        checked: !!row.data?.[field.id],
+        checked: kept === undefined && !!row.data?.[field.id],
         disabled: cellDisabled,
         onFocus: (event) => markCellFocus(row.id, field.id, event.target),
         onBlur: () => markCellBlur(),
@@ -368,7 +383,7 @@ export function useCellRenderer({ choiceColorForValue, getChoiceLabel, isReadonl
         h('input', {
           class: 'db-cell-input',
           type: 'date',
-          value: valueForField(row, field),
+          value: kept === undefined ? valueForField(row, field) : '',
           disabled: cellDisabled,
           onKeydown: handleCellConfirmKeydown,
           onFocus: (event) => markCellFocus(row.id, field.id, event.target),
@@ -386,7 +401,7 @@ export function useCellRenderer({ choiceColorForValue, getChoiceLabel, isReadonl
         inputmode: 'decimal',
         pattern: '^-?\\d*\\.?\\d*$',
           step: 'any',
-          value: valueForField(row, field),
+          value: kept === undefined ? valueForField(row, field) : '',
           disabled: cellDisabled,
           onKeydown: (event) => {
             handleNumberKeydown(event);

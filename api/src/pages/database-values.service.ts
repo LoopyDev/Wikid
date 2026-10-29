@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Prisma, DatabaseFieldType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { isUuid } from '../utils/uuid.util';
-import { TRUE_STRINGS, FALSE_STRINGS } from '../utils/boolean-strings.const';
+import { coerceCellValue, coerceRelationValue } from '../utils/cell-values.util';
 import { DatabaseSetupService } from './database-setup.service';
 
 // Field options and the values stored in database rows and forms: normalises and
@@ -41,110 +41,14 @@ export class DatabaseValuesService {
   }
 
   coerceRelationValue(value: any, allowMultiple: boolean) {
-    const normalizeEntry = (entry: any) => {
-      if (typeof entry === 'string') {
-        const id = entry.trim();
-        if (!isUuid(id)) return null;
-        return { id, label: '' };
-      }
-      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null;
-      const rawId = typeof (entry as any).id === 'string' ? (entry as any).id.trim() : '';
-      if (!rawId || !isUuid(rawId)) return null;
-      const rawLabel = typeof (entry as any).label === 'string' ? (entry as any).label.trim() : '';
-      return { id: rawId, label: rawLabel };
-    };
-    if (allowMultiple) {
-      const list = Array.isArray(value) ? value : [value];
-      const entries = list.map((entry) => normalizeEntry(entry)).filter(Boolean) as Array<{ id: string; label: string }>;
-      return entries.length ? entries : undefined;
-    }
-    const entry = normalizeEntry(value);
-    return entry || undefined;
+    return coerceRelationValue(value, allowMultiple);
   }
 
   coerceDatabaseFieldValue(field: { type: DatabaseFieldType; options?: Prisma.JsonValue | null }, value: any) {
-    if (value === null || value === undefined) return undefined;
     const options = this.normalizeDatabaseFieldOptions(field.options ?? null);
-    switch (field.type) {
-      case DatabaseFieldType.NUMBER: {
-        if (typeof value === 'number') {
-          return Number.isFinite(value) ? value : undefined;
-        }
-        if (typeof value === 'string') {
-          const trimmed = value.trim();
-          if (!trimmed) return undefined;
-          const num = Number(trimmed);
-          return Number.isFinite(num) ? num : undefined;
-        }
-        return undefined;
-      }
-      case DatabaseFieldType.CHECKBOX: {
-        if (typeof value === 'boolean') return value;
-        if (typeof value === 'number') return value !== 0;
-        if (typeof value === 'string') {
-          const trimmed = value.trim().toLowerCase();
-          if (!trimmed) return undefined;
-          if (TRUE_STRINGS.has(trimmed)) return true;
-          if (FALSE_STRINGS.has(trimmed)) return false;
-          return true;
-        }
-        return undefined;
-      }
-      case DatabaseFieldType.DATE: {
-        if (value instanceof Date) {
-          return Number.isNaN(value.getTime()) ? undefined : value.toISOString();
-        }
-        if (typeof value === 'string') {
-          const trimmed = value.trim();
-          if (!trimmed) return undefined;
-          const parsed = Date.parse(trimmed);
-          return Number.isNaN(parsed) ? undefined : trimmed;
-        }
-        return undefined;
-      }
-      case DatabaseFieldType.SELECT: {
-        if (typeof value !== 'string') return undefined;
-        const trimmed = value.trim();
-        if (!trimmed) return undefined;
-        if (options.choiceValues && !options.choiceValues.includes(trimmed)) return undefined;
-        return trimmed;
-      }
-      case DatabaseFieldType.MULTI_SELECT: {
-        let values: string[] = [];
-        if (Array.isArray(value)) {
-          values = value.filter((item) => typeof item === 'string').map((item) => item.trim()).filter(Boolean);
-        } else if (typeof value === 'string') {
-          values = value
-            .split(',')
-            .map((item) => item.trim())
-            .filter(Boolean);
-        } else {
-          return undefined;
-        }
-        if (options.choiceValues) {
-          values = values.filter((item) => options.choiceValues?.includes(item));
-        }
-        if (!values.length) return undefined;
-        return values;
-      }
-      case DatabaseFieldType.RELATION: {
-        const relation = this.databaseSetup.normalizeRelationOptions(field.options ?? null);
-        if (!relation) return undefined;
-        return this.coerceRelationValue(value, relation.allowMultiple);
-      }
-      case DatabaseFieldType.URL:
-      case DatabaseFieldType.TEXT:
-      default: {
-        if (typeof value === 'string') {
-          const trimmed = value.trim();
-          return trimmed ? trimmed : undefined;
-        }
-        if (typeof value === 'number') {
-          return Number.isFinite(value) ? String(value) : undefined;
-        }
-        return undefined;
-      }
-    }
+    const relation =
+      field.type === DatabaseFieldType.RELATION ? this.databaseSetup.normalizeRelationOptions(field.options ?? null) : null;
+    return coerceCellValue({ type: field.type, choiceValues: options.choiceValues, allowMultiple: relation ? relation.allowMultiple : null }, value);
   }
 
   normalizeDatabaseFormStorage(raw: Prisma.InputJsonValue) {

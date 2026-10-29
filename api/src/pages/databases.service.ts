@@ -11,6 +11,7 @@ import { CollabSyncService } from './collab-sync.service';
 import { DatabaseValuesService } from './database-values.service';
 import { WikiService } from './wiki.service';
 import { PagesService } from './pages.service';
+import { KEPT_VALUE_PREFIX, keptValueKey, normalizeKeptValue } from '../utils/cell-values.util';
 import { POSITION_INCREMENT, COMPLIANCE_RECORD_KEY, DEFAULT_COMPLIANCE_WORKFLOW, ROW_COLOR_KEY, normalizePageTitle, normalizeRowColor, getFieldSource } from './pages.shared';
 
 // Databases: reading a database, its fields and rows, row pages, relations between
@@ -474,6 +475,11 @@ export class DatabasesService {
         if (color) sanitized[key] = color;
         continue;
       }
+      if (key.startsWith(KEPT_VALUE_PREFIX)) {
+        const kept = fieldMap.has(key.slice(KEPT_VALUE_PREFIX.length)) ? normalizeKeptValue(value) : undefined;
+        if (kept !== undefined) sanitized[key] = kept;
+        continue;
+      }
       const field = fieldMap.get(key);
       if (!field) continue;
       if (field.type === DatabaseFieldType.RELATION) {
@@ -506,6 +512,10 @@ export class DatabasesService {
         sanitized[key] = next;
       }
     }
+    // A cell given a value no longer needs what was kept from before its column's type changed
+    fieldMap.forEach((_field, fieldId) => {
+      if (sanitized[fieldId] !== undefined) delete sanitized[keptValueKey(fieldId)];
+    });
     return sanitized;
   }
 
