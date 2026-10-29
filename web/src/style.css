@@ -2354,6 +2354,44 @@ button {
   align-items: center;
 }
 
+/* A value kept from before the column's type changed, that doesn't fit the new type */
+.db-cell-kept {
+  position: absolute;
+  inset: 0 4px 0 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--text-muted);
+  font-style: italic;
+  pointer-events: none;
+}
+
+.db-cell-kept .bi {
+  flex: none;
+  color: #d97706;
+  font-size: 12px;
+  font-style: normal;
+}
+
+.db-cell-kept__text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.db-cell--kept-checkbox .db-cell-kept {
+  left: 28px;
+}
+
+.db-cell--kept-checkbox .db-cell-input {
+  width: auto;
+}
+
+.db-cell--kept:focus-within .db-cell-kept {
+  display: none;
+}
+
 .db-row {
   position: relative;
 }

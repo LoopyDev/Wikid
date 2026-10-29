@@ -4,7 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { normalizeCollabDocState } from './collab-doc.util';
 import { CollabDatabaseState, databaseStateFromYjsState } from './collab-database.util';
 import { isUuid } from '../utils/uuid.util';
-import { TRUE_STRINGS, FALSE_STRINGS } from '../utils/boolean-strings.const';
+import { CellValueRules, sanitizeRowCells } from '../utils/cell-values.util';
 import { ParsedDocName, parseDocName } from '../utils/collab-doc-name.util';
 import { ROW_COLOR_KEY, normalizeRowColor } from '../pages/pages.shared';
 
@@ -201,114 +201,9 @@ export class CollabMaterializerService implements OnModuleInit, OnModuleDestroy 
     return { pageId, allowMultiple, history: historyEnabled ? { enabled: true } : null };
   }
 
-  private coerceRelationValue(value: any, allowMultiple: boolean) {
-    const normalizeEntry = (entry: any) => {
-      if (typeof entry === 'string') {
-        const id = entry.trim();
-        if (!isUuid(id)) return null;
-        return { id, label: '' };
-      }
-      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null;
-      const rawId = typeof (entry as any).id === 'string' ? (entry as any).id.trim() : '';
-      if (!rawId || !isUuid(rawId)) return null;
-      const rawLabel = typeof (entry as any).label === 'string' ? (entry as any).label.trim() : '';
-      return { id: rawId, label: rawLabel };
-    };
-    if (allowMultiple) {
-      const list = Array.isArray(value) ? value : [value];
-      const entries = list.map((entry) => normalizeEntry(entry)).filter(Boolean) as Array<{ id: string; label: string }>;
-      return entries.length ? entries : undefined;
-    }
-    const entry = normalizeEntry(value);
-    return entry || undefined;
-  }
-
-  private coerceDatabaseFieldValue(
-    field: { type: DatabaseFieldType; options: NormalizedFieldOptions },
-    value: any
-  ) {
-    if (value === null || value === undefined) return undefined;
-    const options = field.options;
-    switch (field.type) {
-      case DatabaseFieldType.NUMBER: {
-        if (typeof value === 'number') {
-          return Number.isFinite(value) ? value : undefined;
-        }
-        if (typeof value === 'string') {
-          const trimmed = value.trim();
-          if (!trimmed) return undefined;
-          const num = Number(trimmed);
-          return Number.isFinite(num) ? num : undefined;
-        }
-        return undefined;
-      }
-      case DatabaseFieldType.CHECKBOX: {
-        if (typeof value === 'boolean') return value;
-        if (typeof value === 'number') return value !== 0;
-        if (typeof value === 'string') {
-          const trimmed = value.trim().toLowerCase();
-          if (!trimmed) return undefined;
-          if (TRUE_STRINGS.has(trimmed)) return true;
-          if (FALSE_STRINGS.has(trimmed)) return false;
-          return true;
-        }
-        return undefined;
-      }
-      case DatabaseFieldType.DATE: {
-        if (value instanceof Date) {
-          return Number.isNaN(value.getTime()) ? undefined : value.toISOString();
-        }
-        if (typeof value === 'string') {
-          const trimmed = value.trim();
-          if (!trimmed) return undefined;
-          const parsed = Date.parse(trimmed);
-          return Number.isNaN(parsed) ? undefined : trimmed;
-        }
-        return undefined;
-      }
-      case DatabaseFieldType.SELECT: {
-        if (typeof value !== 'string') return undefined;
-        const trimmed = value.trim();
-        if (!trimmed) return undefined;
-        if (options.choiceValues && !options.choiceValues.includes(trimmed)) return undefined;
-        return trimmed;
-      }
-      case DatabaseFieldType.MULTI_SELECT: {
-        let values: string[] = [];
-        if (Array.isArray(value)) {
-          values = value.filter((item) => typeof item === 'string').map((item) => item.trim()).filter(Boolean);
-        } else if (typeof value === 'string') {
-          values = value
-            .split(',')
-            .map((item) => item.trim())
-            .filter(Boolean);
-        } else {
-          return undefined;
-        }
-        if (options.choiceValues) {
-          values = values.filter((item) => options.choiceValues?.includes(item));
-        }
-        if (!values.length) return undefined;
-        return values;
-      }
-      case DatabaseFieldType.RELATION: {
-        const relation = this.normalizeRelationOptions(options.options || {});
-        if (!relation) return undefined;
-        return this.coerceRelationValue(value, relation.allowMultiple);
-      }
-      case DatabaseFieldType.URL:
-      case DatabaseFieldType.TEXT:
-      default: {
-        if (typeof value === 'string') {
-          const trimmed = value.trim();
-          return trimmed ? trimmed : undefined;
-        }
-        if (typeof value === 'number') {
-          return Number.isFinite(value) ? String(value) : undefined;
-        }
-        return undefined;
-      }
-    }
+  private cellRulesFor(type: DatabaseFieldType, options: NormalizedFieldOptions): CellValueRules {
+    const relation = type === DatabaseFieldType.RELATION ? this.normalizeRelationOptions(options.options || {}) : null;
+    return { type, choiceValues: options.choiceValues, allowMultiple: relation ? relation.allowMultiple : null };
   }
 
   private sanitizeDatabaseRowData(
@@ -318,16 +213,13 @@ export class CollabMaterializerService implements OnModuleInit, OnModuleDestroy 
   ) {
     if (!rawData || typeof rawData !== 'object' || Array.isArray(rawData)) return {};
     const sanitized: Record<string, any> = {};
-    fields.forEach((field) => {
-      if (!(field.id in rawData)) return;
-      const next = this.coerceDatabaseFieldValue(
-        { type: field.type, options: field.normalizedOptions },
-        rawData[field.id]
-      );
-      if (next !== undefined) {
-        sanitized[field.id] = next;
-      }
-    });
+    Object.assign(
+      sanitized,
+      sanitizeRowCells(
+        fields.map((field) => ({ id: field.id, ...this.cellRulesFor(field.type, field.normalizedOptions) })),
+        rawData
+      )
+    );
     if (options.preservePageId) {
       const rawPageId = typeof rawData[PAGE_ID_KEY] === 'string' ? rawData[PAGE_ID_KEY].trim() : '';
       if (isUuid(rawPageId)) {
