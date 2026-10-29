@@ -49,6 +49,7 @@ const fieldErrors = ref({});
 const amendReason = ref('');
 const amendReasonError = ref(false);
 const requiredSubmitMessage = 'Please fill all required fields.';
+const futureDateMessage = "Can't be in the future";
 const autoRequiredErrorMessage = 'Autofill missing — contact the form author.';
 const requiredInitDone = ref(false);
 const submitHighlight = ref(false);
@@ -448,6 +449,7 @@ const resolvedFields = computed(() => {
       missing: !field,
       auto,
       autoValue: field && auto ? resolveAutoValue(field, auto) : undefined,
+      noFuture: entry?.noFuture === true && field?.type === 'DATE',
     };
   });
 });
@@ -834,7 +836,8 @@ const clearFieldErrorIfResolved = (fieldId, overrideValue, hasOverride = false) 
   if (!fieldErrors.value[fieldId]) return;
   const field = resolvedFields.value.find((entry) => entry.id === fieldId);
   if (!field) return;
-  if (!isFieldMissingRequired(field, overrideValue, hasOverride)) {
+  const value = hasOverride ? overrideValue : values.value[fieldId];
+  if (!isFieldMissingRequired(field, overrideValue, hasOverride) && !isFutureDate(field, value)) {
     const next = { ...fieldErrors.value };
     delete next[fieldId];
     fieldErrors.value = next;
@@ -987,6 +990,10 @@ const validateForm = () => {
   return !Object.keys(errors).length;
 };
 
+// A "no future" date later than today, as the person's own calendar has it
+const isFutureDate = (field, value) =>
+  !!field?.noFuture && !field.readOnly && typeof value === 'string' && !!value && value.slice(0, 10) > localToday();
+
 const buildSubmitData = () => {
   const data = {};
   resolvedFields.value.forEach((field) => {
@@ -1052,6 +1059,15 @@ const { loading: submitting, error: submitError, execute: submitForm } = useApiM
     submitError.value = requiredSubmitMessage;
     triggerSubmitShake();
     triggerRequiredFlash(collectMissingRequiredIds());
+    return;
+  }
+  const futureIds = resolvedFields.value
+    .filter((field) => isFieldVisibleNow(field) && isFutureDate(field, values.value[field.id]))
+    .map((field) => field.id);
+  if (futureIds.length) {
+    fieldErrors.value = Object.fromEntries(futureIds.map((id) => [id, futureDateMessage]));
+    submitError.value = "Dates can't be in the future.";
+    triggerSubmitShake();
     return;
   }
   const payload = { data: buildSubmitData() };
@@ -1274,7 +1290,10 @@ onBeforeUnmount(() => {
         >
           <div class="form-field__label-row">
             <label class="form-field__label">{{ field.label }}</label>
-            <span v-if="fieldErrors[field.id] && field.auto" class="form-field__error">
+            <span
+              v-if="fieldErrors[field.id] && (field.auto || fieldErrors[field.id] === futureDateMessage)"
+              class="form-field__error"
+            >
               {{ fieldErrors[field.id] }}
             </span>
             <span
@@ -1310,6 +1329,7 @@ onBeforeUnmount(() => {
               class="form-input"
               type="date"
               :value="valueForField(field)"
+              :max="field.noFuture ? localToday() : undefined"
               :disabled="field.readOnly"
               @input="updateFieldValue(field.id, $event.target.value)"
             />

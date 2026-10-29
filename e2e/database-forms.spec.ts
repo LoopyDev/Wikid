@@ -114,4 +114,51 @@ test.describe('database forms', () => {
       return db.rows.map((row: any) => row.data[received.id]);
     }).toEqual([today]);
   });
+
+  test("a date field set to no future won't take a later date", async ({ alice: page, workspaceId }) => {
+    await openPage(page, await createPage(page, workspaceId));
+    const id = await newDatabaseFromSidebar(page, unique('Incidents'));
+    const happened = await (await page.request.post(`/api/pages/${id}/database/fields`, { data: { name: 'Happened', type: 'DATE' } })).json();
+    await page.reload();
+    const forms = async () => (await (await page.request.get(`/api/pages/${id}/database`)).json()).forms ?? [];
+    await main(page).getByRole('button', { name: /^Forms/ }).click();
+    page.on('dialog', (dialog) => dialog.accept(dialog.type() === 'prompt' ? 'Incident form' : undefined));
+    await main(page).getByRole('button', { name: 'New form' }).click();
+    await expect.poll(async () => (await forms()).length).toBe(1);
+
+    // Offered on the date field only
+    const builder = main(page).locator('.db-form-builder');
+    const fieldBlock = (name: string) =>
+      builder.locator('.db-form-field', { has: page.locator('.db-form-field-name', { hasText: new RegExp(`^${name}$`) }) });
+    await expect(fieldBlock('Name').getByLabel('No future')).toHaveCount(0);
+    await fieldBlock('Happened').getByLabel('No future').check();
+    await expect.poll(async () => {
+      const [form] = await forms();
+      const fields = Array.isArray(form?.fields) ? form.fields : form?.fields?.fields ?? [];
+      return fields.find((f: any) => f.fieldId === happened.id)?.noFuture ?? false;
+    }).toBe(true);
+
+    const [form] = await forms();
+    await page.goto(`/form/${form.id}`);
+    const dayFrom = (offset: number) =>
+      page.evaluate((offset) => {
+        const day = new Date(Date.now() + offset * 86_400_000);
+        return `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}`;
+      }, offset);
+    const dateInput = page.locator('input[type="date"]');
+    // The picker stops at today
+    await expect(dateInput).toHaveAttribute('max', await dayFrom(0));
+    await dateInput.fill(await dayFrom(2));
+    await page.getByRole('button', { name: /^Submit/ }).click();
+    // The browser holds the form back, saying the latest date it takes
+    await expect.poll(() => dateInput.evaluate((input: HTMLInputElement) => input.validity.rangeOverflow)).toBe(true);
+    const dates = async () =>
+      (await (await page.request.get(`/api/pages/${id}/database`)).json()).rows.map((row: any) => row.data[happened.id]);
+    expect(await dates()).toEqual([]);
+
+    const yesterday = await dayFrom(-1);
+    await dateInput.fill(yesterday);
+    await page.getByRole('button', { name: /^Submit/ }).click();
+    await expect.poll(dates).toEqual([yesterday]);
+  });
 });

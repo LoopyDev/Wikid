@@ -337,7 +337,12 @@ const normalizeFormFieldEntry = (entry) => {
   const auto = normalizeFormAuto(entry.auto, fieldId, selectSource);
   const requiredWhen = normalizeFormRequiredWhen(entry.requiredWhen);
   const visibleWhen = normalizeFormVisibleWhen(entry.visibleWhen);
-  const base = auto ? { fieldId, label, required, editable, auto } : { fieldId, label, required, editable };
+  const dateField = fields.value.find((field) => field?.id === fieldId);
+  const noFuture = entry.noFuture === true && dateField?.type === 'DATE';
+  const base = {
+    ...(auto ? { fieldId, label, required, editable, auto } : { fieldId, label, required, editable }),
+    ...(noFuture ? { noFuture } : {}),
+  };
   const withSource = selectSource ? { ...base, selectSource } : base;
   const withRequired = requiredWhen ? { ...withSource, requiredWhen } : withSource;
   return visibleWhen ? { ...withRequired, visibleWhen } : withRequired;

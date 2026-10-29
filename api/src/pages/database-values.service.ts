@@ -185,6 +185,7 @@ export class DatabaseValuesService {
       selectSource?: { type: string; relationFieldId: string; targetFieldId: string };
       requiredWhen?: { fieldId: string; op: string; value?: any };
       visibleWhen?: { fieldId: string; op: string; value?: any };
+      noFuture?: boolean;
     }> = [];
     const relationTargetCache = new Map<string, Set<string> | null>();
     const resolveRelationTargetFields = async (pageId: string) => {
@@ -289,6 +290,7 @@ export class DatabaseValuesService {
       let selectSource: { type: string; relationFieldId: string; targetFieldId: string } | null = null;
       let requiredWhen: { fieldId: string; op: string; value?: any } | null = null;
       let visibleWhen: { fieldId: string; op: string; value?: any } | null = null;
+      let noFuture = false;
       if (typeof entry === 'string') {
         fieldId = entry.trim();
       } else if (entry && typeof entry === 'object' && !Array.isArray(entry)) {
@@ -310,18 +312,21 @@ export class DatabaseValuesService {
         auto = normalizeAuto((entry as any).auto, fieldId, selectSource);
         requiredWhen = normalizeRequiredWhen((entry as any).requiredWhen);
         visibleWhen = normalizeVisibleWhen((entry as any).visibleWhen);
+        // A date that can't be later than the day it's entered
+        noFuture = (entry as any).noFuture === true && fieldMap.get(fieldId)?.type === DatabaseFieldType.DATE;
       }
       if (!fieldId || !allowed.has(fieldId) || seen.has(fieldId)) {
         continue;
       }
       seen.add(fieldId);
+      const extra = noFuture ? { noFuture } : {};
       if (auto) {
-        const base = { fieldId, label, required, editable, auto };
+        const base = { fieldId, label, required, editable, auto, ...extra };
         const withSource = selectSource ? { ...base, selectSource } : base;
         const withRequired = requiredWhen ? { ...withSource, requiredWhen } : withSource;
         normalized.push(visibleWhen ? { ...withRequired, visibleWhen } : withRequired);
       } else {
-        const base = { fieldId, label, required, editable };
+        const base = { fieldId, label, required, editable, ...extra };
         const withSource = selectSource ? { ...base, selectSource } : base;
         const withRequired = requiredWhen ? { ...withSource, requiredWhen } : withSource;
         normalized.push(visibleWhen ? { ...withRequired, visibleWhen } : withRequired);
