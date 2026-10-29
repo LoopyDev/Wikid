@@ -20,6 +20,21 @@ async function makePng(page: Page, width: number, height: number) {
   return Buffer.from(dataUrl.split(',')[1], 'base64');
 }
 
+/**
+ * Where the first placeholder line is, and the page title, measured together the moment the line
+ * shows: it goes as soon as the page is in, which can be between two separate steps.
+ */
+async function placeholderLine(page: Page) {
+  const handle = await page.waitForFunction(() => {
+    const line = document.querySelector('.page-hold[data-stage="skeleton"] .page-hold__line');
+    const title = document.querySelector('.page-title');
+    if (!line || !title) return null;
+    const box = line.getBoundingClientRect();
+    return { x: box.x, width: box.width, titleX: title.getBoundingClientRect().x };
+  });
+  return (await handle.jsonValue()) as { x: number; width: number; titleX: number };
+}
+
 test.describe('loading', () => {
   test('moves between pages over one live connection, loading a page when the pointer rests on it', async ({ alice: page, workspaceId }) => {
     const firstTitle = unique('First');
@@ -139,11 +154,9 @@ test.describe('loading', () => {
     const title = page.getByRole('main').getByRole('textbox').first();
     await expect(title).toHaveValue(slowTitle);
     // The placeholder lines show, under the title
-    const line = page.locator('.page-hold[data-stage="skeleton"] .page-hold__line').first();
-    await expect(line).toBeVisible();
-    const lineBox = (await line.boundingBox())!;
-    expect(lineBox.width).toBeGreaterThan(200);
-    expect(Math.abs(lineBox.x - (await title.boundingBox())!.x)).toBeLessThan(24);
+    const line = await placeholderLine(page);
+    expect(line.width).toBeGreaterThan(200);
+    expect(Math.abs(line.x - line.titleX)).toBeLessThan(24);
     await expect(editor(page)).toHaveText('Worth the wait');
     await expect(page.locator('.page-hold')).toHaveCount(0);
     // The last stage is noted on the next frame after the page shows
