@@ -416,6 +416,51 @@ test.describe('databases', () => {
     await expect(page.locator('.page-overlay .page-overlay__title-input')).toHaveValue(first);
   });
 
+  test('a list view shows a row per line with the properties chosen, here and in a page block', async ({ alice: page, workspaceId }) => {
+    const db = await createPage(page, workspaceId, { title: unique('Reading'), kind: 'DATABASE' });
+    const database = await (await page.request.get(`/api/pages/${db}/database`)).json();
+    const nameField = database.fields.find((f: any) => f.name === 'Name').id;
+    const notes = await (await page.request.post(`/api/pages/${db}/database/fields`, { data: { name: 'Notes', type: 'TEXT' } })).json();
+    for (const [name, note] of [['Dune', 'Re-read'], ['Emma', 'Next']]) {
+      await page.request.post(`/api/pages/${db}/database/rows`, { data: { data: { [nameField]: name, [notes.id]: note } } });
+    }
+    await page.goto(`/doc/${db}`);
+    await expect(main(page).getByRole('button', { name: 'Add row' })).toBeVisible();
+
+    // A list view, from the add-view menu
+    await main(page).getByRole('button', { name: 'Create form view' }).click();
+    await page.locator('.block-menu__item', { hasText: 'One row per line' }).click();
+    const rows = main(page).locator('.db-list__row');
+    await expect(rows).toHaveCount(2);
+    await expect(rows.locator('.db-list__name')).toHaveText(['Dune', 'Emma']);
+    // No properties until chosen
+    await expect(rows.locator('.db-list__property')).toHaveCount(0);
+    await main(page).locator('.db-card-fields__toggle', { hasText: 'Properties' }).click();
+    await main(page).locator('.db-card-fields__option', { hasText: 'Notes' }).locator('input').check();
+    await expect(rows.locator('.db-list__property')).toHaveText(['Re-read', 'Next']);
+    // The menu closes on a click elsewhere
+    await page.mouse.click(5, 5);
+    await expect(main(page).locator('.db-card-fields__menu')).toBeHidden();
+
+    // A row's title opens it
+    await rows.first().locator('.db-list__title').click();
+    await expect(page.locator('.page-overlay .page-overlay__title-input')).toHaveValue('Dune');
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.page-overlay')).toHaveCount(0);
+
+    // In a page's database view block, chosen from its views
+    await page.waitForTimeout(800);
+    const doc = await createPage(page, workspaceId, { title: unique('Shelf') });
+    await openPage(page, doc);
+    await page.evaluate((pageId) => {
+      (document.querySelector('.ProseMirror') as any).editor.chain().focus('end').insertContent({ type: 'databaseView', attrs: { pageId } }).run();
+    }, db);
+    const block = page.locator('.ce-database-view');
+    await block.locator('.ce-database-view__view-select').selectOption({ label: 'List 1' });
+    await expect(block.locator('.db-list__row .db-list__name')).toHaveText(['Dune', 'Emma']);
+    await expect(block.locator('.db-list__row .db-list__property')).toHaveText(['Re-read', 'Next']);
+  });
+
   test('pauses editing while the table is connecting or reconnecting', async ({ alice: page, workspaceId }) => {
     // Hold back the live connection: each attempt is closed until allowed.
     let allowed = false;

@@ -16,7 +16,7 @@ export class DatabaseViewsService {
   ) {}
 
   private readonly DEFAULT_VIEW_ICON = 'icon:table';
-  private readonly VIEW_TYPES = ['TABLE', 'GALLERY', 'BOARD'];
+  private readonly VIEW_TYPES = ['TABLE', 'GALLERY', 'BOARD', 'LIST'];
   private readonly VIEW_FILTER_OPERATORS = [
     'is',
     'is_not',
