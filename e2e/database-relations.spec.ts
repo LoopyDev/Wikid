@@ -220,6 +220,12 @@ test.describe('database relations', () => {
     await page.waitForTimeout(800);
     await page.goto(`/doc/${exhibits}`);
     await expect(pill).toHaveCSS('background-color', 'rgba(249, 115, 22, 0.18)');
+    // And in the relation's picker, its dot
+    await main(page).locator('tbody tr').nth(0).locator('.db-relation-change').click();
+    const option = page.locator('.db-multi-select-menu .db-multi-option', { hasText: 'Ancient Egypt' });
+    await expect(option.locator('.db-option-color-dot')).toHaveCSS('background-color', 'rgb(249, 115, 22)');
+    await page.keyboard.press('Escape');
+    await page.mouse.click(900, 600);
     await page.reload();
     await expect(pill).toHaveCSS('background-color', 'rgba(249, 115, 22, 0.18)');
 
