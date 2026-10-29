@@ -1,4 +1,5 @@
-import { DatabaseFieldType } from '@prisma/client';
+// Only the type is imported: these rules run without the generated Prisma client (in the unit tests)
+import type { DatabaseFieldType } from '@prisma/client';
 import { isUuid } from './uuid.util';
 import { TRUE_STRINGS, FALSE_STRINGS } from './boolean-strings.const';
 
@@ -66,7 +67,7 @@ export const coerceRelationValue = (value: any, allowMultiple: boolean) => {
 export const coerceCellValue = (rules: CellValueRules, value: any): any => {
   if (value === null || value === undefined) return undefined;
   switch (rules.type) {
-    case DatabaseFieldType.NUMBER: {
+    case 'NUMBER': {
       if (typeof value === 'number') {
         return Number.isFinite(value) ? value : undefined;
       }
@@ -78,7 +79,7 @@ export const coerceCellValue = (rules: CellValueRules, value: any): any => {
       }
       return undefined;
     }
-    case DatabaseFieldType.CHECKBOX: {
+    case 'CHECKBOX': {
       if (typeof value === 'boolean') return value;
       if (typeof value === 'number') return value !== 0;
       if (typeof value === 'string') {
@@ -90,7 +91,7 @@ export const coerceCellValue = (rules: CellValueRules, value: any): any => {
       }
       return undefined;
     }
-    case DatabaseFieldType.DATE: {
+    case 'DATE': {
       if (value instanceof Date) {
         return Number.isNaN(value.getTime()) ? undefined : value.toISOString();
       }
@@ -102,14 +103,14 @@ export const coerceCellValue = (rules: CellValueRules, value: any): any => {
       }
       return undefined;
     }
-    case DatabaseFieldType.SELECT: {
+    case 'SELECT': {
       if (typeof value !== 'string') return undefined;
       const trimmed = value.trim();
       if (!trimmed) return undefined;
       if (rules.choiceValues && !rules.choiceValues.includes(trimmed)) return undefined;
       return trimmed;
     }
-    case DatabaseFieldType.MULTI_SELECT: {
+    case 'MULTI_SELECT': {
       let values: string[] = [];
       if (Array.isArray(value)) {
         values = value.filter((item) => typeof item === 'string').map((item) => item.trim()).filter(Boolean);
@@ -127,12 +128,12 @@ export const coerceCellValue = (rules: CellValueRules, value: any): any => {
       if (!values.length) return undefined;
       return values;
     }
-    case DatabaseFieldType.RELATION: {
+    case 'RELATION': {
       if (rules.allowMultiple === null || rules.allowMultiple === undefined) return undefined;
       return coerceRelationValue(value, rules.allowMultiple);
     }
-    case DatabaseFieldType.URL:
-    case DatabaseFieldType.TEXT:
+    case 'URL':
+    case 'TEXT':
     default: {
       if (typeof value === 'string') {
         const trimmed = value.trim();
@@ -144,4 +145,22 @@ export const coerceCellValue = (rules: CellValueRules, value: any): any => {
       return undefined;
     }
   }
+};
+
+/**
+ * A row's cells as they're saved: each value that fits its column, and beside it what doesn't
+ * fit, a value kept when the column's type changed or one left in the cell, rather than losing it.
+ */
+export const sanitizeRowCells = (columns: Array<CellValueRules & { id: string }>, rawData: Record<string, any>) => {
+  const cells: Record<string, any> = {};
+  columns.forEach((column) => {
+    const next = column.id in rawData ? coerceCellValue(column, rawData[column.id]) : undefined;
+    if (next !== undefined) {
+      cells[column.id] = next;
+      return;
+    }
+    const kept = normalizeKeptValue(rawData[keptValueKey(column.id)]) ?? normalizeKeptValue(rawData[column.id]);
+    if (kept !== undefined) cells[keptValueKey(column.id)] = kept;
+  });
+  return cells;
 };

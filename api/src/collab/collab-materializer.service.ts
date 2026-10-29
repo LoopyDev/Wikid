@@ -4,7 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { normalizeCollabDocState } from './collab-doc.util';
 import { CollabDatabaseState, databaseStateFromYjsState } from './collab-database.util';
 import { isUuid } from '../utils/uuid.util';
-import { coerceCellValue, keptValueKey, normalizeKeptValue } from '../utils/cell-values.util';
+import { CellValueRules, sanitizeRowCells } from '../utils/cell-values.util';
 import { ParsedDocName, parseDocName } from '../utils/collab-doc-name.util';
 import { ROW_COLOR_KEY, normalizeRowColor } from '../pages/pages.shared';
 
@@ -201,16 +201,9 @@ export class CollabMaterializerService implements OnModuleInit, OnModuleDestroy 
     return { pageId, allowMultiple, history: historyEnabled ? { enabled: true } : null };
   }
 
-  private coerceDatabaseFieldValue(
-    field: { type: DatabaseFieldType; options: NormalizedFieldOptions },
-    value: any
-  ) {
-    const relation =
-      field.type === DatabaseFieldType.RELATION ? this.normalizeRelationOptions(field.options.options || {}) : null;
-    return coerceCellValue(
-      { type: field.type, choiceValues: field.options.choiceValues, allowMultiple: relation ? relation.allowMultiple : null },
-      value
-    );
+  private cellRulesFor(type: DatabaseFieldType, options: NormalizedFieldOptions): CellValueRules {
+    const relation = type === DatabaseFieldType.RELATION ? this.normalizeRelationOptions(options.options || {}) : null;
+    return { type, choiceValues: options.choiceValues, allowMultiple: relation ? relation.allowMultiple : null };
   }
 
   private sanitizeDatabaseRowData(
@@ -220,20 +213,13 @@ export class CollabMaterializerService implements OnModuleInit, OnModuleDestroy 
   ) {
     if (!rawData || typeof rawData !== 'object' || Array.isArray(rawData)) return {};
     const sanitized: Record<string, any> = {};
-    fields.forEach((field) => {
-      const next =
-        field.id in rawData
-          ? this.coerceDatabaseFieldValue({ type: field.type, options: field.normalizedOptions }, rawData[field.id])
-          : undefined;
-      if (next !== undefined) {
-        sanitized[field.id] = next;
-        return;
-      }
-      // What doesn't fit the column is kept beside it rather than lost: a value kept when the
-      // column's type changed, or one left in the cell that doesn't fit it
-      const kept = normalizeKeptValue(rawData[keptValueKey(field.id)]) ?? normalizeKeptValue(rawData[field.id]);
-      if (kept !== undefined) sanitized[keptValueKey(field.id)] = kept;
-    });
+    Object.assign(
+      sanitized,
+      sanitizeRowCells(
+        fields.map((field) => ({ id: field.id, ...this.cellRulesFor(field.type, field.normalizedOptions) })),
+        rawData
+      )
+    );
     if (options.preservePageId) {
       const rawPageId = typeof rawData[PAGE_ID_KEY] === 'string' ? rawData[PAGE_ID_KEY].trim() : '';
       if (isUuid(rawPageId)) {

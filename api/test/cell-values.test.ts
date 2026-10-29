@@ -1,8 +1,8 @@
-import 'reflect-metadata';
 import { describe, expect, it } from 'vitest';
-import { DatabaseFieldType } from '@prisma/client';
-import { coerceCellValue, normalizeKeptValue } from '../src/utils/cell-values.util';
-import { CollabMaterializerService } from '../src/collab/collab-materializer.service';
+import type { DatabaseFieldType } from '@prisma/client';
+import { coerceCellValue, normalizeKeptValue, sanitizeRowCells } from '../src/utils/cell-values.util';
+
+// A plain unit test: no generated Prisma client (CI runs these without one), so types only
 import fixture from './fixtures/cell-values.json';
 
 describe('the values a cell of each type keeps', () => {
@@ -23,9 +23,8 @@ describe('the values a cell of each type keeps', () => {
   });
 
   it("saves the live document's rows keeping what doesn't fit beside the cell, not dropping it", () => {
-    const materializer = new CollabMaterializerService(null as any) as any;
-    const amount = { id: 'amount', type: DatabaseFieldType.NUMBER, normalizedOptions: { options: {}, choices: null, choiceValues: null } };
-    const sanitize = (data: Record<string, any>) => materializer.sanitizeDatabaseRowData([amount], data);
+    const sanitize = (data: Record<string, any>) =>
+      sanitizeRowCells([{ id: 'amount', type: 'NUMBER' as DatabaseFieldType, choiceValues: null, allowMultiple: null }], data);
     expect(sanitize({ amount: '12' })).toEqual({ amount: 12 });
     // Kept when the column's type changed
     expect(sanitize({ '__kept:amount': 'about ten' })).toEqual({ '__kept:amount': 'about ten' });
