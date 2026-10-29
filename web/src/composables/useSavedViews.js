@@ -31,6 +31,9 @@ export function useSavedViews({ props, workspace, fields, fieldById, activeViewI
   const activeFilterCount = computed(() => activeViewFilters.value.rules.length);
   // --- Persistence (debounced) ---
   const viewSaveTimers = new Map();
+  // Each view's latest save: a reply to an older one is out of date (two saves can overlap, and
+  // their replies come back in either order), so it doesn't replace what's shown
+  const latestViewSave = new Map();
   const scheduleViewPersist = (viewId, payload) => {
     if (!hasApi.value || !activeUser.value) return;
     const existing = viewSaveTimers.get(viewId);
@@ -38,13 +41,16 @@ export function useSavedViews({ props, workspace, fields, fieldById, activeViewI
     if (existing?.timer) clearTimeout(existing.timer);
     const timer = setTimeout(async () => {
       viewSaveTimers.delete(viewId);
+      const save = (latestViewSave.get(viewId) || 0) + 1;
+      latestViewSave.set(viewId, save);
       try {
         const res = await api.updateDatabaseView(viewId, payload, {
           userId: activeUser.value.id,
           userName: activeUser.value.name,
         });
         const normalized = normalizeSavedView(res);
-        if (normalized) {
+        // Only the reply to the latest save, with no newer change waiting to go, is shown
+        if (normalized && latestViewSave.get(viewId) === save && !viewSaveTimers.has(viewId)) {
           savedViews.value = savedViews.value.map((view) => (view.id === viewId ? normalized : view));
         }
       } catch (err) {
