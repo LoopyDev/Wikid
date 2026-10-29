@@ -165,6 +165,11 @@ const formatFieldValue = (field, row) => {
     }
     case 'SELECT':
       return getChoiceLabel(field, value);
+    // People by count: the preview doesn't load the workspace's members to name them
+    case 'PERSON': {
+      const count = getMultiSelectValues(value).length;
+      return count ? `${count} ${count === 1 ? 'person' : 'people'}` : '';
+    }
     case 'RELATION': {
       if (Array.isArray(value)) {
         return value

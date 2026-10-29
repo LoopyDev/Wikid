@@ -15,6 +15,13 @@ export function useViewRows({ fields, fieldById, tableRows, activeSavedView, isB
       display == null || display === '' || (Array.isArray(display) && display.length === 0);
     if (operator === 'is_empty') return isEmpty;
     if (operator === 'is_not_empty') return !isEmpty;
+    // A person column holding (or not holding) whoever is looking
+    if (operator === 'is_me' || operator === 'is_not_me') {
+      const raw = row?.data?.[field.id];
+      const ids = Array.isArray(raw) ? raw.map(String) : raw ? [String(raw)] : [];
+      const mine = !!workspace?.activeUserId && ids.includes(workspace.activeUserId);
+      return operator === 'is_me' ? mine : !mine;
+    }
 
     if (field.type === 'CHECKBOX') {
       const raw = valueForField(row, field);
@@ -68,7 +75,7 @@ export function useViewRows({ fields, fieldById, tableRows, activeSavedView, isB
       }
     }
 
-    if (field.type === 'MULTI_SELECT' || field.type === 'RELATION') {
+    if (field.type === 'MULTI_SELECT' || field.type === 'RELATION' || field.type === 'PERSON') {
       const values = (Array.isArray(display) ? display : [display]).map((v) => String(v ?? '').toLowerCase());
       const needle = String(rule.value ?? '').toLowerCase();
       if (!needle) return operator === 'not_contains';

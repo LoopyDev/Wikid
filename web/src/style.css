@@ -3852,6 +3852,18 @@ button {
   gap: 8px;
   cursor: pointer;
 }
+
+/* A setting ticked straight from a column's menu (a person column's "Allow multiple people") */
+.db-field-menu__check {
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border-radius: 8px;
+}
+
+.db-field-menu__check:hover {
+  background: var(--sidebar-hover-bg);
+}
 .db-relation-settings__check input {
   flex-shrink: 0;
   width: 14px;

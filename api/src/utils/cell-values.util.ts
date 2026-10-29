@@ -37,7 +37,8 @@ export type CellValueRules = {
   type: DatabaseFieldType;
   // The choices a select may hold, or null for any
   choiceValues?: string[] | null;
-  // For a relation: whether it links to several rows, or null if it isn't set up
+  // For a relation: whether it links to several rows, or null if it isn't set up.
+  // For a person column: whether it holds several people.
   allowMultiple?: boolean | null;
 };
 
@@ -127,6 +128,13 @@ export const coerceCellValue = (rules: CellValueRules, value: any): any => {
       }
       if (!values.length) return undefined;
       return values;
+    }
+    case 'PERSON': {
+      // User ids, as a list even when the column holds one person
+      const list = Array.isArray(value) ? value : [value];
+      const ids = [...new Set(list.filter((item) => typeof item === 'string' && isUuid(item.trim())).map((item) => item.trim()))];
+      if (!ids.length) return undefined;
+      return rules.allowMultiple === true ? ids : ids.slice(0, 1);
     }
     case 'RELATION': {
       if (rules.allowMultiple === null || rules.allowMultiple === undefined) return undefined;

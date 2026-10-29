@@ -208,4 +208,30 @@ test.describe('database forms', () => {
     await formField('Kind').locator('select').selectOption('Bug');
     await expect(impactRequired).toBeVisible();
   });
+
+  test('a form fills its author in, and lets you pick a person', async ({ alice: page, workspaceId }) => {
+    const id = await createPage(page, workspaceId, { title: unique('Requests'), kind: 'DATABASE' });
+    const db = async () => (await (await page.request.get(`/api/pages/${id}/database`)).json());
+    const nameField = (await db()).fields.find((f: any) => f.name === 'Name').id;
+    const add = async (data: Record<string, unknown>) => (await (await page.request.post(`/api/pages/${id}/database/fields`, { data })).json()).id;
+    const author = await add({ name: 'Author', type: 'PERSON' });
+    const reviewer = await add({ name: 'Reviewer', type: 'PERSON' });
+    const form = await (await page.request.post(`/api/pages/${id}/database/forms`, {
+      data: { name: 'Request', fields: [{ fieldId: nameField }, { fieldId: author, auto: { type: 'currentUser' } }, { fieldId: reviewer }] },
+    })).json();
+
+    await page.goto(`/form/${form.id}`);
+    const formField = (label: string) =>
+      page.locator('.form-field').filter({ has: page.locator('.form-field__label', { hasText: new RegExp(`^${label}$`) }) });
+    // The author is whoever fills it in, and can't be changed
+    await expect(formField('Author').locator('select')).toBeDisabled();
+    await expect(formField('Author').locator('select option:checked')).toHaveText('Alice');
+    await formField('Reviewer').locator('select').selectOption({ label: 'Bob' });
+    await formField('Name').locator('input').first().fill('More coffee');
+    await page.getByRole('button', { name: /^Submit/ }).click();
+    await expect.poll(async () => {
+      const row = (await db()).rows.find((r: any) => r.data[nameField] === 'More coffee');
+      return row ? [row.data[author], row.data[reviewer]] : null;
+    }).toEqual([['00000000-0000-0000-0000-000000000011'], ['00000000-0000-0000-0000-000000000012']]);
+  });
 });

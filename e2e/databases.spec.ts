@@ -297,4 +297,42 @@ test.describe('databases', () => {
     await expect(main(page).locator('.db-cell--kept')).toHaveCount(0);
     await expect(main(page).locator('.db-cell--kept')).toHaveCount(0);
   });
+
+  test('a person column holds workspace members, one or several', async ({ alice: page, workspaceId }) => {
+    const id = await createPage(page, workspaceId, { title: unique('Tasks'), kind: 'DATABASE' });
+    const nameField = (await (await page.request.get(`/api/pages/${id}/database`)).json()).fields.find((f: any) => f.name === 'Name').id;
+    await page.request.post(`/api/pages/${id}/database/rows`, { data: { data: { [nameField]: 'Launch' } } });
+    await page.goto(`/doc/${id}`);
+    await expect(main(page).locator('tbody tr')).toHaveCount(1);
+
+    // Added from the column menu like any other type
+    await main(page).locator('thead th').last().locator('button').first().click();
+    await page.locator('.db-add-column-menu .block-menu__item', { has: page.locator('.block-menu__title', { hasText: /^Person$/ }) }).click();
+    await expect(main(page).locator('thead th')).toHaveCount(3);
+    await page.keyboard.press('Escape');
+    const cell = main(page).locator('tbody tr').first().locator('.db-multi-cell');
+    await expect(cell).toHaveText('Add person');
+
+    // One person: choosing someone sets them and closes the picker
+    const picker = page.locator('.db-multi-select-menu');
+    await cell.click();
+    await picker.locator('.db-multi-option', { hasText: 'Bob' }).click();
+    await expect(picker).toBeHidden();
+    await expect(cell.locator('.db-multi-pill')).toHaveText(['Bob']);
+    await cell.click();
+    await picker.locator('.db-multi-option', { hasText: 'Alice' }).click();
+    await expect(cell.locator('.db-multi-pill')).toHaveText(['Alice']);
+
+    // Several, once allowed
+    await main(page).locator('thead th').nth(1).locator('button').first().click();
+    await page.locator('.db-field-menu').getByLabel('Allow multiple people').check();
+    await page.keyboard.press('Escape');
+    await cell.click();
+    await picker.locator('.db-multi-option', { hasText: 'Bob' }).click();
+    await page.keyboard.press('Escape');
+    await expect(cell.locator('.db-multi-pill')).toHaveText(['Alice', 'Bob']);
+
+    await page.reload();
+    await expect(main(page).locator('tbody tr').first().locator('.db-multi-pill')).toHaveText(['Alice', 'Bob']);
+  });
 });

@@ -48,7 +48,9 @@ export class DatabaseValuesService {
     const options = this.normalizeDatabaseFieldOptions(field.options ?? null);
     const relation =
       field.type === DatabaseFieldType.RELATION ? this.databaseSetup.normalizeRelationOptions(field.options ?? null) : null;
-    return coerceCellValue({ type: field.type, choiceValues: options.choiceValues, allowMultiple: relation ? relation.allowMultiple : null }, value);
+    const allowMultiple =
+      field.type === DatabaseFieldType.PERSON ? (options as any).allowMultiple === true : relation ? relation.allowMultiple : null;
+    return coerceCellValue({ type: field.type, choiceValues: options.choiceValues, allowMultiple }, value);
   }
 
   normalizeDatabaseFormStorage(raw: Prisma.InputJsonValue) {

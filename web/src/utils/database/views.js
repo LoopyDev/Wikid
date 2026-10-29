@@ -63,6 +63,8 @@ export const OPERATOR_LABELS = {
   on_or_after: 'on or after',
   is_checked: 'is checked',
   is_unchecked: 'is unchecked',
+  is_me: 'is me',
+  is_not_me: 'is not me',
 };
 
 export const operatorsForFieldType = (type) => {
@@ -78,13 +80,15 @@ export const operatorsForFieldType = (type) => {
     case 'MULTI_SELECT':
     case 'RELATION':
       return ['contains', 'not_contains', 'is_empty', 'is_not_empty'];
+    case 'PERSON':
+      return ['is_me', 'is_not_me', 'contains', 'not_contains', 'is_empty', 'is_not_empty'];
     default:
       return ['is', 'is_not', 'contains', 'not_contains', 'is_empty', 'is_not_empty'];
   }
 };
 
 export const operatorNeedsValue = (operator) =>
-  !['is_empty', 'is_not_empty', 'is_checked', 'is_unchecked'].includes(operator);
+  !['is_empty', 'is_not_empty', 'is_checked', 'is_unchecked', 'is_me', 'is_not_me'].includes(operator);
 
 export const normalizeViewType = (value) => {
   const upper = typeof value === 'string' ? value.trim().toUpperCase() : '';

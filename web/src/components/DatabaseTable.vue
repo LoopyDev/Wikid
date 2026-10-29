@@ -19,7 +19,7 @@ import { clearYMap, cloneForSeed, ensureCollabRowDataMap, generateId, hydrateRow
 import { ROW_COLORS, ROW_COLOR_KEY, rowColor, multiSelectDotStyle, multiSelectPillStyle } from '../utils/database/colors';
 import { ADD_COLUMN_ID, ADD_COLUMN_LABEL, ADD_COLUMN_SIZE, ASSET_TAG_COLUMN_SIZE, AUTO_SIZE_BASE, AUTO_SIZE_BUFFER, AUTO_SIZE_CHAR_LIMIT, AUTO_SIZE_CHAR_WIDTH, AUTO_SIZE_FIRST_EXTRA, AUTO_SIZE_MULTI_MEMBERS_PLACEHOLDER, AUTO_SIZE_MULTI_PILL_GAP, AUTO_SIZE_MULTI_PILL_PADDING, AUTO_SIZE_MULTI_PLACEHOLDER, AUTO_SIZE_PAGE_ICON_EXTRA, AUTO_SIZE_RELATION_PLACEHOLDER, AUTO_SIZE_SELECT_EXTRA, AUTO_SIZE_SELECT_PLACEHOLDER, COLUMN_DEFAULT_SIZE, COLUMN_MAX_SIZE, COLUMN_MIN_SIZE, FIRST_COLUMN_MIN_SIZE, ROW_ID_COLUMN_ID, ROW_ID_COLUMN_LABEL, ROW_ID_COLUMN_MIN_SIZE, ROW_ID_COLUMN_SIZE } from '../utils/database/columnLayout';
 import { AUDIT_VIEW_ID, DEFAULT_INITIAL_STATUS, GOVERNANCE_FILTER_ID, auditStatusOptions, getAuditStatusClass, getComplianceRecordId } from '../utils/database/compliance';
-import { fieldTypeIcons, fieldTypes, getFieldSource, getLinkedFromConfig, getMultiSelectChoiceValues, getRelationConfig, isAssetTagField, isLinkedFromField, isFieldDeleteLocked, isFieldOptionsLocked, isFieldReadOnly, isFieldTypeLocked, isLastEditedField, isMembersField, isPageField, isRelationField, isSelectField, normalizeFieldOptions } from '../utils/database/fieldOptions';
+import { fieldTypeIcons, fieldTypes, getFieldSource, getLinkedFromConfig, getMultiSelectChoiceValues, getRelationConfig, isAssetTagField, isLinkedFromField, isFieldDeleteLocked, isFieldOptionsLocked, isFieldReadOnly, isFieldTypeLocked, isLastEditedField, isMembersField, isPageField, isPeopleField, isPersonField, isRelationField, isSelectField, normalizeFieldOptions } from '../utils/database/fieldOptions';
 import { DEFAULT_FORM_ICON, buildFormField, conditionValues, normalizeFormIcon } from '../utils/database/forms';
 import { OPERATOR_LABELS, operatorNeedsValue, operatorsForFieldType, sortByType } from '../utils/database/views';
 import { colorFromId } from '../utils/presenceColor';
@@ -651,12 +651,12 @@ const getAutoColumnSizing = (fields, rows) => {
     let maxExtra = 0;
     const isSelect = field.type === 'SELECT';
     const isRelation = field.type === 'RELATION';
-    const isMultiSelect = field.type === 'MULTI_SELECT';
+    const isMultiSelect = field.type === 'MULTI_SELECT' || isPersonField(field);
     if (isSelect || isRelation) {
       maxChars = (isRelation ? AUTO_SIZE_RELATION_PLACEHOLDER : AUTO_SIZE_SELECT_PLACEHOLDER).length;
     }
     if (isMultiSelect) {
-      const placeholder = isMembersField(field) ? AUTO_SIZE_MULTI_MEMBERS_PLACEHOLDER : AUTO_SIZE_MULTI_PLACEHOLDER;
+      const placeholder = isPeopleField(field) ? AUTO_SIZE_MULTI_MEMBERS_PLACEHOLDER : AUTO_SIZE_MULTI_PLACEHOLDER;
       maxChars = placeholder.length;
     }
     for (const row of rows) {
@@ -910,7 +910,7 @@ const memberChoiceList = computed(() =>
 );
 
 const getFieldChoices = (field) => {
-  if (isMembersField(field)) {
+  if (isPeopleField(field)) {
     return memberChoiceList.value;
   }
   return normalizeFieldOptions(field).choices;
@@ -931,6 +931,10 @@ const getChoiceLabel = (field, value) => {
   if (match?.label) return match.label;
   if (isMembersField(field)) {
     return membersMap.value.get(value) || value;
+  }
+  // Someone no longer in the workspace (once the members have loaded)
+  if (isPersonField(field)) {
+    return membersMap.value.get(value) || (membersMap.value.size ? 'Former member' : '');
   }
   return match?.value || String(value);
 };
@@ -997,7 +1001,7 @@ const displayValueForField = (row, field) => {
     const date = resolveRowLastEdited(row);
     return date ? date.toISOString() : '';
   }
-  if (field.type === 'MULTI_SELECT') {
+  if (field.type === 'MULTI_SELECT' || isPersonField(field)) {
     return getMultiSelectValues(row, field).map((value) => getChoiceLabel(field, value));
   }
   if (field.type === 'RELATION') {
@@ -1205,7 +1209,7 @@ const activeMultiSelectRelationError = computed(() => {
   return relationOptionsErrorForPage(relation.pageId);
 });
 
-const needsMembers = computed(() => fields.value.some((field) => isMembersField(field)));
+const needsMembers = computed(() => fields.value.some((field) => isPeopleField(field)));
 const hasViewConfig = computed(() => !!activeSavedView.value || Array.isArray(props.hiddenFieldIds));
 const viewHiddenFieldIds = computed(() =>
   activeSavedView.value
@@ -1673,7 +1677,7 @@ const openAddFieldMenu = async (event) => {
 const openMultiSelectMenu = (row, field, event) => {
   if (!row || !field || !event) return;
   const relation = field.type === 'RELATION' ? getRelationConfig(field) : null;
-  if (field.type !== 'MULTI_SELECT' && !relation?.pageId) return;
+  if (field.type !== 'MULTI_SELECT' && !isPersonField(field) && !relation?.pageId) return;
   if (relation?.pageId) void loadRelationOptions(relation.pageId);
   if (isReadonly.value) return;
   if (isFieldReadOnly(field)) return;
@@ -1931,7 +1935,7 @@ const handleRowMenuKeydown = (event) => {
 
 const choiceColorForValue = (field, value) => {
   if (!field || !value) return null;
-  if (isMembersField(field)) {
+  if (isPeopleField(field)) {
     return colorFromId(value);
   }
   const choices = getFieldChoices(field);
@@ -2058,7 +2062,7 @@ const galleryShowColors = computed(() => activeSavedView.value?.config?.showColo
 const galleryCardStyle = (row) => (galleryShowColors.value && rowColor(row) ? { borderLeftColor: rowColor(row) } : null);
 const galleryPills = (row, field) => {
   if (!galleryShowColors.value || !field) return null;
-  if (field.type === 'SELECT' || field.type === 'MULTI_SELECT') {
+  if (field.type === 'SELECT' || field.type === 'MULTI_SELECT' || isPersonField(field)) {
     const values = field.type === 'SELECT' ? [valueForField(row, field)].filter(Boolean) : getMultiSelectValues(row, field);
     return values.map((value) => ({ key: value, label: getChoiceLabel(field, value) || value, color: choiceColorForValue(field, value) }));
   }
@@ -2419,6 +2423,12 @@ const toggleMultiSelectOption = (value) => {
     closeMultiSelectMenu();
     return;
   }
+  // A one-person column, the same way
+  if (isPersonField(field) && !normalizeFieldOptions(field).allowMultiple) {
+    updateCell(row, field, activeMultiSelectValues.value.includes(value) ? [] : [value]);
+    closeMultiSelectMenu();
+    return;
+  }
   const current = new Set(getMultiSelectValues(row, field));
   if (current.has(value)) {
     current.delete(value);
@@ -2473,8 +2483,11 @@ const setFieldType = async (field, type) => {
     closeFieldMenu();
     return;
   }
-  // Convert the cells that fit the new type; keep the rest beside them, so changing back brings them back
-  const { keptCount } = planTypeChange(rows.value, field, type, options);
+  // Convert the cells that fit the new type; keep the rest beside them, so changing back brings them back.
+  // People and names convert by the workspace's members.
+  if ((type === 'PERSON' || isPeopleField(field)) && !workspaceMembers.value.length) await loadMembers({ force: true });
+  const people = workspaceMembers.value;
+  const { keptCount } = planTypeChange(rows.value, field, type, options, { people });
   if (keptCount) {
     const cells = keptCount === 1 ? "1 cell doesn't fit" : `${keptCount} cells don't fit`;
     const noun = notFitText(type).replace(/^Not /, '');
@@ -2485,8 +2498,14 @@ const setFieldType = async (field, type) => {
     );
     if (!confirmed) return;
   }
-  await updateField(field, { type, options }, { convertCells: (docRows) => planTypeChange(docRows, field, type, options) });
+  await updateField(field, { type, options }, { convertCells: (docRows) => planTypeChange(docRows, field, type, options, { people }) });
   closeFieldMenu();
+};
+
+// A person column holding one person or several; one keeps the first of each cell's people
+const setPersonAllowMultiple = (field, allowMultiple) => {
+  if (!field) return;
+  void updateField(field, { options: { ...(field.options || {}), allowMultiple: !!allowMultiple } });
 };
 
 const sortField = (fieldId, direction) => {
@@ -2632,8 +2651,9 @@ const loadDatabase = async () => {
   }
 };
 
-const loadMembers = async () => {
-  if (!needsMembers.value) return;
+// force: load them before a column needs them (changing one into a person column)
+const loadMembers = async ({ force = false } = {}) => {
+  if (!needsMembers.value && !force) return;
   if (!membersWorkspaceId.value || !hasApi.value || !activeUser.value) return;
   if (membersLoadedFor.value === membersWorkspaceId.value) return;
   membersLoading.value = true;
@@ -3995,6 +4015,16 @@ onBeforeUnmount(() => {
                 </span>
                 <span class="block-menu__chevron">›</span>
               </button>
+              <label v-if="isPersonField(activeField) && !isFieldReadOnly(activeField) && !isReadonly" class="db-relation-settings__check db-field-menu__check">
+                <input
+                  type="checkbox"
+                  :checked="normalizeFieldOptions(activeField).allowMultiple === true"
+                  @change="setPersonAllowMultiple(activeField, $event.target.checked)"
+                />
+                <span class="db-relation-settings__text">
+                  <span class="db-relation-settings__title">Allow multiple people</span>
+                </span>
+              </label>
               <button
                 v-if="isLinkedFromField(activeField) && !isReadonly"
                 class="block-menu__item block-menu__item--submenu"
@@ -4426,7 +4456,7 @@ onBeforeUnmount(() => {
             >
               {{ activeMultiSelectRelationError }}
             </div>
-            <div v-else-if="membersLoading && isMembersField(activeMultiSelectField)" class="db-options-empty">Loading members...</div>
+            <div v-else-if="membersLoading && isPeopleField(activeMultiSelectField)" class="db-options-empty">Loading members...</div>
             <div v-else-if="!activeMultiSelectChoices.length" class="db-options-empty">No options yet.</div>
             <button
               v-for="choice in activeMultiSelectChoices"

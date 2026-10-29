@@ -233,6 +233,8 @@ enum DatabaseFieldType {
   RELATION
   // The other side of a relation: rows elsewhere that link here (worked out, not stored)
   LINKED_FROM
+  // Workspace members, stored as user ids (one, or several with allowMultiple)
+  PERSON
 }
 
 enum BlockType {

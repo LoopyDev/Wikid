@@ -9,6 +9,7 @@ export const fieldTypes = [
   { value: 'MULTI_SELECT', label: 'Multi-select' },
   { value: 'RELATION', label: 'Relation' },
   { value: 'LINKED_FROM', label: 'Linked from' },
+  { value: 'PERSON', label: 'Person' },
   { value: 'URL', label: 'URL' },
 ];
 
@@ -21,6 +22,7 @@ export const fieldTypeIcons = {
   MULTI_SELECT: 'Mul',
   RELATION: 'Rel',
   LINKED_FROM: 'Lnk',
+  PERSON: '@',
   URL: 'URL',
 };
 
@@ -51,6 +53,13 @@ export const normalizeFieldOptions = (field) => {
 export const getFieldSource = (field) => normalizeFieldOptions(field).source || null;
 
 export const isMembersField = (field) => getFieldSource(field) === 'members';
+
+// A column of workspace members, holding their user ids: a Person column, or a wiki's Owners
+export const isPersonField = (field) => field?.type === 'PERSON';
+export const isPeopleField = (field) => isPersonField(field) || isMembersField(field);
+// Whether a column holds several values (people included) rather than one
+export const holdsSeveral = (field) =>
+  field?.type === 'MULTI_SELECT' || (isPersonField(field) && normalizeFieldOptions(field).allowMultiple === true);
 
 export const isPageField = (field) => getFieldSource(field) === 'page';
 

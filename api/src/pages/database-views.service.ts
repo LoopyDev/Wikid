@@ -34,6 +34,8 @@ export class DatabaseViewsService {
     'on_or_after',
     'is_checked',
     'is_unchecked',
+    'is_me',
+    'is_not_me',
   ];
 
   private normalizeViewType(value: unknown) {

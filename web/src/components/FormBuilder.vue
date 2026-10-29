@@ -1651,7 +1651,7 @@ watch(
         <div v-if="field.autoType === 'fixed' && field.autoFixedHint" class="db-form-field-hint">
           {{ field.autoFixedHint }}
         </div>
-        <div v-if="field.autoType === 'currentUser'" class="db-form-field-controls">
+        <div v-if="field.autoType === 'currentUser' && field.type !== 'PERSON'" class="db-form-field-controls">
           <label class="db-form-field-label">User value</label>
           <select
             class="db-form-field-select"
@@ -1771,7 +1771,7 @@ watch(
             <div v-if="field.autoType === 'fixed' && field.autoFixedHint" class="db-form-rule-block__hint muted">
               {{ field.autoFixedHint }}
             </div>
-            <div v-if="field.autoType === 'currentUser'" class="db-form-rule-block__row">
+            <div v-if="field.autoType === 'currentUser' && field.type !== 'PERSON'" class="db-form-rule-block__row">
               <span class="db-form-rule-block__pill">User value</span>
               <select
                 class="db-form-rule-block__select"
