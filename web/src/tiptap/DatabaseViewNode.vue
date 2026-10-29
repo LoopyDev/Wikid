@@ -5,6 +5,7 @@ import DatabaseTable from '../components/DatabaseTable.vue';
 import PageIcon from '../components/PageIcon.vue';
 import { useWorkspaceStore } from '../stores/workspace';
 import { api } from '../api/client';
+import { usePersonalViewChoice } from '../composables/usePersonalViewChoice';
 
 const props = defineProps({
   editor: { type: Object, required: true },
@@ -47,7 +48,6 @@ const hiddenFieldIds = computed(() =>
 // block can render a specific one instead of the default all-rows table.
 const savedViews = ref([]);
 const savedViewsLoadedFor = ref(null);
-const activeViewId = computed(() => attrs.value.viewId || '');
 
 const loadSavedViews = async (pageId) => {
   if (!pageId || !workspace.hasApi || !workspace.activeUser) {
@@ -87,10 +87,29 @@ watch(
   { immediate: true }
 );
 
+// Choosing a view or hiding columns is for the person doing it (kept in their browser); an editor
+// can then save it as the block's own, which is what everyone sees. With the controls turned off
+// from the block menu, everyone sees the block's own.
+const showControls = computed(() => attrs.value.showControls !== false);
+const hostPageId = computed(() => props.extension.options?.getHostPageId?.() || null);
+const personal = usePersonalViewChoice({
+  storageKey: computed(() => (hostPageId.value && attrs.value.id ? `${hostPageId.value}:${attrs.value.id}` : null)),
+  saved: computed(() => ({ viewId: attrs.value.viewId || null, hiddenFields: hiddenFieldIds.value })),
+});
+const shownViewId = computed(() => (showControls.value ? personal.viewId.value : attrs.value.viewId || null));
+const shownHiddenFieldIds = computed(() => (showControls.value ? personal.hiddenFields.value : hiddenFieldIds.value));
+const choiceDiffers = computed(() => showControls.value && personal.differs.value);
+
 const handleViewSelect = (event) => {
+  personal.setViewId(event?.target?.value || '');
+};
+
+const saveChoiceForEveryone = () => {
   if (!canEdit.value) return;
-  const nextId = event?.target?.value || '';
-  props.updateAttributes({ viewId: nextId || null });
+  props.updateAttributes({
+    viewId: personal.viewId.value || null,
+    view: { ...viewState.value, hiddenFields: personal.hiddenFields.value },
+  });
 };
 
 const listDatabasePages = () => {
@@ -199,14 +218,8 @@ const handleCreateCompliance = async () => {
 };
 
 const handleHiddenFieldIdsUpdate = (next) => {
-  if (!canEdit.value) return;
-  const hiddenFields = Array.isArray(next) ? next : [];
-  props.updateAttributes({
-    view: {
-      ...viewState.value,
-      hiddenFields,
-    },
-  });
+  if (!showControls.value) return;
+  personal.setHiddenFields(Array.isArray(next) ? next : []);
 };
 </script>
 
@@ -217,7 +230,10 @@ const handleHiddenFieldIdsUpdate = (next) => {
     contenteditable="false"
     data-type="database-view"
   >
-    <div class="ce-database-view__header" :class="{ 'ce-database-view__header--untitled': !showTitle }">
+    <div
+      class="ce-database-view__header"
+      :class="{ 'ce-database-view__header--untitled': !showTitle, 'ce-database-view__header--empty': !showTitle && !showControls }"
+    >
       <button
         v-if="showTitle && hasPage"
         class="ce-database-view__title ce-database-view__title--link"
@@ -236,13 +252,17 @@ const handleHiddenFieldIdsUpdate = (next) => {
           <span class="ce-database-view__name">{{ displayTitle }}</span>
         </div>
       </div>
-      <div v-if="hasPage" class="ce-database-view__header-controls">
+      <div v-if="hasPage" v-show="showControls" class="ce-database-view__header-controls">
+        <div v-if="choiceDiffers" class="ce-database-view__choice">
+          <span class="ce-database-view__choice-note">Only you see this</span>
+          <button v-if="canEdit" class="ce-database-view__choice-btn" type="button" @click.stop="saveChoiceForEveryone">Save for everyone</button>
+          <button class="ce-database-view__choice-btn" type="button" @click.stop="personal.reset()">Reset</button>
+        </div>
         <div v-if="savedViews.length" class="ce-database-view__view-picker">
           <label class="ce-database-view__view-label">View</label>
           <select
             class="ce-database-view__view-select"
-            :value="activeViewId"
-            :disabled="!canEdit"
+            :value="shownViewId || ''"
             @change="handleViewSelect"
           >
             <option value="">Default (all rows)</option>
@@ -295,8 +315,8 @@ const handleHiddenFieldIdsUpdate = (next) => {
         :page-id="attrs.pageId"
         :readonly="!canEdit"
         :collab="collabOverride"
-        :hidden-field-ids="hiddenFieldIds"
-        :view-id="attrs.viewId || null"
+        :hidden-field-ids="shownHiddenFieldIds"
+        :view-id="shownViewId"
         :toolbar-teleport-to="toolbarTarget"
         embedded
         @update:hidden-field-ids="handleHiddenFieldIdsUpdate"

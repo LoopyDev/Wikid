@@ -4280,6 +4280,31 @@ button {
   gap: 8px;
 }
 
+/* A view or columns chosen by this person only, with the offer to make it the block's own */
+.ce-database-view__choice {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.ce-database-view__choice-note {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+.ce-database-view__choice-btn {
+  border: 1px solid var(--surface-border);
+  border-radius: 8px;
+  padding: 4px 10px;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.ce-database-view__choice-btn:hover,
+.ce-database-view__choice-btn:focus-visible {
+  border-color: var(--text-muted);
+}
+
 /* Which saved view the block shows, styled like the Columns button beside it */
 .ce-database-view__view-picker {
   display: inline-flex;
@@ -4337,6 +4362,10 @@ button {
 /* Title hidden from the block menu: the table's own buttons stay, on the right */
 .ce-database-view__header--untitled {
   justify-content: flex-end;
+}
+/* Nothing left to show above the table */
+.ce-database-view__header--empty {
+  display: none;
 }
 
 .ce-database-view__icon {
