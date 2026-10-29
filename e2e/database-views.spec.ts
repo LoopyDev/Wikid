@@ -180,4 +180,38 @@ test.describe('database views', () => {
     await expect(main(page).locator('.db-view-tab', { hasText: 'Open tasks' })).toHaveCount(0);
     await expect.poll(views).toEqual([]);
   });
+  test("a view's settings stay as chosen when its saves overlap", async ({ alice: page, workspaceId }) => {
+    const db = await createPage(page, workspaceId, { title: unique('Overlap'), kind: 'DATABASE' });
+    const database = await (await page.request.get(`/api/pages/${db}/database`)).json();
+    const nameField = database.fields.find((f: any) => f.name === 'Name').id;
+    const notes = await (await page.request.post(`/api/pages/${db}/database/fields`, { data: { name: 'Notes', type: 'TEXT' } })).json();
+    const status = await (await page.request.post(`/api/pages/${db}/database/fields`, { data: { name: 'Status', type: 'TEXT' } })).json();
+    await page.request.post(`/api/pages/${db}/database/rows`, { data: { data: { [nameField]: 'Dune', [notes.id]: 'Re-read', [status.id]: 'Done' } } });
+    await page.request.post(`/api/pages/${db}/database/views`, { data: { name: 'Books', type: 'LIST', config: {} } });
+    await page.goto(`/doc/${db}`);
+    await main(page).getByRole('button', { name: 'Books' }).click();
+
+    // The first save's reply comes back late, after the second's
+    let held = false;
+    await page.route(/\/api\/database-views\//, async (route) => {
+      if (route.request().method() === 'PATCH' && !held) {
+        held = true;
+        const response = await route.fetch();
+        await new Promise((resolve) => setTimeout(resolve, 2500));
+        await route.fulfill({ response });
+        return;
+      }
+      await route.continue();
+    });
+    const option = (name: string) => main(page).locator('.db-card-fields__option', { hasText: name }).locator('input');
+    const properties = main(page).locator('.db-list__row').first().locator('.db-list__property');
+    await main(page).locator('.db-card-fields__toggle', { hasText: 'Properties' }).click();
+    await option('Notes').check();
+    await expect.poll(() => held).toBe(true);
+    await option('Status').check();
+    await expect(properties).toHaveText(['Re-read', 'Done']);
+    // Once the late reply is in, both still show
+    await page.waitForTimeout(3500);
+    await expect(properties).toHaveText(['Re-read', 'Done']);
+  });
 });
