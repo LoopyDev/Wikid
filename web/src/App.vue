@@ -162,7 +162,6 @@ const {
   stage: pageHoldStage,
   revealing: pageRevealing,
   holdEl: pageHoldRef,
-  insets: pageHoldInsets,
   start: startPageHold,
   release: releasePageHold,
   debug: debugPageSwitch,
@@ -2662,7 +2661,7 @@ if (typeof window !== 'undefined') {
               <div
                 v-if="pageHoldStage === 'skeleton'"
                 class="page-hold__skeleton"
-                :style="pageHoldInsets ? { paddingLeft: `${pageHoldInsets.left}px`, paddingRight: `${pageHoldInsets.right}px` } : null"
+                :class="{ 'page-hold__skeleton--full': isFullWidthPage }"
               >
                 <span v-for="line in 5" :key="line" class="page-hold__line"></span>
               </div>

@@ -47,19 +47,6 @@ export function stillCopy(body) {
   return copy;
 }
 
-/** Where the text sits in a page body, so placeholder lines can line up with it. */
-const textInsets = (body) => {
-  const editor = body?.querySelector('.ProseMirror');
-  if (!editor) return null;
-  const outer = body.getBoundingClientRect();
-  const inner = editor.getBoundingClientRect();
-  const style = getComputedStyle(editor);
-  return {
-    left: Math.max(0, inner.left - outer.left + (parseFloat(style.paddingLeft) || 0)),
-    right: Math.max(0, outer.right - inner.right + (parseFloat(style.paddingRight) || 0)),
-  };
-};
-
 /**
  * `describe()`, if given, says what the page shows right now, for the debug timeline.
  */
@@ -71,8 +58,6 @@ export function usePageSwitchHold({ describe } = {}) {
   const revealing = ref(false);
   // Where the copy goes, inside the new page
   const holdEl = ref(null);
-  // Where the page being left had its text: { left, right } in pixels, or null
-  const insets = ref(null);
   let copy = null;
   const timers = new Set();
   const later = (fn, ms) => {
@@ -131,7 +116,6 @@ export function usePageSwitchHold({ describe } = {}) {
     // that never appeared
     if (!stage.value) {
       copy = body ? stillCopy(body) : null;
-      insets.value = textInsets(body);
       stage.value = 'hold';
     }
     debug(already ? 'start again (still holding)' : 'start', { copied: !!copy, copiedText: copy?.textContent?.length ?? 0 });
@@ -155,5 +139,5 @@ export function usePageSwitchHold({ describe } = {}) {
 
   onBeforeUnmount(clearTimers);
 
-  return { stage, revealing, holdEl, insets, start, release, debug };
+  return { stage, revealing, holdEl, start, release, debug };
 }
