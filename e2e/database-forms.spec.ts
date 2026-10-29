@@ -71,4 +71,47 @@ test.describe('database forms', () => {
       return (form?.config ?? form?.fields?.config ?? {}).successMessage;
     }).toBe('Thanks for signing up');
   });
+  test('a date field can be filled in with today', async ({ alice: page, workspaceId }) => {
+    await openPage(page, await createPage(page, workspaceId));
+    const id = await newDatabaseFromSidebar(page, unique('Intake'));
+    const received = await (await page.request.post(`/api/pages/${id}/database/fields`, { data: { name: 'Received', type: 'DATE' } })).json();
+    await page.reload();
+    const forms = async () => (await (await page.request.get(`/api/pages/${id}/database`)).json()).forms ?? [];
+    await main(page).getByRole('button', { name: /^Forms/ }).click();
+    page.on('dialog', (dialog) => dialog.accept(dialog.type() === 'prompt' ? 'Intake form' : undefined));
+    await main(page).getByRole('button', { name: 'New form' }).click();
+    await expect.poll(async () => (await forms()).length).toBe(1);
+
+    // Autofill: Today, offered for the date field only
+    const builder = main(page).locator('.db-form-builder');
+    const autofill = (name: string) =>
+      builder
+        .locator('.db-form-field', { has: page.locator('.db-form-field-name', { hasText: new RegExp(`^${name}$`) }) })
+        .locator('.db-form-field-controls', { hasText: 'Autofill' })
+        .locator('select');
+    await expect(autofill('Name').locator('option[value="today"]')).toBeDisabled();
+    await autofill('Received').selectOption('today');
+    const autoOf = async () => {
+      const [form] = await forms();
+      const fields = Array.isArray(form?.fields) ? form.fields : form?.fields?.fields ?? [];
+      return fields.find((f: any) => f.fieldId === received.id)?.auto ?? null;
+    };
+    await expect.poll(autoOf).toEqual({ type: 'today' });
+
+    // The form shows today's date, and the entry has it
+    const [form] = await forms();
+    await page.goto(`/form/${form.id}`);
+    const today = await page.evaluate(() => {
+      const now = new Date();
+      return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    });
+    const dateInput = page.locator('input[type="date"]');
+    await expect(dateInput).toHaveValue(today);
+    await expect(dateInput).toBeDisabled();
+    await page.getByRole('button', { name: /^Submit/ }).click();
+    await expect.poll(async () => {
+      const db = await (await page.request.get(`/api/pages/${id}/database`)).json();
+      return db.rows.map((row: any) => row.data[received.id]);
+    }).toEqual([today]);
+  });
 });

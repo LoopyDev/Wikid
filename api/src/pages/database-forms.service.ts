@@ -317,8 +317,19 @@ export class DatabaseFormsService {
         return '';
       });
     };
-    const resolveAutoValue = (auto: any, field: any) => {
+    // "Today", as the person submitting has it (their local date, sent by the form), if it's within
+    // a day of the server's; otherwise the server's own (UTC)
+    const todayFor = (sent: unknown) => {
+      const serverToday = new Date().toISOString().slice(0, 10);
+      if (typeof sent !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(sent.trim())) return serverToday;
+      const days = Math.abs(Date.parse(sent.trim()) - Date.parse(serverToday)) / 86_400_000;
+      return days <= 1 ? sent.trim() : serverToday;
+    };
+    const resolveAutoValue = (auto: any, field: any, sent?: unknown) => {
       if (!auto || !field) return undefined;
+      if (auto.type === 'today') {
+        return field.type === DatabaseFieldType.DATE ? todayFor(sent) : undefined;
+      }
       if (auto.type === 'currentUser') {
         const source = getFieldSource(field.options);
         const mode = auto.mode === 'id' || auto.mode === 'name' ? auto.mode : source === 'members' ? 'id' : 'name';
@@ -356,7 +367,7 @@ export class DatabaseFormsService {
       const auto = entry?.auto;
       if (!auto) return;
       const field = fieldMap.get(entry.fieldId);
-      const value = resolveAutoValue(auto, field);
+      const value = resolveAutoValue(auto, field, filtered[entry.fieldId]);
       if (value !== undefined) {
         autoData[entry.fieldId] = value;
       }

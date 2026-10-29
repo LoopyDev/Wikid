@@ -369,8 +369,17 @@ const resolveTemplate = (template) => {
   });
 };
 
+// Today's date where the person filling in the form is (the server checks it's within a day)
+const localToday = () => {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+};
+
 const resolveAutoValue = (field, auto) => {
   if (!auto || !field) return undefined;
+  if (auto.type === 'today') {
+    return field.type === 'DATE' ? localToday() : undefined;
+  }
   if (auto.type === 'currentUser') {
     const source = getFieldSource(field);
     const mode = auto.mode === 'id' || auto.mode === 'name' ? auto.mode : source === 'members' ? 'id' : 'name';
