@@ -1818,6 +1818,52 @@ const handleFieldMenuKeydown = (event) => {
   }
 };
 
+// A saved view's own menu (the ⋯ beside its tab, or a right-click on the tab): rename or delete it
+const viewMenu = ref({ open: false, viewId: null, x: 0, y: 0 });
+const viewMenuRef = ref(null);
+const viewMenuView = computed(() => savedViews.value.find((view) => view.id === viewMenu.value.viewId) || null);
+const viewMenuStyle = computed(() => ({ top: `${viewMenu.value.y}px`, left: `${viewMenu.value.x}px` }));
+const closeViewMenu = () => {
+  viewMenu.value = { open: false, viewId: null, x: 0, y: 0 };
+};
+const openViewMenu = (view, event) => {
+  if (!view || !event || !canCreateForms.value) return;
+  if (viewMenu.value.open && viewMenu.value.viewId === view.id) {
+    closeViewMenu();
+    return;
+  }
+  closeFilterMenu();
+  closeSortMenu();
+  closeFormMenu();
+  closeColumnsMenu();
+  const rect = event.currentTarget?.getBoundingClientRect?.();
+  const rootRect = databaseRootRef.value?.getBoundingClientRect?.();
+  const padding = 12;
+  const menuWidth = 200;
+  const left = Math.min(rect?.left ?? event.clientX ?? 0, window.innerWidth - menuWidth - padding);
+  const top = (rect?.bottom ?? event.clientY ?? 0) + 6;
+  viewMenu.value = { open: true, viewId: view.id, x: left - (rootRect?.left ?? 0), y: top - (rootRect?.top ?? 0) };
+};
+const renameViewFromMenu = () => {
+  const view = viewMenuView.value;
+  closeViewMenu();
+  renameSavedView(view);
+};
+const deleteViewFromMenu = () => {
+  const view = viewMenuView.value;
+  closeViewMenu();
+  deleteSavedView(view);
+};
+const handleViewMenuOutside = (event) => {
+  if (!viewMenu.value.open) return;
+  const target = event?.target;
+  if (viewMenuRef.value?.contains(target) || target?.closest?.('.db-view-tab__more')) return;
+  closeViewMenu();
+};
+const handleViewMenuKeydown = (event) => {
+  if (viewMenu.value.open && event.key === 'Escape') closeViewMenu();
+};
+
 const handleRowMenuOutside = (event) => {
   if (!rowMenu.value.open) return;
   const target = event?.target;
@@ -2982,6 +3028,8 @@ onMounted(() => {
   document.addEventListener('mousedown', closeCardFieldMenus);
   document.addEventListener('mousedown', handleFieldMenuOutside);
   document.addEventListener('mousedown', handleRowMenuOutside);
+  document.addEventListener('mousedown', handleViewMenuOutside);
+  window.addEventListener('keydown', handleViewMenuKeydown);
   window.addEventListener('keydown', handleFieldMenuKeydown);
   window.addEventListener('keydown', handleRowMenuKeydown);
   updateTableWrapWidth();
@@ -3006,6 +3054,8 @@ onBeforeUnmount(() => {
   document.removeEventListener('mousedown', closeCardFieldMenus);
   document.removeEventListener('mousedown', handleFieldMenuOutside);
   document.removeEventListener('mousedown', handleRowMenuOutside);
+  document.removeEventListener('mousedown', handleViewMenuOutside);
+  window.removeEventListener('keydown', handleViewMenuKeydown);
   window.removeEventListener('keydown', handleFieldMenuKeydown);
   window.removeEventListener('keydown', handleRowMenuKeydown);
   if (tableWrapObserver) {
@@ -3049,20 +3099,31 @@ onBeforeUnmount(() => {
           >
             Table
           </button>
-          <button
-            v-for="view in savedViews"
-            :key="view.id"
-            class="db-view-tab"
-            :class="{ 'db-view-tab--active': activeViewId === view.id }"
-            type="button"
-            :title="view.name"
-            :aria-current="activeViewId === view.id ? 'page' : null"
-            @click="activeViewId = view.id"
-            @dblclick="renameSavedView(view)"
-          >
-            <PageIcon class="db-view-tab__icon" :icon="view.icon" fallback="Vw" aria-hidden="true" />
-            <span class="db-view-tab__label">{{ view.name }}</span>
-          </button>
+          <template v-for="view in savedViews" :key="view.id">
+            <button
+              class="db-view-tab"
+              :class="{ 'db-view-tab--active': activeViewId === view.id }"
+              type="button"
+              :title="view.name"
+              :aria-current="activeViewId === view.id ? 'page' : null"
+              @click="activeViewId = view.id"
+              @dblclick="renameSavedView(view)"
+              @contextmenu.prevent="openViewMenu(view, $event)"
+            >
+              <PageIcon class="db-view-tab__icon" :icon="view.icon" fallback="Vw" aria-hidden="true" />
+              <span class="db-view-tab__label">{{ view.name }}</span>
+            </button>
+            <button
+              v-if="activeViewId === view.id && canCreateForms"
+              class="db-view-tab__more"
+              type="button"
+              :aria-label="`${view.name} view options`"
+              title="View options"
+              @click.stop="openViewMenu(view, $event)"
+            >
+              <i class="bi bi-three-dots" aria-hidden="true"></i>
+            </button>
+          </template>
           <button
             v-if="canShowAudit"
             class="db-view-tab"
@@ -3166,20 +3227,31 @@ onBeforeUnmount(() => {
         >
           Table
         </button>
-        <button
-          v-for="view in savedViews"
-          :key="view.id"
-          class="db-view-tab"
-          :class="{ 'db-view-tab--active': activeViewId === view.id }"
-          type="button"
-          :title="view.name"
-          :aria-current="activeViewId === view.id ? 'page' : null"
-          @click="activeViewId = view.id"
-          @dblclick="renameSavedView(view)"
-        >
-          <PageIcon class="db-view-tab__icon" :icon="view.icon" fallback="Vw" aria-hidden="true" />
-          <span class="db-view-tab__label">{{ view.name }}</span>
-        </button>
+        <template v-for="view in savedViews" :key="view.id">
+          <button
+            class="db-view-tab"
+            :class="{ 'db-view-tab--active': activeViewId === view.id }"
+            type="button"
+            :title="view.name"
+            :aria-current="activeViewId === view.id ? 'page' : null"
+            @click="activeViewId = view.id"
+            @dblclick="renameSavedView(view)"
+            @contextmenu.prevent="openViewMenu(view, $event)"
+          >
+            <PageIcon class="db-view-tab__icon" :icon="view.icon" fallback="Vw" aria-hidden="true" />
+            <span class="db-view-tab__label">{{ view.name }}</span>
+          </button>
+          <button
+            v-if="activeViewId === view.id && canCreateForms"
+            class="db-view-tab__more"
+            type="button"
+            :aria-label="`${view.name} view options`"
+            title="View options"
+            @click.stop="openViewMenu(view, $event)"
+          >
+            <i class="bi bi-three-dots" aria-hidden="true"></i>
+          </button>
+        </template>
         <button
           v-if="canShowAudit"
           class="db-view-tab"
@@ -4127,7 +4199,6 @@ onBeforeUnmount(() => {
       </div>
       <div class="db-view-config__footer">
         <button class="db-view-config__add" type="button" @click="addFilterRule">+ Add filter</button>
-        <button class="db-view-config__delete" type="button" @click="deleteSavedView(activeSavedView)">Delete view</button>
       </div>
     </div>
     <div
@@ -4201,6 +4272,31 @@ onBeforeUnmount(() => {
                 <span class="block-menu__title">{{ choice.label || choice.value }}</span>
               </span>
               <span v-if="isMultiSelectOptionSelected(choice.value)" class="db-option-selected">selected</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div
+      v-if="viewMenu.open && viewMenuView"
+      ref="viewMenuRef"
+      class="block-menu db-row-menu db-view-menu"
+      :style="viewMenuStyle"
+    >
+      <div class="block-menu__panel-stack">
+        <div class="block-menu__panel">
+          <div class="block-menu__panel-scroll">
+            <button class="block-menu__item" type="button" @click="renameViewFromMenu">
+              <span class="block-menu__icon"><i class="bi bi-pencil" aria-hidden="true"></i></span>
+              <span class="block-menu__text">
+                <span class="block-menu__title">Rename view</span>
+              </span>
+            </button>
+            <button class="block-menu__item" type="button" @click="deleteViewFromMenu">
+              <span class="block-menu__icon">×</span>
+              <span class="block-menu__text">
+                <span class="block-menu__title">Delete view</span>
+              </span>
             </button>
           </div>
         </div>

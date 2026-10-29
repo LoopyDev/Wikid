@@ -626,6 +626,37 @@ test.describe('databases', () => {
     await expect(block.locator('.ce-database-view__header-controls')).toBeHidden();
   });
 
+  test("a view is renamed and deleted from its own menu, not the filter menu", async ({ alice: page, workspaceId }) => {
+    await openPage(page, await createPage(page, workspaceId));
+    const id = await newDatabaseFromSidebar(page, unique('Views'));
+    const views = async () => ((await (await page.request.get(`/api/pages/${id}/database`)).json()).views ?? []).map((v: any) => v.name);
+    await main(page).getByRole('button', { name: 'Create form view' }).click();
+    await page.locator('.block-menu__item', { hasText: 'Filter & sort rows' }).click();
+    await expect.poll(views).toEqual(['Table 1']);
+
+    // Not in the filter menu any more
+    await main(page).getByRole('button', { name: 'Filter', exact: true }).click();
+    await expect(page.locator('.db-view-config-menu')).toBeVisible();
+    await expect(page.locator('.db-view-config-menu').getByRole('button', { name: 'Delete view' })).toHaveCount(0);
+    await page.keyboard.press('Escape');
+    await page.mouse.click(5, 5);
+
+    // The view's ⋯ renames it
+    const menu = page.locator('.db-view-menu');
+    page.once('dialog', (dialog) => dialog.accept('Open tasks'));
+    await main(page).getByRole('button', { name: 'Table 1 view options' }).click();
+    await menu.getByRole('button', { name: 'Rename view' }).click();
+    await expect(main(page).locator('.db-view-tab', { hasText: 'Open tasks' })).toBeVisible();
+    await expect.poll(views).toEqual(['Open tasks']);
+
+    // A right-click on its tab opens the same menu, which deletes it
+    await main(page).locator('.db-view-tab', { hasText: 'Open tasks' }).click({ button: 'right' });
+    page.once('dialog', (dialog) => dialog.accept());
+    await menu.getByRole('button', { name: 'Delete view' }).click();
+    await expect(main(page).locator('.db-view-tab', { hasText: 'Open tasks' })).toHaveCount(0);
+    await expect.poll(views).toEqual([]);
+  });
+
   test('shows rows added by someone else live', async ({ alice, bob, workspaceId }) => {
     await openPage(alice, await createPage(alice, workspaceId));
     const id = await newDatabaseFromSidebar(alice, unique('Shared tasks'));

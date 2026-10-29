@@ -2126,6 +2126,23 @@ button {
   transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
 }
 
+/* The active view's options (rename, delete), beside its tab */
+.db-view-tab__more {
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  padding: 4px 6px;
+  margin-left: -4px;
+  cursor: pointer;
+  font: inherit;
+}
+.db-view-tab__more:hover,
+.db-view-tab__more:focus-visible {
+  background: rgba(148, 163, 184, 0.12);
+  color: var(--text-primary);
+}
+
 .db-view-tab:hover,
 .db-view-tab:focus-visible {
   border-color: var(--caret-color);
@@ -10382,19 +10399,6 @@ button {
 }
 .db-view-config__add:hover {
   background: rgba(99, 102, 241, 0.12);
-}
-.db-view-config__delete {
-  border: none;
-  background: transparent;
-  color: #dc2626;
-  cursor: pointer;
-  font: inherit;
-  font-size: 0.85rem;
-  padding: 4px 6px;
-  border-radius: 6px;
-}
-.db-view-config__delete:hover {
-  background: rgba(220, 38, 38, 0.12);
 }
 .block-menu__separator {
   height: 1px;
