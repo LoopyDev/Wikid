@@ -1999,6 +1999,16 @@ const shownCoverItems = (row) => {
   const items = coverItems(row);
   return expandedCovers.value.has(row.id) ? items : items.slice(0, coverMax.value);
 };
+// The "Show" box saves as you type: saving only on leaving it lost the number when the box was
+// redrawn first (a save's reply landing meanwhile put the stored number back). Left empty, it
+// shows the number in use again.
+const handleCoverMaxInput = (event) => {
+  const value = Number.parseInt(event.target.value, 10);
+  if (Number.isInteger(value) && value >= 1) setGalleryCoverMax(value);
+};
+const handleCoverMaxChange = (event) => {
+  if (!event.target.value.trim()) event.target.value = String(coverMax.value);
+};
 const moreCoverItems = (row) => Math.max(0, coverItems(row).length - coverMax.value);
 const toggleCoverExpanded = (rowId) => {
   const next = new Set(expandedCovers.value);
@@ -3521,7 +3531,8 @@ onBeforeUnmount(() => {
                 max="50"
                 :value="coverMax"
                 aria-label="Linked rows shown on a card before Show more"
-                @change="setGalleryCoverMax($event.target.value)"
+                @input="handleCoverMaxInput"
+                @change="handleCoverMaxChange"
               />
             </template>
             <details class="db-card-fields">

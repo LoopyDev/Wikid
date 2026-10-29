@@ -214,4 +214,49 @@ test.describe('database views', () => {
     await page.waitForTimeout(3500);
     await expect(properties).toHaveText(['Re-read', 'Done']);
   });
+  test("a number typed into a gallery's Show box stays, though another save's reply lands meanwhile", async ({ alice: page, workspaceId }) => {
+    const api = page.request;
+    const projects = await createPage(page, workspaceId, { title: unique('Projects'), kind: 'DATABASE' });
+    const tasks = await createPage(page, workspaceId, { title: unique('Tasks'), kind: 'DATABASE' });
+    const titleOf = async (id: string) => (await (await api.get(`/api/pages/${id}/database`)).json()).fields.find((f: any) => f.name === 'Name').id;
+    const projectName = await titleOf(projects);
+    const taskName = await titleOf(tasks);
+    const website = await (await api.post(`/api/pages/${projects}/database/rows`, { data: { data: { [projectName]: 'Website' } } })).json();
+    const project = await (await api.post(`/api/pages/${tasks}/database/fields`, { data: { name: 'Project', type: 'RELATION', options: { relation: { pageId: projects } } } })).json();
+    for (const name of ['Brief', 'Copy', 'Design', 'Build', 'Launch']) {
+      await api.post(`/api/pages/${tasks}/database/rows`, { data: { data: { [taskName]: name, [project.id]: website.id } } });
+    }
+    const linked = await (await api.post(`/api/pages/${projects}/database/fields`, {
+      data: { name: 'Tasks', type: 'LINKED_FROM', options: { linkedFrom: { pageId: tasks, fieldId: project.id } } },
+    })).json();
+    await api.post(`/api/pages/${projects}/database/fields`, { data: { name: 'Notes', type: 'TEXT' } });
+    await api.post(`/api/pages/${projects}/database/views`, { data: { name: 'Cards', type: 'GALLERY', config: { cardFieldId: linked.id } } });
+    await page.goto(`/doc/${projects}`);
+    await main(page).getByRole('button', { name: 'Cards' }).click();
+    const cells = main(page).locator('.db-gallery__card').first().locator('.db-gallery__cover-item:not(.db-gallery__cover-more)');
+    await expect(cells).toHaveCount(3);
+
+    // Another save is on its way, and its reply comes back while the number is being typed
+    let held = false;
+    await page.route(/\/api\/database-views\//, async (route) => {
+      if (route.request().method() === 'PATCH' && !held) {
+        held = true;
+        const response = await route.fetch();
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        await route.fulfill({ response });
+        return;
+      }
+      await route.continue();
+    });
+    await main(page).locator('.db-card-fields__toggle').click();
+    await main(page).locator('.db-card-fields__option', { hasText: 'Notes' }).locator('input').uncheck();
+    await expect.poll(() => held).toBe(true);
+    const show = main(page).getByLabel('Linked rows shown on a card before Show more');
+    await show.fill('4');
+    await page.waitForTimeout(2500);
+    await show.press('Tab');
+    await expect(show).toHaveValue('4');
+    await expect(cells).toHaveCount(4);
+    await expect(main(page).locator('.db-gallery__card').first().locator('.db-gallery__cover-more')).toHaveText('Show 1 more');
+  });
 });
