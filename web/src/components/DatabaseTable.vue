@@ -1166,10 +1166,11 @@ const activeMultiSelectChoices = computed(() => {
   if (field.type === 'RELATION') {
     const relation = getRelationConfig(field);
     if (!relation?.pageId) return [];
+    // Each linked row in its own colour, as its pill shows it
     return relationOptionsForPage(relation.pageId).map((option) => ({
       value: option.id,
       label: option.label || option.id,
-      color: null,
+      color: option.color || null,
     }));
   }
   return getFieldChoices(field);
