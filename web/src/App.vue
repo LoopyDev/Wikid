@@ -29,6 +29,7 @@ import DeletePageModal from './components/DeletePageModal.vue';
 import BinModal from './components/BinModal.vue';
 import PageTree from './components/PageTree';
 import { usePageSwitchHold } from './composables/usePageSwitchHold';
+import { isInIconBrowser } from './utils/iconSearch';
 import { api, AUTH_EXPIRED_EVENT, PASSWORD_CHANGE_REQUIRED_EVENT } from './api/client';
 import { editorDocToMarkdown, editorDocToMarkdownAsync, fallbackDoc } from './utils/editorDoc';
 import { SYSTEM_ADMIN_ID } from './constants/system-admin';
@@ -1754,7 +1755,7 @@ const handleEmojiClickOutside = (event) => {
   const path = event?.composedPath?.() || [];
   const menuHit = emojiMenuRef.value && (path.includes(emojiMenuRef.value) || emojiMenuRef.value.contains(target));
   const triggerHit = emojiTriggerRef.value && (path.includes(emojiTriggerRef.value) || emojiTriggerRef.value.contains(target));
-  if (menuHit || triggerHit) {
+  if (menuHit || triggerHit || isInIconBrowser(target)) {
     return;
   }
   closeEmojiPicker();

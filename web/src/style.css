@@ -1505,6 +1505,168 @@ button {
   font-size: 0.9rem;
   flex: 1;
 }
+.icon-browse-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  border: 1px solid var(--context-menu-border);
+  border-radius: 10px;
+  padding: 6px 10px;
+  background: transparent;
+  color: var(--context-menu-text);
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.icon-browse-btn:hover,
+.icon-browse-btn:focus-visible {
+  background: var(--surface-muted);
+}
+
+/* The icon picker opened out (IconBrowser): categories beside a bigger grid */
+.icon-browser {
+  position: fixed;
+  inset: 0;
+  z-index: 6000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(2, 6, 23, 0.55);
+}
+.icon-browser__panel {
+  display: flex;
+  flex-direction: column;
+  width: min(960px, 100%);
+  height: min(680px, 100%);
+  border: 1px solid var(--context-menu-border);
+  border-radius: 14px;
+  background: var(--context-menu-bg);
+  color: var(--context-menu-text);
+  box-shadow: 0 24px 60px rgba(2, 6, 23, 0.45);
+  overflow: hidden;
+}
+.icon-browser__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  border-bottom: 1px solid var(--context-menu-border);
+}
+.icon-browser__close {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 1.4rem;
+  line-height: 1;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+.icon-browser__body {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+  flex: 1;
+  min-height: 0;
+}
+.icon-browser__categories {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px;
+  overflow-y: auto;
+  border-right: 1px solid var(--context-menu-border);
+}
+.icon-browser__category {
+  border: none;
+  border-radius: 8px;
+  padding: 6px 10px;
+  background: transparent;
+  color: var(--context-menu-text);
+  font: inherit;
+  font-size: 0.85rem;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.icon-browser__category:hover,
+.icon-browser__category:focus-visible {
+  background: var(--surface-muted);
+}
+.icon-browser__category--active {
+  background: var(--surface-muted);
+  font-weight: 600;
+}
+.icon-browser__results {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  overflow-y: auto;
+}
+.icon-browser__count {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+.icon-browser__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 6px;
+}
+.icon-browser__icon {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 4px 8px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--context-menu-text);
+  font: inherit;
+  cursor: pointer;
+}
+.icon-browser__icon:hover,
+.icon-browser__icon:focus-visible {
+  border-color: var(--context-menu-border);
+  background: var(--surface-muted);
+}
+.icon-browser__glyph {
+  font-size: 1.6rem;
+}
+.icon-browser__name {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+/* A narrow screen: the categories become a row of chips above the grid */
+@media (max-width: 640px) {
+  .icon-browser {
+    padding: 0;
+  }
+  .icon-browser__panel {
+    height: 100%;
+    border-radius: 0;
+  }
+  .icon-browser__body {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  .icon-browser__categories {
+    flex-direction: row;
+    overflow-x: auto;
+    border-right: none;
+    border-bottom: 1px solid var(--context-menu-border);
+  }
+  .icon-browser__category {
+    border: 1px solid var(--context-menu-border);
+    border-radius: 999px;
+  }
+}
+
 .icon-search::placeholder {
   color: var(--text-muted);
 }

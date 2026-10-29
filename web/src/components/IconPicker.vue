@@ -3,6 +3,8 @@ import { computed, onMounted, ref, watch } from 'vue';
 import 'emoji-picker-element';
 import emojiDataUrl from 'emoji-picker-element-data/en/emojibase/data.json?url';
 import { buildIconToken, iconEntries, isIconToken, parseIconToken } from '../utils/icons';
+import { loadIconMeta, searchIcons } from '../utils/iconSearch';
+import IconBrowser from './IconBrowser.vue';
 import PageIcon from './PageIcon.vue';
 
 const props = defineProps({
@@ -80,11 +82,22 @@ const iconColorSwatches = [
   { value: '#94a3b8', label: 'Slate' },
   { value: '#0f172a', label: 'Ink' },
 ];
-const iconOptions = computed(() => {
-  const query = iconSearch.value.trim().toLowerCase();
-  if (!query) return iconEntries;
-  return iconEntries.filter((icon) => icon.name.toLowerCase().includes(query));
+// Searching finds icons by name and, once loaded, by their tags ("home" finds "house")
+const iconMeta = ref(null);
+watch(iconSearch, (query) => {
+  if (query.trim() && !iconMeta.value) {
+    loadIconMeta().then((meta) => {
+      iconMeta.value = meta;
+    });
+  }
 });
+const iconOptions = computed(() => searchIcons(iconEntries, iconSearch.value, { meta: iconMeta.value }));
+// Opened out, with Bootstrap Icons' categories
+const browserOpen = ref(false);
+const selectFromBrowser = (entry) => {
+  browserOpen.value = false;
+  selectIcon(entry);
+};
 
 const updatePickerState = () => {
   const parsed = parseIconToken(props.icon);
@@ -93,6 +106,7 @@ const updatePickerState = () => {
   iconColor.value = parsed?.color || '';
   iconSearch.value = '';
   showIconColorMenu.value = false;
+  browserOpen.value = false;
 };
 
 const rememberEmoji = (emoji) => {
@@ -228,6 +242,10 @@ watch(
         placeholder="Search icons"
         aria-label="Search icons"
       />
+      <button class="icon-browse-btn" type="button" title="Browse by category" @click="browserOpen = true">
+        <i class="bi bi-arrows-angle-expand" aria-hidden="true"></i>
+        Browse
+      </button>
       <div class="icon-color-picker">
         <button
           class="icon-color-toggle"
@@ -258,12 +276,20 @@ watch(
         :key="entry.id"
         class="emoji-btn emoji-btn--icon"
         type="button"
+        :title="entry.name"
         @click="selectIcon(entry)"
       >
         <PageIcon :icon="buildIconToken(entry.id, iconColor)" aria-hidden="true" />
       </button>
     </div>
     <div v-else class="emoji-menu__empty">No matching icons.</div>
+    <IconBrowser
+      v-if="browserOpen"
+      :color="iconColor"
+      :initial-query="iconSearch"
+      @select="selectFromBrowser"
+      @close="browserOpen = false"
+    />
   </div>
   <div v-else class="emoji-menu__panel">
     <div class="emoji-menu__section-title">Background</div>

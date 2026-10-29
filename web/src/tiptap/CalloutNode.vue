@@ -3,6 +3,7 @@ import { NodeViewContent, NodeViewWrapper } from '@tiptap/vue-3';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import IconPicker from '../components/IconPicker.vue';
 import PageIcon from '../components/PageIcon.vue';
+import { isInIconBrowser } from '../utils/iconSearch';
 
 const props = defineProps({
   editor: { type: Object, required: true },
@@ -55,7 +56,7 @@ const handleClickOutside = (event) => {
   const path = event?.composedPath?.() || [];
   const menuHit = pickerRef.value && (path.includes(pickerRef.value) || pickerRef.value.contains(target));
   const triggerHit = triggerRef.value && (path.includes(triggerRef.value) || triggerRef.value.contains(target));
-  if (menuHit || triggerHit) return;
+  if (menuHit || triggerHit || isInIconBrowser(target)) return;
   closePicker();
 };
 const handleKeydown = (event) => {
