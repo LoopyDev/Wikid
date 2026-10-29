@@ -10508,6 +10508,87 @@ button.db-gallery__cover-item:focus-visible {
   color: var(--text-muted);
 }
 
+/* A list view: one row per line, its chosen properties to the right */
+.db-list__rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.db-list__row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 36px;
+  padding: 2px 6px;
+  border-radius: 8px;
+}
+.db-list__row + .db-list__row {
+  border-top: 1px solid var(--surface-border);
+}
+.db-list__row:hover {
+  background: rgba(148, 163, 184, 0.08);
+}
+.db-list__title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1 1 auto;
+  border: none;
+  background: transparent;
+  padding: 4px 0;
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.db-list__title:hover .db-list__name,
+.db-list__title:focus-visible .db-list__name {
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
+.db-list__icon {
+  flex: 0 0 auto;
+  font-size: 1rem;
+}
+.db-list__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+.db-list__properties {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 6px 14px;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.db-list__property {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+@media (max-width: 640px) {
+  .db-list__row {
+    flex-wrap: wrap;
+  }
+  .db-list__properties {
+    justify-content: flex-start;
+  }
+}
+
 /* The gallery's settings: how many linked rows a cover shows, and which columns the cards show */
 .db-view-config__number {
   width: 64px;

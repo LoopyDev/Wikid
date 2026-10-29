@@ -42,9 +42,9 @@ export const toComparableDate = (value) => {
 // ---------------------------------------------------------------------------
 // Saved views (persisted, filterable Table / Gallery / Board views)
 // ---------------------------------------------------------------------------
-export const VIEW_TYPES = ['TABLE', 'GALLERY', 'BOARD'];
+export const VIEW_TYPES = ['TABLE', 'GALLERY', 'BOARD', 'LIST'];
 
-export const VIEW_TYPE_LABELS = { TABLE: 'Table', GALLERY: 'Gallery', BOARD: 'Board' };
+export const VIEW_TYPE_LABELS = { TABLE: 'Table', GALLERY: 'Gallery', BOARD: 'Board', LIST: 'List' };
 
 export const OPERATOR_LABELS = {
   is: 'is',
