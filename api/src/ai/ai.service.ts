@@ -1,6 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import Anthropic from '@anthropic-ai/sdk';
 import { PrismaService } from '../prisma/prisma.service';
+import { PageAccessService } from '../pages/page-access.service';
+import { isUuid } from '../utils/uuid.util';
+import { AiPageTools, AiPageToolsDb } from './ai-page-tools';
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -100,34 +103,6 @@ function buildUserMessage(prompt: string, context: string | undefined, mode: AiM
   }
 }
 
-function extractTextFromDoc(doc: any, maxLength = 5000): string {
-  if (!doc || typeof doc !== 'object') return '';
-  const parts: string[] = [];
-  const blockTypes = new Set([
-    'paragraph', 'heading', 'toggleHeading', 'blockquote',
-    'codeBlock', 'listItem', 'taskItem', 'callout',
-  ]);
-  const visit = (node: any) => {
-    if (!node || typeof node !== 'object') return;
-    if (node.type === 'text') {
-      parts.push(node.text || '');
-      return;
-    }
-    if (Array.isArray(node.content)) {
-      for (const child of node.content) visit(child);
-    }
-    if (blockTypes.has(node.type)) {
-      parts.push('\n');
-    }
-  };
-  if (Array.isArray(doc.content)) {
-    doc.content.forEach(visit);
-  } else {
-    visit(doc);
-  }
-  return parts.join('').replace(/\n{3,}/g, '\n\n').trim().slice(0, maxLength);
-}
-
 export interface AiSuggestBlock {
   index: number;
   type: string;
@@ -167,7 +142,10 @@ export type AiChatEvent =
 
 @Injectable()
 export class AiService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly access: PageAccessService,
+  ) {}
 
   async *streamGenerate(
     prompt: string,
@@ -195,10 +173,11 @@ export class AiService {
 
   async *streamChat(
     messages: Array<{ role: 'user' | 'assistant'; content: string }>,
-    workspaceId: string,
+    scope: { workspaceId: string; userId: string },
     pageContext?: string,
     currentPageOnly?: boolean,
   ): AsyncGenerator<AiChatEvent> {
+    const tools = new AiPageTools(this.pageToolsDb, this.access, scope);
     const systemPrompt = buildChatSystemPrompt(pageContext);
     const conversationMessages: Anthropic.MessageParam[] = messages.map((m) => ({
       role: m.role,
@@ -281,10 +260,10 @@ export class AiService {
       for (const toolBlock of toolUseBlocks) {
         const input = (toolBlock.input ?? {}) as Record<string, string>;
 
-        const startLabel = await this.getToolStartLabel(toolBlock.name, input, workspaceId);
+        const startLabel = await this.getToolStartLabel(toolBlock.name, input, tools);
         yield { type: 'tool_start', tool: toolBlock.name, label: startLabel };
 
-        const result = await this.executeTool(toolBlock.name, input, workspaceId);
+        const result = await this.executeTool(toolBlock.name, input, tools);
 
         const doneLabel = this.getToolDoneLabel(toolBlock.name, result);
         yield { type: 'tool_done', tool: toolBlock.name, label: doneLabel };
@@ -303,17 +282,13 @@ export class AiService {
   private async getToolStartLabel(
     name: string,
     input: Record<string, string>,
-    workspaceId: string,
+    tools: AiPageTools,
   ): Promise<string> {
     if (name === 'search_pages') {
       return `Searching: "${input.query || ''}"`;
     }
     if (name === 'get_page_content') {
-      const page = await this.prisma.page.findFirst({
-        where: { id: input.pageId, workspaceId },
-        select: { title: true },
-      });
-      return `Reading: "${page?.title || 'Untitled'}"`;
+      return `Reading: "${await tools.pageTitle(input.pageId || '')}"`;
     }
     return name;
   }
@@ -332,45 +307,40 @@ export class AiService {
   private async executeTool(
     name: string,
     input: Record<string, string>,
-    workspaceId: string,
+    tools: AiPageTools,
   ): Promise<unknown> {
     if (name === 'search_pages') {
-      return this.searchPages(input.query || '', workspaceId);
+      return tools.searchPages(input.query || '');
     }
     if (name === 'get_page_content') {
-      return this.getPageContent(input.pageId || '', workspaceId);
+      return tools.getPageContent(input.pageId || '');
     }
     return { error: `Unknown tool: ${name}` };
   }
 
-  private async searchPages(query: string, workspaceId: string) {
-    if (!query.trim()) return { pages: [] };
-    const results = await this.prisma.$queryRaw<{ id: string; title: string }[]>`
+  // How the chat's page tools read the database (see AiPageTools for who sees what)
+  private readonly pageToolsDb: AiPageToolsDb = {
+    searchPages: (workspaceId, query, limit) => this.prisma.$queryRaw<{ id: string; title: string }[]>`
       SELECT id, title
       FROM "Page"
       WHERE "workspaceId" = ${workspaceId}::uuid
+        AND "isDeleted" = false
         AND "deletedAt" IS NULL
         AND (
           title ILIKE ${'%' + query + '%'}
           OR content::text ILIKE ${'%' + query + '%'}
         )
       ORDER BY "updatedAt" DESC
-      LIMIT 8
-    `;
-    return {
-      pages: results.map((p) => ({ id: p.id, title: p.title || 'Untitled' })),
-    };
-  }
-
-  private async getPageContent(pageId: string, workspaceId: string) {
-    const page = await this.prisma.page.findFirst({
-      where: { id: pageId, workspaceId, deletedAt: null },
-      select: { id: true, title: true, content: true },
-    });
-    if (!page) return { error: 'Page not found' };
-    const text = extractTextFromDoc(page.content);
-    return { id: page.id, title: page.title || 'Untitled', content: text };
-  }
+      LIMIT ${limit}
+    `,
+    findPage: (workspaceId, pageId) =>
+      isUuid(pageId)
+        ? this.prisma.page.findFirst({
+            where: { id: pageId, workspaceId, isDeleted: false, deletedAt: null },
+            select: { id: true, title: true, content: true },
+          })
+        : Promise.resolve(null),
+  };
 
   async generateSuggestions(
     prompt: string,

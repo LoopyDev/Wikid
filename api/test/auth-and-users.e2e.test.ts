@@ -334,6 +334,23 @@ describe('AI settings', () => {
     expect((await alice.get('/config')).body.ai.available).toBe(configured);
   });
 
+  it("only lets a workspace's members use its AI chat, the system admin included", async () => {
+    const admin = await loginAs(USERS.admin.email);
+    const alice = await loginAs(USERS.alice.email);
+    const bob = await loginAs(USERS.bob.email);
+    const workspaceId = await createWorkspace(alice);
+    const chat = (session: Session) =>
+      session.post('/ai/chat', { workspaceId, messages: [{ role: 'user', content: 'What pages are there?' }] });
+    // The chat's tools read the workspace's pages, so people outside it are turned away first
+    for (const outsider of [admin, bob]) {
+      const res = await chat(outsider);
+      expect(res.status).toBe(403);
+      expect(res.body.message).toMatch(/workspace access required/i);
+    }
+    // A member gets past that (to whether AI is set up here)
+    expect((await chat(alice)).body?.message ?? '').not.toMatch(/workspace access required/i);
+  });
+
   it('keeps each user\'s "hide AI" choice', async () => {
     const alice = await loginAs(USERS.alice.email);
     const saved = await alice.patch(`/users/${USERS.alice.id}/preferences`, { preferences: { hideAi: true } });
