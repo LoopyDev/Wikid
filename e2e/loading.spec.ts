@@ -177,15 +177,13 @@ test.describe('loading', () => {
       await route.continue();
     });
     const title = page.getByRole('main').getByRole('textbox').first();
-    const line = page.locator('.page-hold[data-stage="skeleton"] .page-hold__line').first();
     const lineFor = async (pageTitle: string) => {
       await sidebarItem(page, pageTitle).click();
       await expect(title).toHaveValue(pageTitle);
-      await expect(line).toBeVisible();
-      const box = (await line.boundingBox())!;
-      expect(Math.abs(box.x - (await title.boundingBox())!.x), 'lined up with the title').toBeLessThan(24);
+      const line = await placeholderLine(page);
+      expect(Math.abs(line.x - line.titleX), 'lined up with the title').toBeLessThan(24);
       await expect(page.locator('.page-hold')).toHaveCount(0);
-      return box.width;
+      return line.width;
     };
     // From a normal page to a full-width one: lines as long as its text
     expect(await lineFor(wideTitle)).toBeGreaterThan(1000);
