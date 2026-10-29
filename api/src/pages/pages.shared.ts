@@ -5,6 +5,10 @@ import { SYSTEM_ADMIN_ID } from '../constants/system-admin.const';
 
 export const POSITION_INCREMENT = new Prisma.Decimal(1);
 export const COMPLIANCE_RECORD_KEY = '__complianceRecordId';
+// A database row's own colour (a hex colour), which pills linking to it are shown in
+export const ROW_COLOR_KEY = '__color';
+export const normalizeRowColor = (value: unknown) =>
+  typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value.trim()) ? value.trim().toLowerCase() : null;
 export const DEFAULT_COMPLIANCE_WORKFLOW = {
   states: [
     { id: 'draft', label: 'Draft' },

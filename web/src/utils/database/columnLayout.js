@@ -4,6 +4,9 @@ export const COLUMN_DEFAULT_SIZE = 180;
 
 export const COLUMN_MIN_SIZE = 120;
 
+// The first column starts with a row's checkbox and menu handle (48 px), so it needs more room
+export const FIRST_COLUMN_MIN_SIZE = COLUMN_MIN_SIZE + 22;
+
 export const COLUMN_MAX_SIZE = 1220;
 
 export const ROW_ID_COLUMN_ID = '__row_id__';
@@ -28,7 +31,7 @@ export const AUTO_SIZE_CHAR_WIDTH = 8.5;
 
 export const AUTO_SIZE_BASE = 26;
 
-export const AUTO_SIZE_FIRST_EXTRA = 26;
+export const AUTO_SIZE_FIRST_EXTRA = 48;
 
 export const AUTO_SIZE_PAGE_ICON_EXTRA = 30;
 

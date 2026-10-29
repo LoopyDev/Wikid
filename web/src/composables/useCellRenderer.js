@@ -5,12 +5,12 @@ import { formatDateTime } from '../utils/date-format';
 import { getAssetTagValue, getMultiSelectValues, getRelationEntries, valueForField } from '../utils/database/cellValues';
 import { getRelationConfig, isAssetTagField, isFieldReadOnly, isLastEditedField, isLinkedFromField, isMembersField, isPageField, isPageFieldEditable } from '../utils/database/fieldOptions';
 import { handleCellConfirmKeydown, handleNumberKeydown, handleNumberPaste, sanitizeNumberInput } from '../utils/database/cellInput';
-import { multiSelectPillStyle } from '../utils/database/colors';
+import { multiSelectPillStyle, rowColor } from '../utils/database/colors';
 
 // Draws a table cell for its field type: text, number, date, checkbox, select and multi-select
 // pills, relations, members, asset tags, page titles (with their page link) and read-only values,
 // with the editing caret and who-is-here presence.
-export function useCellRenderer({ choiceColorForValue, getChoiceLabel, isReadonly, markCellFocus, markCellBlur, openMultiSelectMenu, getCellPresence, caretLeftForCell, openAssetTagPreview, rowPageId, getRowPageTitle, openRowPageOverlay, pageMap, workspace, resolveRowPage, ensureRowPage, applyLocalPageTitleUpdate, schedulePageTitleUpdate, tableWrapRef, pendingEnsureRowPages, scheduleSortRefresh, handleCaretNavigate, handleCaretMouse, markCellTyping, updateCell, setCellInputRef, resolveRowLastEdited, relationOptionsByPageId, relationOptionsLoading, loadRelationOptions, relationOptionsForPage, relationOptionsLoadingForPage, relationOptionsErrorForPage, getFieldChoices, linkedRowsFor, getRelationLabel, openRelatedRow }) {
+export function useCellRenderer({ choiceColorForValue, getChoiceLabel, isReadonly, markCellFocus, markCellBlur, openMultiSelectMenu, getCellPresence, caretLeftForCell, openAssetTagPreview, rowPageId, getRowPageTitle, openRowPageOverlay, pageMap, workspace, resolveRowPage, ensureRowPage, applyLocalPageTitleUpdate, schedulePageTitleUpdate, tableWrapRef, pendingEnsureRowPages, scheduleSortRefresh, handleCaretNavigate, handleCaretMouse, markCellTyping, updateCell, setCellInputRef, resolveRowLastEdited, relationOptionsByPageId, relationOptionsLoading, loadRelationOptions, relationOptionsForPage, relationOptionsLoadingForPage, relationOptionsErrorForPage, getFieldChoices, linkedRowsFor, getRelationLabel, getRelationColor, openRelatedRow }) {
   const renderMultiSelectCell = (row, field) => {
     const values = getMultiSelectValues(row, field);
     const placeholder =
@@ -86,6 +86,7 @@ export function useCellRenderer({ choiceColorForValue, getChoiceLabel, isReadonl
             class: 'db-multi-pill db-relation-pill',
             type: 'button',
             title: `Open ${label}`,
+            style: multiSelectPillStyle(getRelationColor?.(field, entry.id)),
             onClick: (event) => {
               event.stopPropagation();
               void openRelatedRow(field, entry.id);
@@ -249,6 +250,8 @@ export function useCellRenderer({ choiceColorForValue, getChoiceLabel, isReadonl
       // deferred to event handlers (handleOpen) which run outside the render.
       return presenceWrap(
         h('div', { class: 'db-page-input' }, [
+          // The row's own colour, as pills linking to it show it
+          rowColor(row) ? h('span', { class: 'db-row-color-dot', style: { background: rowColor(row) }, title: 'Row colour' }) : null,
           h(
             'button',
             {
@@ -330,6 +333,7 @@ export function useCellRenderer({ choiceColorForValue, getChoiceLabel, isReadonl
                     class: 'db-multi-pill db-linked-pill',
                     type: 'button',
                     title: `Open ${entry.title}`,
+                    style: multiSelectPillStyle(entry.color),
                     onClick: (event) => {
                       event.stopPropagation();
                       openRowPageOverlay(entry.rowPageId);
@@ -337,7 +341,7 @@ export function useCellRenderer({ choiceColorForValue, getChoiceLabel, isReadonl
                   },
                   entry.title
                 )
-              : h('span', { key: entry.rowId, class: 'db-multi-pill' }, entry.title)
+              : h('span', { key: entry.rowId, class: 'db-multi-pill', style: multiSelectPillStyle(entry.color) }, entry.title)
           )
         )
       );

@@ -11,7 +11,7 @@ import { CollabSyncService } from './collab-sync.service';
 import { DatabaseValuesService } from './database-values.service';
 import { WikiService } from './wiki.service';
 import { PagesService } from './pages.service';
-import { POSITION_INCREMENT, COMPLIANCE_RECORD_KEY, DEFAULT_COMPLIANCE_WORKFLOW, normalizePageTitle, getFieldSource } from './pages.shared';
+import { POSITION_INCREMENT, COMPLIANCE_RECORD_KEY, DEFAULT_COMPLIANCE_WORKFLOW, ROW_COLOR_KEY, normalizePageTitle, normalizeRowColor, getFieldSource } from './pages.shared';
 
 // Databases: reading a database, its fields and rows, row pages, relations between
 // databases with their history, and compliance records.
@@ -467,6 +467,11 @@ export class DatabasesService {
         if (isUuid(trimmed)) {
           sanitized[key] = trimmed;
         }
+        continue;
+      }
+      if (key === ROW_COLOR_KEY) {
+        const color = normalizeRowColor(value);
+        if (color) sanitized[key] = color;
         continue;
       }
       const field = fieldMap.get(key);

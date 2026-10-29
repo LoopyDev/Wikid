@@ -6,6 +6,7 @@ import { CollabDatabaseState, databaseStateFromYjsState } from './collab-databas
 import { isUuid } from '../utils/uuid.util';
 import { TRUE_STRINGS, FALSE_STRINGS } from '../utils/boolean-strings.const';
 import { ParsedDocName, parseDocName } from '../utils/collab-doc-name.util';
+import { ROW_COLOR_KEY, normalizeRowColor } from '../pages/pages.shared';
 
 const DEFAULT_MATERIALIZE_INTERVAL_MS = 5 * 60 * 1000;
 const DEFAULT_MATERIALIZE_POLL_MS = 60 * 1000;
@@ -333,6 +334,9 @@ export class CollabMaterializerService implements OnModuleInit, OnModuleDestroy 
         sanitized[PAGE_ID_KEY] = rawPageId;
       }
     }
+    // A row's own colour, kept as it's set
+    const color = normalizeRowColor(rawData[ROW_COLOR_KEY]);
+    if (color) sanitized[ROW_COLOR_KEY] = color;
     if (options.preserveComplianceRecordId) {
       const rawComplianceId = typeof rawData[COMPLIANCE_RECORD_KEY] === 'string' ? rawData[COMPLIANCE_RECORD_KEY].trim() : '';
       if (isUuid(rawComplianceId)) {

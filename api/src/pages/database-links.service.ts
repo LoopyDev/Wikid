@@ -5,10 +5,10 @@ import { databaseStateFromYjsState } from '../collab/collab-database.util';
 import { isUuid } from '../utils/uuid.util';
 import { PageAccessService } from './page-access.service';
 import { DatabaseSetupService } from './database-setup.service';
-import { getFieldSource } from './pages.shared';
+import { ROW_COLOR_KEY, getFieldSource, normalizeRowColor } from './pages.shared';
 
 type User = { userId?: string; userName?: string };
-type LinkedRow = { rowId: string; rowPageId: string | null; title: string };
+type LinkedRow = { rowId: string; rowPageId: string | null; title: string; color: string | null };
 type DatabaseContents = {
   fields: Array<{ id: string; name: string; type: DatabaseFieldType; options: any }>;
   rows: Array<{ id: string; pageId: string | null; data: Record<string, any> }>;
@@ -62,7 +62,7 @@ export class DatabaseLinksService {
 
     const rows: Record<string, LinkedRow[]> = {};
     for (const row of contents.rows) {
-      const linked = { rowId: row.id, rowPageId: row.pageId, title: this.titleOf(row.data, titleField?.id) };
+      const linked = { rowId: row.id, rowPageId: row.pageId, title: this.titleOf(row.data, titleField?.id), color: normalizeRowColor(row.data[ROW_COLOR_KEY]) };
       for (const targetId of this.relationIds(row.data[fieldId])) {
         (rows[targetId] ||= []).push(linked);
       }
@@ -72,8 +72,8 @@ export class DatabaseLinksService {
   }
 
   /**
-   * Each row's current title (and page), from the database's live document: what a relation
-   * pointing here shows, so a row renamed a moment ago shows its new name.
+   * Each row's current title, page and colour, from the database's live document: what a
+   * relation pointing here shows, so a row renamed (or recoloured) a moment ago shows as it is.
    */
   async getRowTitles(pageId: string, user: User) {
     const { page } = await this.access.requirePageAccess(pageId, user);
@@ -82,7 +82,12 @@ export class DatabaseLinksService {
     const contents = await this.readDatabase(page.workspaceId, pageId, database.id, { rows: true });
     const titleField = contents.fields.find((entry) => getFieldSource(entry.options) === 'page') || contents.fields[0];
     return {
-      rows: contents.rows.map((row) => ({ id: row.id, pageId: row.pageId, title: this.titleOf(row.data, titleField?.id) })),
+      rows: contents.rows.map((row) => ({
+        id: row.id,
+        pageId: row.pageId,
+        title: this.titleOf(row.data, titleField?.id),
+        color: normalizeRowColor(row.data[ROW_COLOR_KEY]),
+      })),
     };
   }
 

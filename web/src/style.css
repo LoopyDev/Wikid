@@ -2390,12 +2390,13 @@ button {
 }
 
 .db-row-cell--first {
-  padding-left: 26px;
+  /* Room for a row's checkbox and its ⋮ menu handle, side by side */
+  padding-left: 48px;
 }
 
 .db-row-handle {
   position: absolute;
-  left: 6px;
+  left: 26px;
   top: 50%;
   width: 20px;
   height: 20px;
@@ -2457,10 +2458,6 @@ button {
   pointer-events: auto;
 }
 
-.db-row:hover .db-row-checkbox--hover + .db-row-handle {
-  opacity: 0;
-  pointer-events: none;
-}
 
 .db-select-all-checkbox {
   position: absolute;
@@ -2850,6 +2847,44 @@ button {
 .db-row-cell:hover .db-relation-change {
   opacity: 1;
   background: rgba(148, 163, 184, 0.12);
+}
+
+/* A row's own colour: chosen in its row menu, shown as a dot by its name and on pills linking to it */
+.db-row-colors {
+  display: grid;
+  grid-template-columns: repeat(5, 24px);
+  gap: 8px;
+  padding: 4px 10px 8px;
+}
+.db-row-color {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  padding: 0;
+  cursor: pointer;
+}
+.db-row-color[aria-pressed='true'] {
+  box-shadow: 0 0 0 2px var(--context-menu-bg), 0 0 0 4px var(--text-primary);
+}
+.db-row-color--none {
+  background: linear-gradient(135deg, transparent 45%, var(--text-muted) 45%, var(--text-muted) 55%, transparent 55%);
+  border-color: var(--surface-border);
+}
+.db-row-color-dot {
+  /* A badge on the row's page icon, at its lower right */
+  position: absolute;
+  left: 18px;
+  top: calc(50% + 2px);
+  z-index: 1;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 2px solid var(--content-bg);
+  pointer-events: none;
+}
+.db-gallery__cover-item--colored {
+  border-left-width: 4px;
 }
 
 /* A "Linked from" cell: read-only, its pills open the linked rows */
