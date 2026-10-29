@@ -2,16 +2,16 @@ import { Body, Controller, ForbiddenException, HttpException, HttpStatus, Post, 
 import { Response } from 'express';
 import { AiService, AiMode, AiSuggestBlock } from './ai.service';
 import { AuthUser, CurrentUser } from '../auth/auth.guard';
-import { PrismaService } from '../prisma/prisma.service';
-import { SYSTEM_ADMIN_ID } from '../constants/system-admin.const';
 import { SettingsService } from '../settings/settings.service';
+import { PageAccessService } from '../pages/page-access.service';
+import { isUuid } from '../utils/uuid.util';
 // AiSummarizeResult is returned implicitly — no explicit import needed for the route
 
 @Controller('ai')
 export class AiController {
   constructor(
     private readonly aiService: AiService,
-    private readonly prisma: PrismaService,
+    private readonly access: PageAccessService,
     private readonly settings: SettingsService,
   ) {}
 
@@ -77,11 +77,11 @@ export class AiController {
     if (!workspaceId) {
       throw new HttpException('workspaceId is required', HttpStatus.BAD_REQUEST);
     }
-    // The chat tools read any page in the workspace, so require membership
-    if (user?.id !== SYSTEM_ADMIN_ID) {
-      const member = await this.prisma.userWorkspace.findFirst({ where: { userId: user?.id, workspaceId } });
-      if (!member) throw new ForbiddenException('Workspace access required');
-    }
+    // The chat's tools read the workspace's pages (those this person can open), so it needs
+    // membership, checked like every other workspace request (the system admin is no exception
+    // in production)
+    if (!user?.id || !isUuid(workspaceId)) throw new ForbiddenException('Workspace access required');
+    await this.access.requireMembership(user.id, workspaceId);
     await this.settings.assertAiAvailable();
 
     res.setHeader('Content-Type', 'text/event-stream');
@@ -91,7 +91,7 @@ export class AiController {
     res.flushHeaders();
 
     try {
-      for await (const event of this.aiService.streamChat(messages, workspaceId, pageContext, currentPageOnly)) {
+      for await (const event of this.aiService.streamChat(messages, { workspaceId, userId: user.id }, pageContext, currentPageOnly)) {
         res.write(`data: ${JSON.stringify(event)}\n\n`);
       }
       res.write('data: [DONE]\n\n');

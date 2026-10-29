@@ -3,9 +3,10 @@ import { AiController } from './ai.controller';
 import { AiService } from './ai.service';
 import { PrismaModule } from '../prisma/prisma.module';
 import { SettingsModule } from '../settings/settings.module';
+import { PagesModule } from '../pages/pages.module';
 
 @Module({
-  imports: [PrismaModule, SettingsModule],
+  imports: [PrismaModule, SettingsModule, PagesModule],
   controllers: [AiController],
   providers: [AiService],
 })
