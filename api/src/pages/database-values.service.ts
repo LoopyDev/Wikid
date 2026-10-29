@@ -223,6 +223,10 @@ export class DatabaseValuesService {
         }
         return { type };
       }
+      // A date field filled in with the day the form is submitted
+      if (type === 'today') {
+        return fieldMap.get(fieldId)?.type === DatabaseFieldType.DATE ? { type } : null;
+      }
       if (type === 'fixed') {
         const value = typeof (raw as any).value === 'string' ? (raw as any).value.trim() : '';
         if (!value) return null;

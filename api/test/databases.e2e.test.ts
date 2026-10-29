@@ -315,6 +315,32 @@ describe('views', () => {
 });
 
 describe('forms', () => {
+  it("fills a date field in with today when it's set to, from the submitter's own date if it's near", async () => {
+    const { pageId, titleFieldId } = await createDatabase();
+    const received = await addField(pageId, { name: 'Received', type: 'DATE' });
+    const form = await alice.post(`/pages/${pageId}/database/forms`, {
+      name: 'Intake',
+      fields: [{ fieldId: titleFieldId, required: true }, { fieldId: received.id, auto: { type: 'today' } }],
+    });
+    expect(form.status).toBe(201);
+    expect(form.body.fields[1].auto).toEqual({ type: 'today' });
+    // Only for date fields
+    const onText = await alice.post(`/pages/${pageId}/database/forms`, { name: 'Other', fields: [{ fieldId: titleFieldId, auto: { type: 'today' } }] });
+    expect(onText.body.fields[0].auto).toBeUndefined();
+
+    const serverToday = new Date().toISOString().slice(0, 10);
+    const dayFrom = (offset: number) => new Date(Date.now() + offset * 86_400_000).toISOString().slice(0, 10);
+    const submit = async (sent?: string) =>
+      (await alice.post(`/database-forms/${form.body.id}/submit`, { data: { [titleFieldId]: 'Entry', ...(sent ? { [received.id]: sent } : {}) } })).body.data[received.id];
+    // The submitter's own date, a day either side of the server's (time zones)
+    expect(await submit(dayFrom(1))).toBe(dayFrom(1));
+    expect(await submit(dayFrom(-1))).toBe(dayFrom(-1));
+    // Anything else, or nothing, is the server's today
+    expect(await submit('2001-01-01')).toBe(serverToday);
+    expect(await submit('not a date')).toBe(serverToday);
+    expect(await submit()).toBe(serverToday);
+  });
+
   it('creates a form, reads it and submits entries', async () => {
     const { pageId, titleFieldId } = await createDatabase();
     const count = await addField(pageId, { name: 'Count', type: 'NUMBER' });

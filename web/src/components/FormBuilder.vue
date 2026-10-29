@@ -298,6 +298,8 @@ const updateFormFieldAutoType = async (fieldId, nextType) => {
   let nextAuto = null;
   if (nextType === 'currentUser') {
     nextAuto = { type: 'currentUser' };
+  } else if (nextType === 'today') {
+    nextAuto = normalizeFormAuto({ type: 'today' }, fieldId);
   } else if (nextType === 'template') {
     const current = form.fields.find((entry) => entry.fieldId === fieldId)?.auto;
     const template =
@@ -1545,6 +1547,7 @@ watch(
             <option value="">None</option>
             <option value="currentUser">Current user</option>
             <option value="template">Template</option>
+            <option value="today" :disabled="field.type !== 'DATE'">Today</option>
             <option
               value="fixed"
               :disabled="(field.type !== 'SELECT' && field.type !== 'RELATION') || !field.autoFixedChoices.length"
@@ -1669,6 +1672,7 @@ watch(
                 <option value="">None</option>
                 <option value="currentUser">Current user</option>
                 <option value="template">Template</option>
+                <option value="today" :disabled="field.type !== 'DATE'">Today</option>
                 <option
                   value="fixed"
                   :disabled="(field.type !== 'SELECT' && field.type !== 'RELATION') || !field.autoFixedChoices.length"

@@ -260,6 +260,10 @@ const normalizeFormAuto = (raw, fieldId, selectSource = null) => {
     }
     return { type };
   }
+  if (type === 'today') {
+    const field = fieldId ? fields.value.find((entry) => entry?.id === fieldId) : null;
+    return field?.type === 'DATE' ? { type } : null;
+  }
   if (type === 'fixed') {
     const value = typeof raw.value === 'string' ? raw.value.trim() : '';
     if (!value) return null;
