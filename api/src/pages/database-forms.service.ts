@@ -486,6 +486,22 @@ export class DatabaseFormsService {
     if (missingRequired.length) {
       throw new BadRequestException(`Missing required fields: ${missingRequired.join(', ')}`);
     }
+    // "No future" dates: a day's leeway, as the person may be ahead of the server's time zone
+    const latestAllowed = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+    const futureDates = allowedFields
+      .map((entry: any) => {
+        if (entry?.noFuture !== true) return null;
+        const field = fieldMap.get(entry.fieldId);
+        const value = sanitized[entry.fieldId];
+        if (field?.type !== DatabaseFieldType.DATE || typeof value !== 'string') return null;
+        const day = /^\d{4}-\d{2}-\d{2}/.test(value) ? value.slice(0, 10) : new Date(Date.parse(value)).toISOString().slice(0, 10);
+        if (day <= latestAllowed) return null;
+        return typeof entry.label === 'string' && entry.label.trim() ? entry.label.trim() : field.name || 'Field';
+      })
+      .filter(Boolean) as string[];
+    if (futureDates.length) {
+      throw new BadRequestException(`Dates can't be in the future: ${futureDates.join(', ')}`);
+    }
     const assetTagFieldIds = this.databases.getAssetTagFieldIds(databaseFields);
     const rowIdForCreate = !isUpdateMode && assetTagFieldIds.length ? randomUUID() : null;
     const sanitizedWithAssetTags = rowIdForCreate

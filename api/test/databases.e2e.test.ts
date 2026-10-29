@@ -341,6 +341,28 @@ describe('forms', () => {
     expect(await submit()).toBe(serverToday);
   });
 
+  it("turns a date away that's later than today when the form says no future", async () => {
+    const { pageId, titleFieldId } = await createDatabase();
+    const happened = await addField(pageId, { name: 'Happened', type: 'DATE' });
+    const form = await alice.post(`/pages/${pageId}/database/forms`, {
+      name: 'Incident',
+      fields: [{ fieldId: titleFieldId, noFuture: true }, { fieldId: happened.id, noFuture: true }],
+    });
+    expect(form.status).toBe(201);
+    // Only kept on date fields
+    expect(form.body.fields.map((f: any) => f.noFuture)).toEqual([undefined, true]);
+
+    const dayFrom = (offset: number) => new Date(Date.now() + offset * 86_400_000).toISOString().slice(0, 10);
+    const submit = (date: string) =>
+      alice.post(`/database-forms/${form.body.id}/submit`, { data: { [titleFieldId]: 'Entry', [happened.id]: date } });
+    expect((await submit(dayFrom(-30))).status).toBe(201);
+    // A day ahead is allowed, for people ahead of the server's time zone
+    expect((await submit(dayFrom(1))).status).toBe(201);
+    const later = await submit(dayFrom(3));
+    expect(later.status).toBe(400);
+    expect(later.body.message).toContain('Happened');
+  });
+
   it('creates a form, reads it and submits entries', async () => {
     const { pageId, titleFieldId } = await createDatabase();
     const count = await addField(pageId, { name: 'Count', type: 'NUMBER' });

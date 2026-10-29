@@ -528,6 +528,20 @@ const updateFormFieldRequired = async (fieldId, required) => {
   await saveFormFields(form.id, nextFields);
 };
 
+const updateFormFieldNoFuture = async (fieldId, noFuture) => {
+  if (!canCreateForms.value) return;
+  const form = activeForm.value;
+  if (!form || !fieldId) return;
+  const nextFields = form.fields.map((entry) => {
+    if (entry.fieldId !== fieldId) return entry;
+    const nextEntry = { ...entry };
+    if (noFuture) nextEntry.noFuture = true;
+    else delete nextEntry.noFuture;
+    return nextEntry;
+  });
+  await saveFormFields(form.id, nextFields);
+};
+
 const updateFormFieldRequiredWhenField = async (fieldId, conditionFieldId) => {
   if (!canCreateForms.value) return;
   const form = activeForm.value;
@@ -1087,6 +1101,7 @@ const resolvedActiveFormFields = computed(() => {
       missing: !field,
       required: !!entry.required,
       editable: entry?.editable !== false,
+      noFuture: entry?.noFuture === true,
       auto,
       autoType,
       autoTemplate,
@@ -1443,6 +1458,16 @@ watch(
               @change="updateFormFieldEditable(field.id, $event.target.checked)"
             />
             Editable
+          </label>
+          <label v-if="field.type === 'DATE'" class="db-form-field-toggle">
+            <input
+              class="db-form-field-checkbox"
+              type="checkbox"
+              :checked="field.noFuture"
+              :disabled="field.missing || field.locked || isReadonly"
+              @change="updateFormFieldNoFuture(field.id, $event.target.checked)"
+            />
+            No future
           </label>
         </div>
         <div class="db-form-field-controls">
