@@ -28,6 +28,7 @@ import { useSavedViews } from '../composables/useSavedViews';
 import { useViewRows } from '../composables/useViewRows';
 import { useCellRenderer } from '../composables/useCellRenderer';
 import { useLinkedFrom } from '../composables/useLinkedFrom';
+import { useColumnReorder } from '../composables/useColumnReorder';
 
 const props = defineProps({
   pageId: {
@@ -2238,6 +2239,24 @@ const clearSort = () => {
   closeFieldMenu();
 };
 
+const { draggingFieldId, moveFieldBy, canMoveBy, dropSideFor, handleHeaderDragStart, handleHeaderDragOver, handleHeaderDrop, handleHeaderDragEnd } = useColumnReorder({
+  fields,
+  isHidden: (fieldId) => hiddenFieldIdSet.value.has(fieldId),
+  isReadonly,
+  isCollabEnabled,
+  whenCollabSynced,
+  ensureCollabDoc,
+  collabFieldOrder,
+  readCollabOrder,
+  saveFieldPosition: (fieldId, position) =>
+    runWithSavingIndicator(() => api.updateDatabaseField(fieldId, { position }, { userId: activeUser.value?.id, userName: activeUser.value?.name })),
+});
+const moveActiveField = (step) => {
+  if (!activeField.value) return;
+  void moveFieldBy(activeField.value.id, step);
+  closeFieldMenu();
+};
+
 const deleteField = async (field) => {
   if (!field) return;
   if (isReadonly.value) return;
@@ -3154,6 +3173,8 @@ onBeforeUnmount(() => {
                 :class="{
                   'db-header--sorted': !!header.column.getIsSorted(),
                   'db-header--add': header.column.id === ADD_COLUMN_ID,
+                  'db-header--dragging': draggingFieldId === header.column.id,
+                  [`db-header--drop-${dropSideFor(header.column.id)}`]: !!dropSideFor(header.column.id),
                 }"
                 :aria-sort="
                   header.column.getIsSorted() === 'asc'
@@ -3163,6 +3184,8 @@ onBeforeUnmount(() => {
                       : 'none'
                 "
                 :style="{ width: `${header.getSize()}px` }"
+                @dragover="header.column.id !== ADD_COLUMN_ID && handleHeaderDragOver(header.column.id, $event)"
+                @drop="handleHeaderDrop"
               >
                 <div class="db-header-cell" :class="{ 'db-header-cell--add': header.column.id === ADD_COLUMN_ID }">
                   <input
@@ -3190,6 +3213,9 @@ onBeforeUnmount(() => {
                       :class="{ 'db-header-button--sorted': !!header.column.getIsSorted() }"
                       type="button"
                       :disabled="isReadonly"
+                      :draggable="!isReadonly"
+                      @dragstart="handleHeaderDragStart(header.column.id, $event)"
+                      @dragend="handleHeaderDragEnd"
                       @click.stop="openFieldMenu(header.column.id, $event)"
                       @contextmenu.prevent.stop="openFieldMenu(header.column.id, $event)"
                     >
@@ -3556,6 +3582,21 @@ onBeforeUnmount(() => {
                   <span class="block-menu__icon">×</span>
                   <span class="block-menu__text">
                     <span class="block-menu__title">Delete column</span>
+                  </span>
+                </button>
+              </div>
+              <div v-if="!isReadonly && (canMoveBy(activeField.id, -1) || canMoveBy(activeField.id, 1))" class="block-menu__group">
+                <div class="block-menu__group-title">Move</div>
+                <button v-if="canMoveBy(activeField.id, -1)" class="block-menu__item" type="button" @click="moveActiveField(-1)">
+                  <span class="block-menu__icon">←</span>
+                  <span class="block-menu__text">
+                    <span class="block-menu__title">Move left</span>
+                  </span>
+                </button>
+                <button v-if="canMoveBy(activeField.id, 1)" class="block-menu__item" type="button" @click="moveActiveField(1)">
+                  <span class="block-menu__icon">→</span>
+                  <span class="block-menu__text">
+                    <span class="block-menu__title">Move right</span>
                   </span>
                 </button>
               </div>
