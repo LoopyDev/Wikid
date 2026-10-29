@@ -184,6 +184,7 @@ const canShowAudit = computed(() => !props.embedded && isComplianceDatabase.valu
 const isAuditView = computed(() => activeViewId.value === AUDIT_VIEW_ID);
 const isGalleryView = computed(() => activeViewType.value === 'GALLERY');
 const isBoardView = computed(() => activeViewType.value === 'BOARD');
+const isListView = computed(() => activeViewType.value === 'LIST');
 // Table markup is shared by the built-in Table tab, the Audit view, and any
 // saved view of type TABLE.
 const showTableView = computed(() => isTableView.value || isAuditView.value || activeViewType.value === 'TABLE');
@@ -1933,8 +1934,8 @@ const isListCover = computed(() => {
 });
 const coverMax = computed(() => activeSavedView.value?.config?.coverMaxItems || DEFAULT_COVER_MAX);
 const expandedCovers = ref(new Set());
-const coverItems = (row) => {
-  const field = galleryCardField.value;
+// The rows a "Linked from" or relation value links to, each with how to open it
+const linkItemsFor = (row, field) => {
   if (!field) return [];
   if (isLinkedFromField(field)) {
     return linkedRowsFor(field.id, row.id).map((entry) => ({
@@ -1947,6 +1948,7 @@ const coverItems = (row) => {
     .filter((entry) => entry?.id)
     .map((entry) => ({ key: entry.id, label: getRelationLabel(field, entry) || entry.id, open: () => openRelatedRow(field, entry.id) }));
 };
+const coverItems = (row) => linkItemsFor(row, galleryCardField.value);
 const shownCoverItems = (row) => {
   const items = coverItems(row);
   return expandedCovers.value.has(row.id) ? items : items.slice(0, coverMax.value);
@@ -1958,6 +1960,24 @@ const toggleCoverExpanded = (rowId) => {
   else next.add(rowId);
   expandedCovers.value = next;
 };
+// A list view: each row on one line, with the properties chosen for it (none until chosen)
+const isLinkField = (field) => isLinkedFromField(field) || field?.type === 'RELATION';
+const listFields = computed(() => {
+  const chosen = activeSavedView.value?.config?.cardFieldIds;
+  return Array.isArray(chosen) ? cardFieldCandidates.value.filter((field) => chosen.includes(field.id)) : [];
+});
+const listFieldShown = (fieldId) => listFields.value.some((field) => field.id === fieldId);
+const toggleListField = (fieldId) => {
+  const shown = new Set(listFields.value.map((field) => field.id));
+  if (shown.has(fieldId)) shown.delete(fieldId);
+  else shown.add(fieldId);
+  setGalleryCardFields(cardFieldCandidates.value.map((field) => field.id).filter((id) => shown.has(id)));
+};
+const rowIcon = (row) => {
+  const pageId = rowPageId(row);
+  return (pageId && pageMap.value.get(pageId)?.icon) || row?.icon || '';
+};
+
 // Ticking which columns the cards show (once changed, the cards keep their own list)
 const cardFieldShown = (fieldId) => cardBodyFields.value.some((field) => field.id === fieldId);
 const toggleCardField = (fieldId) => {
@@ -2951,7 +2971,15 @@ const formBuilderContext = {
   runWithSavingIndicator,
 };
 
+// The gallery's "Card fields" and the list's "Properties" menus close on a click elsewhere
+const closeCardFieldMenus = (event) => {
+  databaseRootRef.value?.querySelectorAll('.db-card-fields[open]').forEach((menu) => {
+    if (!menu.contains(event.target)) menu.removeAttribute('open');
+  });
+};
+
 onMounted(() => {
+  document.addEventListener('mousedown', closeCardFieldMenus);
   document.addEventListener('mousedown', handleFieldMenuOutside);
   document.addEventListener('mousedown', handleRowMenuOutside);
   window.addEventListener('keydown', handleFieldMenuKeydown);
@@ -2975,6 +3003,7 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
+  document.removeEventListener('mousedown', closeCardFieldMenus);
   document.removeEventListener('mousedown', handleFieldMenuOutside);
   document.removeEventListener('mousedown', handleRowMenuOutside);
   window.removeEventListener('keydown', handleFieldMenuKeydown);
@@ -3478,6 +3507,40 @@ onBeforeUnmount(() => {
             </div>
           </div>
         </div>
+        <div v-else-if="isListView" class="db-list">
+          <div v-if="!embedded" class="db-view-config-bar">
+            <details class="db-card-fields">
+              <summary class="db-card-fields__toggle">Properties</summary>
+              <div class="db-card-fields__menu">
+                <label v-for="field in cardFieldCandidates" :key="field.id" class="db-card-fields__option">
+                  <input type="checkbox" :checked="listFieldShown(field.id)" @change="toggleListField(field.id)" />
+                  {{ field.name || 'Field' }}
+                </label>
+                <div v-if="!cardFieldCandidates.length" class="db-card-fields__empty">No other columns</div>
+              </div>
+            </details>
+          </div>
+          <div v-if="!viewFilteredRows.length" class="database-table__empty muted">No matching rows.</div>
+          <ul v-else class="db-list__rows">
+            <li v-for="row in viewFilteredRows" :key="row.id" class="db-list__row">
+              <button class="db-list__title" type="button" @click="openRowCard(row)">
+                <PageIcon class="db-list__icon" :icon="rowIcon(row)" fallback="📄" aria-hidden="true" />
+                <span class="db-list__name">{{ rowTitle(row) }}</span>
+              </button>
+              <span v-if="listFields.length" class="db-list__properties">
+                <span v-for="field in listFields" :key="field.id" class="db-list__property" :title="field.name">
+                  <template v-if="isLinkField(field)">
+                    <template v-for="item in linkItemsFor(row, field)" :key="item.key">
+                      <button v-if="item.open" class="db-multi-pill db-relation-pill" type="button" :title="`Open ${item.label}`" @click="item.open()">{{ item.label }}</button>
+                      <span v-else class="db-multi-pill">{{ item.label }}</span>
+                    </template>
+                  </template>
+                  <template v-else>{{ galleryCardValue(row, field) }}</template>
+                </span>
+              </span>
+            </li>
+          </ul>
+        </div>
         <div v-else-if="isBoardView" class="db-board">
           <div v-if="!embedded" class="db-view-config-bar">
             <label class="db-view-config-bar__label">Group by</label>
@@ -3957,6 +4020,13 @@ onBeforeUnmount(() => {
               <span class="block-menu__text">
                 <span class="block-menu__title">Gallery</span>
                 <span class="block-menu__hint">Cards</span>
+              </span>
+            </button>
+            <button class="block-menu__item" type="button" @click="createSavedView('LIST')">
+              <span class="block-menu__icon"><i class="bi bi-list-ul" aria-hidden="true"></i></span>
+              <span class="block-menu__text">
+                <span class="block-menu__title">List</span>
+                <span class="block-menu__hint">One row per line</span>
               </span>
             </button>
             <button class="block-menu__item" type="button" @click="createSavedView('BOARD')">

@@ -12,7 +12,7 @@ export function useSavedViews({ props, workspace, fields, fieldById, activeViewI
   const filterMenuRef = ref(null);
   const sortMenu = ref({ open: false, x: 0, y: 0 });
   const sortMenuRef = ref(null);
-  const DEFAULT_VIEW_ICONS = { TABLE: 'icon:table', GALLERY: 'icon:grid-3x3-gap', BOARD: 'icon:kanban' };
+  const DEFAULT_VIEW_ICONS = { TABLE: 'icon:table', GALLERY: 'icon:grid-3x3-gap', BOARD: 'icon:kanban', LIST: 'icon:list-ul' };
   const normalizeSavedView = (view) => {
     if (!view || typeof view !== 'object') return null;
     const id = typeof view.id === 'string' ? view.id : '';
