@@ -22,7 +22,8 @@ async function selectText(page: Page) {
   await expect(page.locator('.bubble-menu').filter({ has: page.getByRole('button', { name: 'Bold' }) })).toBeVisible();
 }
 
-test.describe('AI settings', () => {
+// Turns AI off for Alice and, as the admin, for everyone, so it runs once the other tests are done
+test.describe('AI settings', { tag: '@shared-state' }, () => {
   test('hides AI everywhere when the server has no AI set up', async ({ alice: page, workspaceId }) => {
     test.skip(await aiConfigured(page), 'AI is set up on this test stack');
     await openPage(page, await createPage(page, workspaceId));
