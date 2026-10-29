@@ -17,7 +17,8 @@
     "test": "npm test -w web",
     "test:api": "npm run test:e2e -w api",
     "test:e2e": "playwright test -c e2e",
-    "build": "npm run build -w web"
+    "build": "npm run build -w web",
+    "icons:meta": "node scripts/build-icon-meta.mjs"
   },
   "overrides": {
     "qs": "^6.16.0",

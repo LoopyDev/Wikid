@@ -8,6 +8,7 @@ import PageIcon from './PageIcon.vue';
 import IconPicker from './IconPicker.vue';
 import TiptapEditor from './TiptapEditor.vue';
 import PageProperties from './PageProperties.vue';
+import { isInIconBrowser } from '../utils/iconSearch';
 
 const props = defineProps({
   pageId: {
@@ -204,7 +205,7 @@ const handleIconClickOutside = (event) => {
   const path = event?.composedPath?.() || [];
   const menuHit = iconMenuRef.value && (path.includes(iconMenuRef.value) || iconMenuRef.value.contains(target));
   const triggerHit = iconTriggerRef.value && (path.includes(iconTriggerRef.value) || iconTriggerRef.value.contains(target));
-  if (menuHit || triggerHit) return;
+  if (menuHit || triggerHit || isInIconBrowser(target)) return;
   closeIconPicker();
 };
 
