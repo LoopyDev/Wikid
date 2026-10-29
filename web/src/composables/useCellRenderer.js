@@ -3,7 +3,7 @@ import PageIcon from '../components/PageIcon.vue';
 import { AUTO_SIZE_MULTI_MEMBERS_PLACEHOLDER, AUTO_SIZE_MULTI_PLACEHOLDER, AUTO_SIZE_RELATION_MULTI_PLACEHOLDER, AUTO_SIZE_RELATION_PLACEHOLDER, AUTO_SIZE_SELECT_PLACEHOLDER } from '../utils/database/columnLayout';
 import { formatDateTime } from '../utils/date-format';
 import { getAssetTagValue, getMultiSelectValues, getRelationEntries, valueForField } from '../utils/database/cellValues';
-import { getRelationConfig, isAssetTagField, isFieldReadOnly, isLastEditedField, isLinkedFromField, isMembersField, isPageField, isPageFieldEditable } from '../utils/database/fieldOptions';
+import { getRelationConfig, isAssetTagField, isFieldReadOnly, isLastEditedField, isLinkedFromField, isPageField, isPageFieldEditable, isPeopleField, isPersonField } from '../utils/database/fieldOptions';
 import { handleCellConfirmKeydown, handleNumberKeydown, handleNumberPaste, sanitizeNumberInput } from '../utils/database/cellInput';
 import { multiSelectPillStyle, rowColor } from '../utils/database/colors';
 import { keptValueFor, keptValueText, notFitText } from '../utils/database/typeChange';
@@ -17,7 +17,7 @@ export function useCellRenderer({ choiceColorForValue, getChoiceLabel, isReadonl
     const placeholder =
       field.type === 'RELATION'
         ? AUTO_SIZE_RELATION_MULTI_PLACEHOLDER
-        : isMembersField(field)
+        : isPeopleField(field)
         ? AUTO_SIZE_MULTI_MEMBERS_PLACEHOLDER
         : AUTO_SIZE_MULTI_PLACEHOLDER;
     const pills = values.length
@@ -456,7 +456,7 @@ export function useCellRenderer({ choiceColorForValue, getChoiceLabel, isReadonl
         )
       );
     }
-    if (field.type === 'MULTI_SELECT') {
+    if (field.type === 'MULTI_SELECT' || isPersonField(field)) {
       return presenceWrap(renderMultiSelectCell(row, field));
     }
     return presenceWrap(

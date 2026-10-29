@@ -74,4 +74,18 @@ describe('changing a column type', () => {
     expect(keptValueFor({ data: { f1: '12' } }, numberField)).toBeUndefined();
     expect(keptValueFor({ data: {} }, numberField)).toBeUndefined();
   });
+
+  it('turns names into people when every name is a member, and people back into names', () => {
+    const people = [{ id: ZONE, name: 'Alice Smith' }, { id: '22222222-2222-4222-8222-222222222222', name: 'Bob' }];
+    const bob = people[1].id;
+    const one = planTypeChange(rows('alice smith', 'Bob, Alice Smith', 'Carol', ''), field, 'PERSON', {}, { people });
+    // One person a cell: several names are kept rather than cut down to the first
+    expect(byRow(one)).toEqual({ r0: [ZONE], r1: { kept: 'Bob, Alice Smith' }, r2: { kept: 'Carol' } });
+    const several = planTypeChange(rows('Bob, Alice Smith'), field, 'PERSON', { allowMultiple: true }, { people });
+    expect(byRow(several)).toEqual({ r0: [bob, ZONE] });
+
+    const person = { id: 'f1', type: 'PERSON', options: { allowMultiple: true } };
+    expect(byRow(planTypeChange(rows([ZONE, bob]), person, 'TEXT', {}, { people }))).toEqual({ r0: 'Alice Smith, Bob' });
+    expect(byRow(planTypeChange(rows([ZONE, bob]), person, 'MULTI_SELECT', { choices: [] }, { people }))).toEqual({ r0: ['Alice Smith', 'Bob'] });
+  });
 });

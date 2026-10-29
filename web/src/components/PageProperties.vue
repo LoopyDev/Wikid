@@ -140,6 +140,10 @@ const readCollabOrder = (order) => {
 
 const getFieldSource = (field) => normalizeFieldOptions(field).source || null;
 const isMembersField = (field) => getFieldSource(field) === 'members';
+// A column of workspace members: a Person column, or a wiki's Owners
+const isPersonField = (field) => field?.type === 'PERSON';
+const isPeopleField = (field) => isPersonField(field) || isMembersField(field);
+const isOnePerson = (field) => isPersonField(field) && normalizeFieldOptions(field).allowMultiple !== true;
 const isPageField = (field) => getFieldSource(field) === 'page';
 const isLastEditedField = (field) => getFieldSource(field) === 'lastEdited';
 const isFieldReadOnly = (field) => {
@@ -158,7 +162,7 @@ const memberChoiceList = computed(() =>
 const membersMap = computed(() => new Map(workspaceMembers.value.map((member) => [member.id, member.name])));
 
 const getFieldChoices = (field) => {
-  if (isMembersField(field)) {
+  if (isPeopleField(field)) {
     return memberChoiceList.value;
   }
   return normalizeFieldOptions(field).choices;
@@ -171,6 +175,9 @@ const getChoiceLabel = (field, value) => {
   if (match?.label) return match.label;
   if (isMembersField(field)) {
     return membersMap.value.get(value) || value;
+  }
+  if (isPersonField(field)) {
+    return membersMap.value.get(value) || (membersMap.value.size ? 'Former member' : '');
   }
   return match?.value || String(value);
 };
@@ -738,7 +745,7 @@ const normalizeCellValue = (field, value) => {
     }
     return normalizeValue(value);
   }
-  if (field.type === 'MULTI_SELECT') {
+  if (field.type === 'MULTI_SELECT' || isPersonField(field)) {
     if (Array.isArray(value)) {
       const cleaned = value.map((item) => String(item).trim()).filter(Boolean);
       return cleaned.length ? cleaned : null;
@@ -787,8 +794,8 @@ const displayValue = (field) => {
     return formatDateTime(resolveRowLastEdited());
   }
   const value = row.value?.data?.[field.id];
-  if (field.type === 'MULTI_SELECT') {
-    const values = getMultiSelectValues(value);
+  if (field.type === 'MULTI_SELECT' || isPersonField(field)) {
+    const values = multiSelectValuesForField(field);
     return values.map((entry) => {
       const choices = getFieldChoices(field);
       const match = choices.find((choice) => choice.value === entry);
@@ -1027,7 +1034,9 @@ const handleRelationSelectChange = (field, event) => {
 
 const multiSelectValuesForField = (field) => {
   if (!row.value || !field) return [];
-  return getMultiSelectValues(row.value?.data?.[field.id]);
+  const values = getMultiSelectValues(row.value?.data?.[field.id]);
+  // A one-person column shows its first person (the server keeps only that one)
+  return isOnePerson(field) ? values.slice(0, 1) : values;
 };
 
 const closeMultiSelectMenu = () => {
@@ -1035,7 +1044,7 @@ const closeMultiSelectMenu = () => {
 };
 
 const openMultiSelectMenu = (field, event) => {
-  if (!field || field.type !== 'MULTI_SELECT') return;
+  if (!field || (field.type !== 'MULTI_SELECT' && !isPersonField(field))) return;
   if (props.readonly || isFieldReadOnly(field)) return;
   if (!event) return;
   const isSame = multiSelectMenu.value.open && multiSelectMenu.value.fieldId === field.id;
@@ -1062,6 +1071,12 @@ const isMultiSelectOptionSelected = (value) => activeMultiSelectValues.value.inc
 const toggleMultiSelectOption = (value) => {
   if (!activeMultiSelectField.value || !row.value || !value) return;
   const field = activeMultiSelectField.value;
+  // A one-person column: choosing sets it (choosing it again clears it), and the picker closes
+  if (isOnePerson(field)) {
+    handleFieldChange(field, multiSelectValuesForField(field).includes(value) ? [] : [value]);
+    closeMultiSelectMenu();
+    return;
+  }
   const current = new Set(getMultiSelectValues(row.value?.data?.[field.id]));
   if (current.has(value)) {
     current.delete(value);
@@ -1112,7 +1127,7 @@ const loadMembers = async () => {
   }
 };
 
-const needsMembers = computed(() => fields.value.some((field) => isMembersField(field)));
+const needsMembers = computed(() => fields.value.some((field) => isPeopleField(field)));
 const activeMultiSelectField = computed(() => {
   if (!multiSelectMenu.value.fieldId) return null;
   return fields.value.find((field) => field.id === multiSelectMenu.value.fieldId) || null;
@@ -1356,7 +1371,7 @@ onBeforeUnmount(() => {
               @input="handleFieldChange(field, $event.target.value)"
             />
           </template>
-          <template v-else-if="field.type === 'MULTI_SELECT'">
+          <template v-else-if="field.type === 'MULTI_SELECT' || isPersonField(field)">
             <button
               class="db-multi-cell page-properties__multi-cell"
               type="button"
@@ -1374,7 +1389,7 @@ onBeforeUnmount(() => {
                 </span>
               </template>
               <template v-else>
-                <span class="db-multi-placeholder">{{ isMembersField(field) ? 'Add person' : 'Add option' }}</span>
+                <span class="db-multi-placeholder">{{ isPeopleField(field) ? 'Add person' : 'Add option' }}</span>
               </template>
             </button>
           </template>
@@ -1434,7 +1449,7 @@ onBeforeUnmount(() => {
       <div class="block-menu__panel">
         <div class="block-menu__panel-scroll">
           <div
-            v-if="membersLoading && isMembersField(activeMultiSelectField)"
+            v-if="membersLoading && isPeopleField(activeMultiSelectField)"
             class="db-options-empty"
           >
             Loading members...

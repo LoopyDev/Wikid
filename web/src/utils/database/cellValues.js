@@ -1,6 +1,6 @@
 import { h } from 'vue';
 import * as Y from 'yjs';
-import { getRelationConfig } from './fieldOptions';
+import { getRelationConfig, isPersonField, normalizeFieldOptions } from './fieldOptions';
 
 // Values in database cells: normalising what is stored and turning it into what a cell shows.
 
@@ -49,7 +49,7 @@ export const renderRowIdCell = (row) => {
 export const normalizeCellValue = (field, value) => {
   const rawValue = String(value ?? '');
   if (!field) return rawValue;
-  if (field.type === 'MULTI_SELECT') {
+  if (field.type === 'MULTI_SELECT' || isPersonField(field)) {
     if (Array.isArray(value)) {
       const cleaned = value.map((item) => String(item).trim()).filter(Boolean);
       return cleaned.length ? cleaned : null;
@@ -126,7 +126,7 @@ export const valueForField = (row, field) => {
     const entry = getRelationEntries(row, field)[0];
     return entry?.id || '';
   }
-  if (field.type === 'MULTI_SELECT') {
+  if (field.type === 'MULTI_SELECT' || isPersonField(field)) {
     if (Array.isArray(value)) return value.join(', ');
     if (value instanceof Y.Array) return value.toArray().map((item) => String(item).trim()).filter(Boolean).join(', ');
   }
@@ -142,6 +142,10 @@ export const getAssetTagValue = (row, field) => {
 
 export const getMultiSelectValues = (row, field) => {
   if (!row || !field) return [];
+  // A one-person column shows its first person (the server keeps only that one)
+  if (isPersonField(field) && normalizeFieldOptions(field).allowMultiple !== true) {
+    return getMultiSelectValuesFromRaw(row?.data?.[field.id]).slice(0, 1);
+  }
   if (field.type === 'RELATION') {
     const relation = getRelationConfig(field);
     if (!relation?.allowMultiple) return [];

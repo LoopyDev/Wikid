@@ -235,10 +235,20 @@ export class DatabaseFormsService {
     if (!form) throw new NotFoundException('Form not found');
     const database = await this.prisma.database.findUnique({
       where: { id: form.databaseId },
-      select: { id: true, pageId: true, complianceMode: true, fields: { orderBy: { position: 'asc' } } },
+      select: { id: true, pageId: true, workspaceId: true, complianceMode: true, fields: { orderBy: { position: 'asc' } } },
     });
     if (!database) throw new NotFoundException('Database not found');
     await this.access.requirePageAccess(database.pageId, user);
+    // Person fields are filled in with the workspace's members (whom anyone in it can list)
+    const people = database.fields.some((field) => field.type === DatabaseFieldType.PERSON)
+      ? (
+          await this.prisma.userWorkspace.findMany({
+            where: { workspaceId: database.workspaceId },
+            select: { user: { select: { id: true, displayName: true } } },
+            orderBy: { user: { displayName: 'asc' } },
+          })
+        ).map((member) => ({ id: member.user.id, name: member.user.displayName }))
+      : [];
     const storage = this.databaseValues.normalizeDatabaseFormStorage(form.fields ?? []);
     const fields = await this.databaseValues.sanitizeDatabaseFormFields(form.databaseId, storage.fields);
     const config = storage.config
@@ -256,6 +266,7 @@ export class DatabaseFormsService {
       databaseComplianceMode: database.complianceMode,
       databaseFields: database.fields,
       databaseRowCount: rowCount,
+      people,
     };
   }
 
@@ -331,6 +342,8 @@ export class DatabaseFormsService {
         return field.type === DatabaseFieldType.DATE ? todayFor(sent) : undefined;
       }
       if (auto.type === 'currentUser') {
+        // A person column holds the submitter themselves
+        if (field.type === DatabaseFieldType.PERSON) return userId ? [userId] : undefined;
         const source = getFieldSource(field.options);
         const mode = auto.mode === 'id' || auto.mode === 'name' ? auto.mode : source === 'members' ? 'id' : 'name';
         const value = mode === 'id' ? userId : userName;
@@ -434,7 +447,7 @@ export class DatabaseFormsService {
         }
         return true;
       }
-      if (field.type === DatabaseFieldType.MULTI_SELECT) {
+      if (field.type === DatabaseFieldType.MULTI_SELECT || field.type === DatabaseFieldType.PERSON) {
         return !Array.isArray(value) || value.length === 0;
       }
       if (field.type === DatabaseFieldType.CHECKBOX) {

@@ -79,7 +79,11 @@ const normalizeChoice = (choice) => {
   return null;
 };
 
+// The workspace's members, for person fields (sent with the form when it has one)
+const people = ref([]);
+
 const getFieldChoices = (field) => {
+  if (field?.type === 'PERSON') return people.value.map((person) => ({ value: person.id, label: person.name }));
   const options = field?.options && typeof field.options === 'object' && !Array.isArray(field.options) ? field.options : {};
   const rawChoices = Array.isArray(options.choices) ? options.choices : [];
   return rawChoices.map(normalizeChoice).filter(Boolean);
@@ -383,6 +387,8 @@ const resolveAutoValue = (field, auto) => {
     return field.type === 'DATE' ? localToday() : undefined;
   }
   if (auto.type === 'currentUser') {
+    // A person field holds the person filling it in
+    if (field.type === 'PERSON') return activeUser.value?.id ? [activeUser.value.id] : undefined;
     const source = getFieldSource(field);
     const mode = auto.mode === 'id' || auto.mode === 'name' ? auto.mode : source === 'members' ? 'id' : 'name';
     const value = mode === 'id' ? activeUser.value?.id : activeUser.value?.name || activeUser.value?.id;
@@ -501,7 +507,7 @@ const normalizeFilterValue = (field, value) => {
   if (field.type === 'CHECKBOX') {
     return normalizeCheckboxValue(value);
   }
-  if (field.type === 'MULTI_SELECT') {
+  if (field.type === 'MULTI_SELECT' || field.type === 'PERSON') {
     if (Array.isArray(value)) {
       return value.map((item) => String(item)).filter((item) => item);
     }
@@ -672,6 +678,11 @@ const valueForField = (field) => {
   if (field.type === 'MULTI_SELECT') {
     return Array.isArray(resolved) ? resolved : [];
   }
+  // One person: a plain select holds its id
+  if (field.type === 'PERSON') {
+    const ids = Array.isArray(resolved) ? resolved : resolved ? [resolved] : [];
+    return field.options?.allowMultiple === true ? ids : ids[0] || '';
+  }
   if (field.type === 'CHECKBOX') {
     return resolved === true;
   }
@@ -730,6 +741,9 @@ const isMissingRequiredValue = (field, value) => {
   }
   if (field.type === 'MULTI_SELECT') {
     return !Array.isArray(value) || value.length === 0;
+  }
+  if (field.type === 'PERSON') {
+    return Array.isArray(value) ? value.length === 0 : !value;
   }
   if (field.type === 'CHECKBOX') {
     return value !== true;
@@ -899,6 +913,7 @@ const { loading, error, execute: loadForm } = useApiMutation(async () => {
       config: res?.config && typeof res.config === 'object' && !Array.isArray(res.config) ? res.config : null,
     };
     databaseFields.value = Array.isArray(res?.databaseFields) ? res.databaseFields : [];
+    people.value = Array.isArray(res?.people) ? res.people : [];
     databasePageId.value = typeof res?.databasePageId === 'string' ? res.databasePageId : '';
     databaseRowCount.value = Number.isFinite(res?.databaseRowCount) ? res.databaseRowCount : null;
     complianceMode.value = res?.databaseComplianceMode === true;
@@ -1021,6 +1036,11 @@ const buildSubmitData = () => {
       if (Array.isArray(value) && value.length) {
         data[field.id] = value;
       }
+      return;
+    }
+    if (field.type === 'PERSON') {
+      const ids = (Array.isArray(value) ? value : [value]).filter((id) => typeof id === 'string' && id);
+      if (ids.length) data[field.id] = ids;
       return;
     }
     if (field.type === 'CHECKBOX') {
@@ -1408,7 +1428,19 @@ onBeforeUnmount(() => {
               </option>
             </select>
             <select
-              v-else-if="field.type === 'MULTI_SELECT'"
+              v-else-if="field.type === 'PERSON' && field.options?.allowMultiple !== true"
+              class="form-input"
+              :value="valueForField(field)"
+              :disabled="field.readOnly"
+              @change="updateFieldValue(field.id, $event.target.value)"
+            >
+              <option value="">Select a person...</option>
+              <option v-for="choice in getFieldChoices(field)" :key="choice.value" :value="choice.value">
+                {{ choice.label }}
+              </option>
+            </select>
+            <select
+              v-else-if="field.type === 'MULTI_SELECT' || field.type === 'PERSON'"
               class="form-input form-input--multi"
               multiple
               :value="valueForField(field)"

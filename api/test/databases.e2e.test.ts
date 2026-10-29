@@ -107,6 +107,36 @@ describe('rows', () => {
     expect(replaced.body.row.data[kept]).toBeUndefined();
   });
 
+  it('keeps people in person columns: one, or several when allowed', async () => {
+    const { pageId, titleFieldId } = await createDatabase();
+    const owner = await addField(pageId, { name: 'Owner', type: 'PERSON' });
+    const team = await addField(pageId, { name: 'Team', type: 'PERSON', options: { allowMultiple: true } });
+    const res = await alice.post(`/pages/${pageId}/database/rows`, {
+      data: { [titleFieldId]: 'Launch', [owner.id]: [USERS.alice.id, USERS.bob.id], [team.id]: [USERS.bob.id, 'Alice', USERS.alice.id, USERS.bob.id] },
+    });
+    expect(res.status).toBe(201);
+    // One person: the first; several: each once, ids only
+    expect(res.body.data[owner.id]).toEqual([USERS.alice.id]);
+    expect(res.body.data[team.id]).toEqual([USERS.bob.id, USERS.alice.id]);
+    expect((await alice.post(`/pages/${pageId}/database/rows`, { data: { [owner.id]: 'Alice' } })).body.data[owner.id]).toBeUndefined();
+
+    // A view can filter by "is me"
+    const view = await alice.post(`/pages/${pageId}/database/views`, {
+      name: 'Mine',
+      config: { filters: { match: 'AND', rules: [{ fieldId: owner.id, operator: 'is_me' }] } },
+    });
+    expect(view.status).toBe(201);
+    expect(view.body.config.filters.rules[0].operator).toBe('is_me');
+
+    // Exported with names, and a stranger's id as a former member
+    await alice.post(`/pages/${pageId}/database/rows`, { data: { [titleFieldId]: 'Old', [owner.id]: [MISSING_ID] } });
+    const exported = await alice.download('/export/html', { method: 'POST', body: { rootPageId: pageId } });
+    const html = Buffer.from(exported.bytes).toString('utf8');
+    expect(html).toContain(`${USERS.bob.name}, ${USERS.alice.name}`);
+    expect(html).toContain('Former member');
+    expect(html).not.toContain(USERS.alice.id);
+  });
+
   it('stores values according to the field types', async () => {
     const { pageId, titleFieldId } = await createDatabase();
     const num = await addField(pageId, { name: 'Number', type: 'NUMBER' });
@@ -411,6 +441,34 @@ describe('forms', () => {
     expect((await submit({ [kind.id]: 'Outage', [impact.id]: 'Site down' })).status).toBe(201);
     expect((await submit({ [kind.id]: 'Idea' })).status).toBe(201);
     expect((await submit({})).status).toBe(201);
+  });
+
+  it("fills a person field in with whoever submits the form, and lists the workspace's people for it", async () => {
+    const { pageId, titleFieldId } = await createDatabase();
+    const author = await addField(pageId, { name: 'Author', type: 'PERSON' });
+    const reviewer = await addField(pageId, { name: 'Reviewer', type: 'PERSON' });
+    const form = await alice.post(`/pages/${pageId}/database/forms`, {
+      name: 'Report',
+      fields: [
+        { fieldId: titleFieldId },
+        { fieldId: author.id, auto: { type: 'currentUser' } },
+        { fieldId: reviewer.id, required: true },
+      ],
+    });
+    expect(form.status).toBe(201);
+    const read = await alice.get(`/database-forms/${form.body.id}`);
+    expect(read.body.people.map((person: any) => person.name).sort()).toEqual([USERS.alice.name, USERS.bob.name].sort());
+
+    const submit = (data: Record<string, unknown>) =>
+      alice.post(`/database-forms/${form.body.id}/submit`, { data: { [titleFieldId]: 'Entry', ...data } });
+    const missing = await submit({});
+    expect(missing.status).toBe(400);
+    expect(missing.body.message).toContain('Reviewer');
+    // The author is the submitter, whatever was sent
+    const sent = await submit({ [author.id]: [USERS.bob.id], [reviewer.id]: [USERS.bob.id] });
+    expect(sent.status).toBe(201);
+    expect(sent.body.data[author.id]).toEqual([USERS.alice.id]);
+    expect(sent.body.data[reviewer.id]).toEqual([USERS.bob.id]);
   });
 
   it('creates a form, reads it and submits entries', async () => {

@@ -203,7 +203,9 @@ export class CollabMaterializerService implements OnModuleInit, OnModuleDestroy 
 
   private cellRulesFor(type: DatabaseFieldType, options: NormalizedFieldOptions): CellValueRules {
     const relation = type === DatabaseFieldType.RELATION ? this.normalizeRelationOptions(options.options || {}) : null;
-    return { type, choiceValues: options.choiceValues, allowMultiple: relation ? relation.allowMultiple : null };
+    const allowMultiple =
+      type === DatabaseFieldType.PERSON ? options.options?.allowMultiple === true : relation ? relation.allowMultiple : null;
+    return { type, choiceValues: options.choiceValues, allowMultiple };
   }
 
   private sanitizeDatabaseRowData(

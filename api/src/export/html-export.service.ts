@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { UploadsService } from '../uploads/uploads.service';
 import { CollabMaterializerService } from '../collab/collab-materializer.service';
 import { editorDocFromYjsState } from '../collab/collab-doc.util';
+import { isUuid } from '../utils/uuid.util';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -494,8 +495,29 @@ export class HtmlExportService {
         },
       },
     });
+    // Person columns hold user ids: look up the names they're shown with
+    const personIds = new Set<string>();
+    for (const db of databases) {
+      const personFieldIds = db.fields.filter((field) => field.type === 'PERSON').map((field) => field.id);
+      if (!personFieldIds.length) continue;
+      for (const row of db.rows) {
+        const data = row.data && typeof row.data === 'object' && !Array.isArray(row.data) ? (row.data as Record<string, any>) : {};
+        for (const fieldId of personFieldIds) {
+          for (const id of Array.isArray(data[fieldId]) ? data[fieldId] : []) if (isUuid(String(id))) personIds.add(String(id));
+        }
+      }
+    }
+    // Only the names of people in these databases' workspaces (a cell could hold anyone's id)
+    const workspaceIds = [...new Set(databases.map((db) => db.workspaceId))];
+    const people = personIds.size
+      ? await this.prisma.user.findMany({
+          where: { id: { in: [...personIds] }, memberships: { some: { workspaceId: { in: workspaceIds } } } },
+          select: { id: true, displayName: true },
+        })
+      : [];
+    const personNames = new Map(people.map((person) => [person.id, person.displayName]));
     const map = new Map<string, any>();
-    for (const db of databases) map.set(db.pageId, db);
+    for (const db of databases) map.set(db.pageId, { ...db, personNames });
     return map;
   }
 
@@ -990,7 +1012,7 @@ ${hasSplats ? JS_SPLAT_INIT : ''}
       const data = row.data && typeof row.data === 'object' ? row.data : {};
       const cells = fields.map((f: any) => {
         const val = data[f.id];
-        return `<td>${this.formatCellHtml(val, f)}</td>`;
+        return `<td>${this.formatCellHtml(val, f, db.personNames)}</td>`;
       }).join('');
       let rowHtml = `<tr>${cells}</tr>`;
 
@@ -1026,9 +1048,12 @@ ${hasSplats ? JS_SPLAT_INIT : ''}
     return `<span class="select-pill">${esc(label)}</span>`;
   }
 
-  private formatCellHtml(val: any, field: any): string {
+  private formatCellHtml(val: any, field: any, personNames?: Map<string, string>): string {
     if (val === null || val === undefined) return '';
     const type = field?.type;
+    if (type === 'PERSON' && Array.isArray(val)) {
+      return esc(val.map((id: any) => personNames?.get(String(id)) || 'Former member').join(', '));
+    }
     if (type === 'MULTI_SELECT' && Array.isArray(val)) {
       if (!val.length) return '';
       return `<div class="select-pills">${val.map((v: any) => this.renderSelectPill(String(v), field)).join('')}</div>`;

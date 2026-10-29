@@ -1,5 +1,5 @@
 import { toPlainValue } from './collabRows';
-import { getRelationConfig, normalizeChoice } from './fieldOptions';
+import { getRelationConfig, isPeopleField, normalizeChoice } from './fieldOptions';
 
 // Changing a column's type: what each cell becomes, and what's kept beside it when it doesn't fit.
 // coerceCellValue is the server's rule for what a cell of each type keeps
@@ -108,6 +108,11 @@ export const coerceCellValue = (rules, rawValue) => {
       if (rules.choiceValues) values = values.filter((item) => rules.choiceValues.includes(item));
       return values.length ? values : undefined;
     }
+    case 'PERSON': {
+      const ids = [...new Set((Array.isArray(value) ? value : [value]).filter((item) => typeof item === 'string' && isUuid(item.trim())).map((item) => item.trim()))];
+      if (!ids.length) return undefined;
+      return rules.allowMultiple === true ? ids : ids.slice(0, 1);
+    }
     case 'RELATION': {
       if (rules.allowMultiple === null || rules.allowMultiple === undefined) return undefined;
       return coerceRelationValue(value, rules.allowMultiple);
@@ -130,7 +135,7 @@ export const cellRulesFor = (field) => {
   return {
     type: field?.type,
     choiceValues: choices ? choices.map((choice) => choice.value) : null,
-    allowMultiple: relation ? relation.allowMultiple === true : null,
+    allowMultiple: field?.type === 'PERSON' ? field?.options?.allowMultiple === true : relation ? relation.allowMultiple === true : null,
   };
 };
 
@@ -179,10 +184,19 @@ const prepareForType = (type, value) => {
       return list;
     }
     case 'RELATION':
+    case 'PERSON':
       return value;
     default:
       return undefined;
   }
+};
+
+// Names to the members they name (all of them, or nothing): for turning text into people
+const peopleNamed = (value, people) => {
+  const byName = new Map(people.map((person) => [String(person.name || '').trim().toLowerCase(), person.id]));
+  const names = (Array.isArray(value) ? value : String(value ?? '').split(',')).map((name) => String(name).trim()).filter(Boolean);
+  const ids = names.map((name) => byName.get(name.toLowerCase()));
+  return names.length && ids.every(Boolean) ? ids : undefined;
 };
 
 /**
@@ -191,7 +205,9 @@ const prepareForType = (type, value) => {
  * value it takes in). A value kept from an earlier type change is tried again, so changing
  * back brings it back.
  */
-export const planTypeChange = (rows, field, nextType, nextOptions = {}) => {
+export const planTypeChange = (rows, field, nextType, nextOptions = {}, { people = [] } = {}) => {
+  const fromPeople = isPeopleField(field);
+  const nameOf = new Map(people.map((person) => [person.id, person.name]));
   const isSelect = nextType === 'SELECT' || nextType === 'MULTI_SELECT';
   const existingChoices = isSelect && Array.isArray(nextOptions.choices) ? nextOptions.choices.map(normalizeChoice).filter(Boolean) : [];
   // Values become choices, so any value fits a select here
@@ -210,7 +226,22 @@ export const planTypeChange = (rows, field, nextType, nextOptions = {}) => {
       if (current !== undefined || previouslyKept !== undefined) cells.push({ rowId: row.id, value: undefined, kept: undefined });
       return;
     }
-    const prepared = nextType === 'LINKED_FROM' ? undefined : prepareForType(nextType, source);
+    // People are their names in other types; text names people when every name is a member's
+    const asSource = fromPeople && nextType !== 'PERSON'
+      ? (Array.isArray(source) ? source : [source]).map((id) => nameOf.get(id) || '').filter(Boolean)
+      : source;
+    const prepared =
+      nextType === 'LINKED_FROM'
+        ? undefined
+        : nextType === 'PERSON' && !fromPeople
+        ? peopleNamed(asLabels(source), people)
+        : prepareForType(nextType, asSource);
+    // Several people don't fit a one-person column: kept, rather than cut down to the first
+    if (nextType === 'PERSON' && Array.isArray(prepared) && prepared.length > 1 && nextOptions.allowMultiple !== true) {
+      keptCount += 1;
+      cells.push({ rowId: row.id, value: undefined, kept: normalizeKeptValue(fromPeople ? source.map((id) => nameOf.get(id) || id) : source) });
+      return;
+    }
     const value = prepared === undefined ? undefined : coerceCellValue(rules, prepared);
     if (value !== undefined) {
       if (isSelect) {
@@ -224,7 +255,7 @@ export const planTypeChange = (rows, field, nextType, nextOptions = {}) => {
       return;
     }
     keptCount += 1;
-    cells.push({ rowId: row.id, value: undefined, kept: normalizeKeptValue(source) });
+    cells.push({ rowId: row.id, value: undefined, kept: normalizeKeptValue(asSource) });
   });
   const options = isSelect ? { ...nextOptions, choices: [...existingChoices, ...addedChoices] } : nextOptions;
   return { cells, keptCount, options };
@@ -253,6 +284,7 @@ const TYPE_NOUNS = {
   RELATION: 'a linked row',
   LINKED_FROM: 'shown in a Linked from column',
   URL: 'a link',
+  PERSON: 'a member of this workspace',
   TEXT: 'text',
 };
 export const notFitText = (type) => (type === 'LINKED_FROM' ? "Can't be shown in a Linked from column" : `Not ${TYPE_NOUNS[type] || 'valid here'}`);
