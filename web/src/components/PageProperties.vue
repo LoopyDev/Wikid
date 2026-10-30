@@ -148,7 +148,7 @@ const isPageField = (field) => getFieldSource(field) === 'page';
 const isLastEditedField = (field) => getFieldSource(field) === 'lastEdited';
 const isFieldReadOnly = (field) => {
   const options = normalizeFieldOptions(field);
-  if (options.source === 'lastEdited') return true;
+  if (options.source === 'lastEdited' || options.source === 'createdBy') return true;
   if (options.source === 'page') return !!options.readonly;
   return !!options.readonly;
 };
@@ -405,7 +405,9 @@ const buildRowsFromCollab = () => {
       }
     }
     const pageId = typeof rawPageId === 'string' ? rawPageId : null;
-    result.push(hydrateRow({ id, data, pageId }));
+    const rawCreatedBy = getEntryValue(entry, 'createdBy');
+    const createdBy = typeof rawCreatedBy === 'string' ? rawCreatedBy : null;
+    result.push(hydrateRow({ id, data, pageId, createdBy }));
     seen.add(id);
   };
   order.forEach((id) => pushRow(id));
@@ -484,6 +486,9 @@ const seedCollabFromSnapshot = (snapshot) => {
       if (item?.pageId) {
         rowMap.set('pageId', item.pageId);
       }
+      if (item?.createdById) {
+        rowMap.set('createdBy', item.createdById);
+      }
       collabRowsMap.value.set(item.id, rowMap);
       collabRowOrder.value.push([item.id]);
     });
@@ -520,6 +525,9 @@ const syncCollabRowsFromSnapshot = (snapshot) => {
         if (item.pageId && !existing.get('pageId')) {
           existing.set('pageId', item.pageId);
         }
+        if (item.createdById && !existing.get('createdBy')) {
+          existing.set('createdBy', item.createdById);
+        }
         if (!existingOrder.has(item.id)) {
           rowOrder.push([item.id]);
           existingOrder.add(item.id);
@@ -535,6 +543,9 @@ const syncCollabRowsFromSnapshot = (snapshot) => {
       rowMap.set('data', dataMap);
       if (item?.pageId) {
         rowMap.set('pageId', item.pageId);
+      }
+      if (item?.createdById) {
+        rowMap.set('createdBy', item.createdById);
       }
       rowsMap.set(item.id, rowMap);
       rowOrder.push([item.id]);
@@ -1034,6 +1045,11 @@ const handleRelationSelectChange = (field, event) => {
 
 const multiSelectValuesForField = (field) => {
   if (!row.value || !field) return [];
+  // "Created by": who added the row, kept on the row
+  if (isPersonField(field) && getFieldSource(field) === 'createdBy') {
+    const creator = row.value.createdBy || row.value.createdById;
+    return creator ? [creator] : [];
+  }
   const values = getMultiSelectValues(row.value?.data?.[field.id]);
   // A one-person column shows its first person (the server keeps only that one)
   return isOnePerson(field) ? values.slice(0, 1) : values;

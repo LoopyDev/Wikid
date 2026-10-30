@@ -54,6 +54,7 @@ What Wikid does today, and how much to rely on each part. Wikid is in early deve
 | Table view with inline editing | Stable | |
 | Field types: text, number, date, checkbox, select, multi-select, URL, relation | Stable | Also asset tags and "last edited" fields. |
 | Person columns: workspace members, one or several | Beta | Filter by "is me"; a form can fill one in with whoever submits it. |
+| "Created by" columns: who added each row | Beta | Read-only. Rows added before it existed show no one. |
 | Each row opens as its own page | Stable | |
 | Relations between databases, with backlinks | Beta | A "Linked from" column shows a relation's other side (read-only; edit the link from the other database). |
 | Saved views with filters and sorts | Stable | |

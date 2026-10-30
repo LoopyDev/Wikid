@@ -1,6 +1,6 @@
 import { computed } from 'vue';
 import { isPageField, normalizeFieldOptions } from '../utils/database/fieldOptions';
-import { stringifyValue, valueForField } from '../utils/database/cellValues';
+import { getMultiSelectValues, stringifyValue, valueForField } from '../utils/database/cellValues';
 import { toComparableDate } from '../utils/database/views';
 
 // The rows a saved view shows: its filters and sort applied to the table's rows, and the board's
@@ -17,8 +17,7 @@ export function useViewRows({ fields, fieldById, tableRows, activeSavedView, isB
     if (operator === 'is_not_empty') return !isEmpty;
     // A person column holding (or not holding) whoever is looking
     if (operator === 'is_me' || operator === 'is_not_me') {
-      const raw = row?.data?.[field.id];
-      const ids = Array.isArray(raw) ? raw.map(String) : raw ? [String(raw)] : [];
+      const ids = getMultiSelectValues(row, field).map(String);
       const mine = !!workspace?.activeUserId && ids.includes(workspace.activeUserId);
       return operator === 'is_me' ? mine : !mine;
     }

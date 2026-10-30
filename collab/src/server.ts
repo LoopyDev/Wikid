@@ -213,7 +213,7 @@ const normalizeRowData = (value: any) => {
   return value as Record<string, any>;
 };
 
-const applyRowUpdate = (document: Y.Doc, rowId: string, data: Record<string, any>, pageId?: string | null) => {
+const applyRowUpdate = (document: Y.Doc, rowId: string, data: Record<string, any>, pageId?: string | null, createdBy?: string | null) => {
   const rowsMap = document.getMap('rows');
   const rowOrder = document.getArray('rowOrder');
   const storedRow = rowsMap.get(rowId);
@@ -258,6 +258,8 @@ const applyRowUpdate = (document: Y.Doc, rowId: string, data: Record<string, any
   } else {
     rowMap.delete('pageId');
   }
+  // Who added the row, once: never changed after
+  if (createdBy && !rowMap.get('createdBy')) rowMap.set('createdBy', createdBy);
   const order = rowOrder.toArray().map((id) => String(id));
   if (!order.includes(rowId)) {
     rowOrder.push([rowId]);
@@ -420,13 +422,15 @@ const server = new Server({
             : typeof body?.row?.pageId === 'string'
             ? body.row.pageId.trim()
             : null;
+        const createdBy =
+          typeof body?.createdBy === 'string' && /^[0-9a-fA-F-]{36}$/.test(body.createdBy.trim()) ? body.createdBy.trim() : null;
         if (!rowId) {
           response.writeHead(400, { 'Content-Type': 'application/json' });
           response.end(JSON.stringify({ ok: false, error: 'rowId is required' }));
           throw null;
         }
         await connection.transact((document) => {
-          applyRowUpdate(document, rowId, data, pageId);
+          applyRowUpdate(document, rowId, data, pageId, createdBy);
         });
       }
       response.writeHead(200, { 'Content-Type': 'application/json' });

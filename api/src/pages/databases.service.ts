@@ -920,6 +920,7 @@ export class DatabasesService {
         data: dataWithPageId,
         position,
         ...(pageRecord ? { pageId: pageRecord.id } : {}),
+        ...(isUuid(user?.userId) ? { createdById: user?.userId } : {}),
       },
     });
     if (!database.complianceMode) {
@@ -1070,6 +1071,7 @@ export class DatabasesService {
           databaseId: database.id,
           data,
           position,
+          ...(isUuid(user?.userId) ? { createdById: user?.userId } : {}),
         },
         select: { id: true, databaseId: true, pageId: true, data: true },
       });
