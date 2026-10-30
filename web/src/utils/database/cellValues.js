@@ -1,6 +1,9 @@
 import { h } from 'vue';
 import * as Y from 'yjs';
-import { getRelationConfig, isPersonField, normalizeFieldOptions } from './fieldOptions';
+import { getRelationConfig, isCreatedByField, isPersonField, normalizeFieldOptions } from './fieldOptions';
+
+// Who added a row: from the live document (createdBy) or the server (createdById)
+export const rowCreatedBy = (row) => row?.createdBy || row?.createdById || null;
 
 // Values in database cells: normalising what is stored and turning it into what a cell shows.
 
@@ -142,6 +145,10 @@ export const getAssetTagValue = (row, field) => {
 
 export const getMultiSelectValues = (row, field) => {
   if (!row || !field) return [];
+  if (isCreatedByField(field)) {
+    const creator = rowCreatedBy(row);
+    return creator ? [creator] : [];
+  }
   // A one-person column shows its first person (the server keeps only that one)
   if (isPersonField(field) && normalizeFieldOptions(field).allowMultiple !== true) {
     return getMultiSelectValuesFromRaw(row?.data?.[field.id]).slice(0, 1);

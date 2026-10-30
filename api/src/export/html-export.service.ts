@@ -501,6 +501,7 @@ export class HtmlExportService {
       const personFieldIds = db.fields.filter((field) => field.type === 'PERSON').map((field) => field.id);
       if (!personFieldIds.length) continue;
       for (const row of db.rows) {
+        if (row.createdById) personIds.add(row.createdById);
         const data = row.data && typeof row.data === 'object' && !Array.isArray(row.data) ? (row.data as Record<string, any>) : {};
         for (const fieldId of personFieldIds) {
           for (const id of Array.isArray(data[fieldId]) ? data[fieldId] : []) if (isUuid(String(id))) personIds.add(String(id));
@@ -1011,7 +1012,8 @@ ${hasSplats ? JS_SPLAT_INIT : ''}
     const bodyRows = rows.map((row: any) => {
       const data = row.data && typeof row.data === 'object' ? row.data : {};
       const cells = fields.map((f: any) => {
-        const val = data[f.id];
+        // "Created by" shows who added the row, kept on the row rather than in a cell
+        const val = f.options?.source === 'createdBy' ? (row.createdById ? [row.createdById] : null) : data[f.id];
         return `<td>${this.formatCellHtml(val, f, db.personNames)}</td>`;
       }).join('');
       let rowHtml = `<tr>${cells}</tr>`;

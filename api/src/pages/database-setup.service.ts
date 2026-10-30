@@ -237,6 +237,11 @@ export class DatabaseSetupService {
       rawOptions && typeof rawOptions === 'object' && !Array.isArray(rawOptions)
         ? { ...(rawOptions as Record<string, any>) }
         : {};
+    // "Created by" is a person column (read-only, showing who added each row)
+    if (options.source === 'createdBy') {
+      if (type !== DatabaseFieldType.PERSON) delete options.source;
+      else options.readonly = true;
+    }
     if (type !== DatabaseFieldType.RELATION) {
       return options;
     }
