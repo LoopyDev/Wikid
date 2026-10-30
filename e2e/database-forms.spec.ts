@@ -71,7 +71,7 @@ test.describe('database forms', () => {
       return (form?.config ?? form?.fields?.config ?? {}).successMessage;
     }).toBe('Thanks for signing up');
   });
-  test('a date field can be filled in with today', async ({ alice: page, workspaceId }) => {
+  test('a date field can start on today, and be changed', async ({ alice: page, workspaceId }) => {
     await openPage(page, await createPage(page, workspaceId));
     const id = await newDatabaseFromSidebar(page, unique('Intake'));
     const received = await (await page.request.post(`/api/pages/${id}/database/fields`, { data: { name: 'Received', type: 'DATE' } })).json();
@@ -97,8 +97,12 @@ test.describe('database forms', () => {
       return fields.find((f: any) => f.fieldId === received.id)?.auto ?? null;
     };
     await expect.poll(autoOf).toEqual({ type: 'today' });
+    // Editable (the default), it's a starting value
+    await expect(
+      builder.locator('.db-form-field', { has: page.locator('.db-form-field-name', { hasText: /^Received$/ }) }).locator('.db-form-field-hint')
+    ).toContainText('Filled in, but can be changed');
 
-    // The form shows today's date, and the entry has it
+    // The form starts on today's date, which can be changed
     const [form] = await forms();
     await page.goto(`/form/${form.id}`);
     const today = await page.evaluate(() => {
@@ -107,12 +111,13 @@ test.describe('database forms', () => {
     });
     const dateInput = page.locator('input[type="date"]');
     await expect(dateInput).toHaveValue(today);
-    await expect(dateInput).toBeDisabled();
+    await expect(dateInput).toBeEnabled();
+    await dateInput.fill('2026-01-15');
     await page.getByRole('button', { name: /^Submit/ }).click();
     await expect.poll(async () => {
       const db = await (await page.request.get(`/api/pages/${id}/database`)).json();
       return db.rows.map((row: any) => row.data[received.id]);
-    }).toEqual([today]);
+    }).toEqual(['2026-01-15']);
   });
 
   test("a date field set to no future won't take a later date", async ({ alice: page, workspaceId }) => {
@@ -217,7 +222,7 @@ test.describe('database forms', () => {
     const author = await add({ name: 'Author', type: 'PERSON' });
     const reviewer = await add({ name: 'Reviewer', type: 'PERSON' });
     const form = await (await page.request.post(`/api/pages/${id}/database/forms`, {
-      data: { name: 'Request', fields: [{ fieldId: nameField }, { fieldId: author, auto: { type: 'currentUser' } }, { fieldId: reviewer }] },
+      data: { name: 'Request', fields: [{ fieldId: nameField }, { fieldId: author, auto: { type: 'currentUser' }, editable: false }, { fieldId: reviewer }] },
     })).json();
 
     await page.goto(`/form/${form.id}`);

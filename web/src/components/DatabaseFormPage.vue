@@ -452,7 +452,10 @@ const resolvedFields = computed(() => {
       requiredWhen,
       visibleWhen,
       editable,
-      readOnly: baseReadOnly || !!auto || !editable,
+      // An autofilled field is a starting value people can change, unless it isn't editable:
+      // then it's locked, and the server sets it
+      readOnly: baseReadOnly || !editable,
+      autoLocked: !!auto && !editable,
       missing: !field,
       auto,
       autoValue: field && auto ? resolveAutoValue(field, auto) : undefined,
@@ -650,10 +653,17 @@ const filterSummary = computed(() => {
 const showRecordList = computed(() => isUpdateMode.value && !activeRow.value && !successView.value);
 const showSuccess = computed(() => isUpdateMode.value && successView.value);
 
+// What a field holds: a locked autofill's value, or what's been entered, starting from the autofill
+const effectiveValue = (field, overrideValue, hasOverride = false) => {
+  const hasAuto = !!field.auto && field.autoValue !== undefined;
+  if (hasAuto && field.autoLocked) return field.autoValue;
+  const hasStored = hasOverride || Object.prototype.hasOwnProperty.call(values.value, field.id);
+  if (hasAuto && !hasStored) return field.autoValue;
+  return hasOverride ? overrideValue : values.value[field.id];
+};
+
 const valueForField = (field) => {
-  const hasStored = Object.prototype.hasOwnProperty.call(values.value, field.id);
-  const stored = hasStored ? values.value[field.id] : undefined;
-  const resolved = field.autoValue !== undefined ? field.autoValue : stored;
+  const resolved = effectiveValue(field);
   if (isAssetTagField(field)) {
     if (resolved !== undefined && resolved !== null && String(resolved).trim()) {
       return resolved;
@@ -757,8 +767,7 @@ const isMissingRequiredValue = (field, value) => {
 const isFieldMissingRequired = (field, overrideValue, hasOverride = false) => {
   if (field.missing || !isFieldRequiredNow(field)) return false;
   if (field.readOnly && !field.auto) return false;
-  const value = field.auto && field.autoValue !== undefined ? field.autoValue : hasOverride ? overrideValue : values.value[field.id];
-  return isMissingRequiredValue(field, value);
+  return isMissingRequiredValue(field, effectiveValue(field, overrideValue, hasOverride));
 };
 
 const hasRequiredFields = computed(() =>
@@ -999,7 +1008,7 @@ const validateForm = () => {
   const errors = {};
   resolvedFields.value.forEach((field) => {
     if (isFieldMissingRequired(field)) {
-      errors[field.id] = field.auto ? autoRequiredErrorMessage : 'Required';
+      errors[field.id] = field.autoLocked ? autoRequiredErrorMessage : 'Required';
     }
   });
   fieldErrors.value = errors;
@@ -1014,10 +1023,10 @@ const buildSubmitData = () => {
   const data = {};
   resolvedFields.value.forEach((field) => {
     if (field.missing) return;
-    const autoValue = field.auto && field.autoValue !== undefined ? field.autoValue : undefined;
-    if (!isFieldVisibleNow(field) && autoValue === undefined) return;
-    if (field.readOnly && autoValue === undefined) return;
-    const value = autoValue !== undefined ? autoValue : values.value[field.id];
+    const hasAuto = !!field.auto && field.autoValue !== undefined;
+    if (!isFieldVisibleNow(field) && !hasAuto) return;
+    if (field.readOnly && !hasAuto) return;
+    const value = effectiveValue(field);
     if (field.type === 'RELATION') {
       if (Array.isArray(value)) {
         const entries = value.map((entry) => normalizeRelationEntry(entry)).filter(Boolean);
@@ -1312,13 +1321,13 @@ onBeforeUnmount(() => {
           <div class="form-field__label-row">
             <label class="form-field__label">{{ field.label }}</label>
             <span
-              v-if="fieldErrors[field.id] && (field.auto || fieldErrors[field.id] === futureDateMessage)"
+              v-if="fieldErrors[field.id] && (field.autoLocked || fieldErrors[field.id] === futureDateMessage)"
               class="form-field__error"
             >
               {{ fieldErrors[field.id] }}
             </span>
             <span
-              v-else-if="isFieldRequiredNow(field) && !field.missing && !field.auto"
+              v-else-if="isFieldRequiredNow(field) && !field.missing && !field.autoLocked"
               class="form-field__required"
               :class="{ 'form-field__required--error': fieldErrors[field.id] }"
             >

@@ -367,7 +367,8 @@ describe('forms', () => {
     const received = await addField(pageId, { name: 'Received', type: 'DATE' });
     const form = await alice.post(`/pages/${pageId}/database/forms`, {
       name: 'Intake',
-      fields: [{ fieldId: titleFieldId, required: true }, { fieldId: received.id, auto: { type: 'today' } }],
+      // Not editable: locked, and set by the server
+      fields: [{ fieldId: titleFieldId, required: true }, { fieldId: received.id, auto: { type: 'today' }, editable: false }],
     });
     expect(form.status).toBe(201);
     expect(form.body.fields[1].auto).toEqual({ type: 'today' });
@@ -386,6 +387,16 @@ describe('forms', () => {
     expect(await submit('2001-01-01')).toBe(serverToday);
     expect(await submit('not a date')).toBe(serverToday);
     expect(await submit()).toBe(serverToday);
+
+    // Editable: today is only a starting value, and whatever date is sent stands
+    const editable = await alice.post(`/pages/${pageId}/database/forms`, {
+      name: 'Backdated',
+      fields: [{ fieldId: titleFieldId }, { fieldId: received.id, auto: { type: 'today' } }],
+    });
+    const submitEditable = async (sent?: string) =>
+      (await alice.post(`/database-forms/${editable.body.id}/submit`, { data: { [titleFieldId]: 'Entry', ...(sent ? { [received.id]: sent } : {}) } })).body.data[received.id];
+    expect(await submitEditable('2001-01-01')).toBe('2001-01-01');
+    expect(await submitEditable()).toBe(serverToday);
   });
 
   it("turns a date away that's later than today when the form says no future", async () => {
@@ -451,7 +462,7 @@ describe('forms', () => {
       name: 'Report',
       fields: [
         { fieldId: titleFieldId },
-        { fieldId: author.id, auto: { type: 'currentUser' } },
+        { fieldId: author.id, auto: { type: 'currentUser' }, editable: false },
         { fieldId: reviewer.id, required: true },
       ],
     });

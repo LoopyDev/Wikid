@@ -1651,6 +1651,9 @@ watch(
         <div v-if="field.autoType === 'fixed' && field.autoFixedHint" class="db-form-field-hint">
           {{ field.autoFixedHint }}
         </div>
+        <div v-if="field.autoType" class="db-form-field-hint">
+          {{ field.editable ? 'Filled in, but can be changed. Untick Editable to lock it.' : 'Filled in automatically and locked.' }}
+        </div>
         <div v-if="field.autoType === 'currentUser' && field.type !== 'PERSON'" class="db-form-field-controls">
           <label class="db-form-field-label">User value</label>
           <select
