@@ -734,7 +734,7 @@ export class DatabasesService {
     if (type === DatabaseFieldType.RELATION) {
       options = await this.ensureRelationHistoryOptions(database, name, options, user);
     }
-    return this.prisma.databaseField.create({
+    const created = await this.prisma.databaseField.create({
       data: {
         databaseId: database.id,
         name,
@@ -743,6 +743,11 @@ export class DatabasesService {
         position,
       },
     });
+    // Into the live document too, or its next save deletes the field (compliance databases have none)
+    if (!database.complianceMode) {
+      await this.collabSync.syncCollabDatabaseField({ pageId: database.pageId, workspaceId: database.workspaceId }, created);
+    }
+    return created;
   }
 
   async updateDatabaseField(
@@ -787,16 +792,24 @@ export class DatabasesService {
       updateData.options = data.options;
     }
     if (data.position !== undefined) updateData.position = data.position;
-    return this.prisma.databaseField.update({
+    const updated = await this.prisma.databaseField.update({
       where: { id },
       data: updateData,
     });
+    // Into the live document too, or its next save puts the field back as it was
+    if (!database.complianceMode) {
+      await this.collabSync.syncCollabDatabaseField({ pageId: database.pageId, workspaceId: database.workspaceId }, updated);
+    }
+    return updated;
   }
 
   async deleteDatabaseField(id: string, user?: { userId?: string; userName?: string }) {
     const field = await this.prisma.databaseField.findUnique({ where: { id }, select: { id: true, databaseId: true } });
     if (!field) throw new NotFoundException('Field not found');
-    const database = await this.prisma.database.findUnique({ where: { id: field.databaseId }, select: { pageId: true } });
+    const database = await this.prisma.database.findUnique({
+      where: { id: field.databaseId },
+      select: { pageId: true, workspaceId: true, complianceMode: true },
+    });
     if (!database) throw new NotFoundException('Database not found');
     await this.access.requirePageAccess(database.pageId, user, { requireWrite: true });
     const rows = await this.prisma.databaseRow.findMany({ where: { databaseId: field.databaseId }, select: { id: true, data: true } });
@@ -811,6 +824,10 @@ export class DatabasesService {
       await this.prisma.$transaction(updates);
     }
     const deleted = await this.prisma.databaseField.delete({ where: { id } });
+    // Out of the live document too, or its next save brings the field back
+    if (!database.complianceMode) {
+      await this.collabSync.deleteCollabDatabaseField({ pageId: database.pageId, workspaceId: database.workspaceId }, id);
+    }
     const forms = await this.prisma.databaseForm.findMany({
       where: { databaseId: field.databaseId },
       select: { id: true, fields: true },

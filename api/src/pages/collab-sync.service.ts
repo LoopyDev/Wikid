@@ -2,7 +2,13 @@ import { Injectable, BadRequestException, ForbiddenException } from '@nestjs/com
 import { Prisma, WorkspaceRole, PageKind } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { updateCollabTitleState } from '../collab/collab-doc.util';
-import { deleteCollabDatabaseRowState, updateCollabDatabaseRowState } from '../collab/collab-database.util';
+import {
+  CollabFieldChange,
+  deleteCollabDatabaseFieldState,
+  deleteCollabDatabaseRowState,
+  updateCollabDatabaseFieldState,
+  updateCollabDatabaseRowState,
+} from '../collab/collab-database.util';
 import jwt from 'jsonwebtoken';
 import { PageAccessService } from './page-access.service';
 
@@ -173,6 +179,53 @@ export class CollabSyncService {
       'Failed to sync collab db row delete',
       { rowId },
     );
+  }
+
+  /**
+   * A field (column) created or changed through the API, into the database's live document: its
+   * stored state, and the collab server's copy if someone has it open. Without this the next save
+   * from the live document deletes a new field and puts back an edited one.
+   */
+  async syncCollabDatabaseField(
+    database: { pageId: string; workspaceId: string },
+    field: { id: string; name: string; type: string; options?: Prisma.JsonValue | null }
+  ) {
+    if (!database?.pageId || !database.workspaceId || !field?.id) return;
+    const documentName = `ws:${database.workspaceId}:db:${database.pageId}`;
+    const change: CollabFieldChange = {
+      id: field.id,
+      name: field.name,
+      type: field.type,
+      options: field.options && typeof field.options === 'object' && !Array.isArray(field.options) ? (field.options as Record<string, any>) : {},
+    };
+    await this.applyCollabStateUpdate(documentName, (state) => updateCollabDatabaseFieldState(state, change), 'Failed to sync collab db field', {
+      fieldId: field.id,
+    });
+    await this.pushCollab('/collab/push/db-field', { documentName, field: change }, { documentName, fieldId: field.id });
+  }
+
+  // A field deleted through the API, out of the live document (or the next save brings it back)
+  async deleteCollabDatabaseField(database: { pageId: string; workspaceId: string }, fieldId: string) {
+    if (!database?.pageId || !database.workspaceId || !fieldId) return;
+    const documentName = `ws:${database.workspaceId}:db:${database.pageId}`;
+    await this.applyCollabStateUpdate(documentName, (state) => deleteCollabDatabaseFieldState(state, fieldId), 'Failed to sync collab db field delete', {
+      fieldId,
+    });
+    await this.pushCollab('/collab/push/db-field-delete', { documentName, fieldId }, { documentName, fieldId });
+  }
+
+  private async pushCollab(path: string, payload: Record<string, unknown>, context: Record<string, unknown>) {
+    if (!this.collabServerUrl || !this.collabApiSecret) return;
+    try {
+      const res = await fetch(`${this.collabServerUrl}${path}`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${this.collabApiSecret}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) console.warn('Collab push failed', { path, ...context, status: res.status });
+    } catch (err) {
+      console.warn('Collab push error', { path, ...context, error: err });
+    }
   }
 
   async issueCollabToken(payload: { userId?: string; userName?: string; workspaceId?: string }) {

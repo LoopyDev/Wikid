@@ -263,3 +263,63 @@ export const deleteCollabDatabaseRowState = (state: Buffer, rowId: string) => {
   }, 'db-row-delete-server');
   return Buffer.from(Y.encodeStateAsUpdate(doc));
 };
+
+// A field (column) changed through the API, into the live document, so the next save from it
+// doesn't undo the change: a field missing from it would be deleted, and an edit put back.
+// Only into a document that's been filled in: an empty one is filled from the database when
+// first opened, and one holding just this field would make that save delete everything else.
+export type CollabFieldChange = { id: string; name: string; type: string; options: Record<string, any> };
+
+export const updateCollabDatabaseFieldState = (state: Buffer, field: CollabFieldChange) => {
+  if (!field?.id) return null;
+  const doc = new Y.Doc();
+  Y.applyUpdate(doc, new Uint8Array(state));
+  return applyCollabFieldChange(doc, field) ? Buffer.from(Y.encodeStateAsUpdate(doc)) : null;
+};
+
+export const deleteCollabDatabaseFieldState = (state: Buffer, fieldId: string) => {
+  if (!fieldId) return null;
+  const doc = new Y.Doc();
+  Y.applyUpdate(doc, new Uint8Array(state));
+  return applyCollabFieldDelete(doc, fieldId) ? Buffer.from(Y.encodeStateAsUpdate(doc)) : null;
+};
+
+// The changes themselves, on a document (the collab server has a copy, for documents it has open)
+export const applyCollabFieldChange = (doc: Y.Doc, field: CollabFieldChange) => {
+  const fieldsMap = doc.getMap('fields');
+  const fieldOrder = doc.getArray('fieldOrder');
+  if (!fieldsMap.size) return false;
+  const stored = fieldsMap.get(field.id);
+  const order = fieldOrder.toArray().map((id) => String(id));
+  const options = field.options && typeof field.options === 'object' && !Array.isArray(field.options) ? field.options : {};
+  const same =
+    stored instanceof Y.Map &&
+    stored.get('name') === field.name &&
+    stored.get('type') === field.type &&
+    valuesEqual(stored.get('options'), options) &&
+    order.includes(field.id);
+  if (same) return false;
+  doc.transact(() => {
+    const fieldMap: Y.Map<any> = stored instanceof Y.Map ? (stored as Y.Map<any>) : new Y.Map<any>();
+    if (fieldMap.get('name') !== field.name) fieldMap.set('name', field.name);
+    if (fieldMap.get('type') !== field.type) fieldMap.set('type', field.type);
+    if (!valuesEqual(fieldMap.get('options'), options)) fieldMap.set('options', options);
+    if (!(stored instanceof Y.Map)) fieldsMap.set(field.id, fieldMap);
+    if (!order.includes(field.id)) fieldOrder.push([field.id]);
+  }, 'db-field-server');
+  return true;
+};
+
+export const applyCollabFieldDelete = (doc: Y.Doc, fieldId: string) => {
+  const fieldsMap = doc.getMap('fields');
+  const fieldOrder = doc.getArray('fieldOrder');
+  const order = fieldOrder.toArray().map((id) => String(id));
+  if (!fieldsMap.has(fieldId) && !order.includes(fieldId)) return false;
+  doc.transact(() => {
+    fieldsMap.delete(fieldId);
+    for (let index = order.length - 1; index >= 0; index -= 1) {
+      if (order[index] === fieldId) fieldOrder.delete(index, 1);
+    }
+  }, 'db-field-delete-server');
+  return true;
+};
