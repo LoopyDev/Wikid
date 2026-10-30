@@ -138,49 +138,45 @@ const updateFormView = (formId, updater) => {
   formViews.value = formViews.value.map((form) => (form.id === formId ? updater(form) : form));
 };
 
-const saveFormFields = async (formId, nextFields) => {
-  if (!hasApi.value || !activeUser.value) return null;
-  try {
-    const res = await runWithSavingIndicator(() =>
-      api.updateDatabaseForm(
-        formId,
-        { fields: nextFields },
-        { userId: activeUser.value.id, userName: activeUser.value.name }
-      )
-    );
-    const nextForm = normalizeFormView(res);
-    if (nextForm) {
-      updateFormView(nextForm.id, () => nextForm);
+// A form's saves go one at a time, in order, each replacing what the form holds: two at once could
+// reach the server the wrong way round. Each reply only updates the part its save changed, and
+// fields only from the latest save of them (an earlier reply would put back what it held).
+const formSaves = new Map();
+const latestFieldSave = new Map();
+
+const saveForm = (formId, changes, applyReply) => {
+  if (!hasApi.value || !activeUser.value) return Promise.resolve(null);
+  const run = async () => {
+    try {
+      const res = await runWithSavingIndicator(() =>
+        api.updateDatabaseForm(formId, changes, { userId: activeUser.value.id, userName: activeUser.value.name })
+      );
+      const nextForm = normalizeFormView(res);
+      if (nextForm) updateFormView(nextForm.id, (form) => applyReply(form, nextForm));
+      return nextForm || null;
+    } catch (err) {
+      console.warn('Update form failed', err);
+      error.value = err?.message || 'Failed to update form';
+      return null;
     }
-    return nextForm || null;
-  } catch (err) {
-    console.warn('Update form failed', err);
-    error.value = err?.message || 'Failed to update form';
-    return null;
-  }
+  };
+  const queued = (formSaves.get(formId) || Promise.resolve()).then(run);
+  formSaves.set(formId, queued);
+  return queued;
 };
 
-const saveFormConfig = async (formId, nextConfig) => {
-  if (!hasApi.value || !activeUser.value) return null;
-  try {
-    const res = await runWithSavingIndicator(() =>
-      api.updateDatabaseForm(
-        formId,
-        { config: nextConfig },
-        { userId: activeUser.value.id, userName: activeUser.value.name }
-      )
-    );
-    const nextForm = normalizeFormView(res);
-    if (nextForm) {
-      updateFormView(nextForm.id, () => nextForm);
-    }
-    return nextForm || null;
-  } catch (err) {
-    console.warn('Update form failed', err);
-    error.value = err?.message || 'Failed to update form';
-    return null;
-  }
+const saveFormFields = (formId, nextFields) => {
+  // Here straight away, so an edit made before this save's reply builds on it
+  updateFormView(formId, (form) => ({ ...form, fields: nextFields }));
+  const save = (latestFieldSave.get(formId) || 0) + 1;
+  latestFieldSave.set(formId, save);
+  return saveForm(formId, { fields: nextFields }, (form, saved) =>
+    latestFieldSave.get(formId) === save ? { ...form, fields: saved.fields } : form
+  );
 };
+
+const saveFormConfig = (formId, nextConfig) =>
+  saveForm(formId, { config: nextConfig }, (form, saved) => ({ ...form, config: saved.config }));
 
 const activeFormConfig = computed(() => normalizeFormConfig(activeForm.value?.config));
 
@@ -533,6 +529,50 @@ const updateFormFieldRequired = async (fieldId, required) => {
     return { ...entry, required: nextRequired };
   });
   await saveFormFields(form.id, nextFields);
+};
+
+// The field's own wording on the form; empty uses the column's name
+const updateFormFieldLabel = async (fieldId, text) => {
+  if (!canCreateForms.value) return;
+  const form = activeForm.value;
+  if (!form || !fieldId) return;
+  const label = String(text ?? '').trim() || null;
+  await saveFormFields(form.id, form.fields.map((entry) => (entry.fieldId === fieldId ? { ...entry, label } : entry)));
+};
+
+// Help shown under the field on the form; empty removes it
+const updateFormFieldDescription = async (fieldId, text) => {
+  if (!canCreateForms.value) return;
+  const form = activeForm.value;
+  if (!form || !fieldId) return;
+  const description = String(text ?? '').trim();
+  const nextFields = form.fields.map((entry) => {
+    if (entry.fieldId !== fieldId) return entry;
+    const nextEntry = { ...entry };
+    if (description) nextEntry.description = description;
+    else delete nextEntry.description;
+    return nextEntry;
+  });
+  await saveFormFields(form.id, nextFields);
+};
+
+const renameForm = async (rawName) => {
+  if (!canCreateForms.value) return;
+  const form = activeForm.value;
+  const name = String(rawName ?? '').trim();
+  if (!form || !name || name === form.name) return;
+  await saveForm(form.id, { name }, (current, saved) => ({ ...current, name: saved.name }));
+};
+
+// Enter saves the name, Escape puts it back
+const handleFormNameKeydown = (event) => {
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    event.currentTarget.blur();
+  } else if (event.key === 'Escape') {
+    event.currentTarget.value = activeForm.value?.name || '';
+    event.currentTarget.blur();
+  }
 };
 
 const updateFormFieldNoFuture = async (fieldId, noFuture) => {
@@ -1124,12 +1164,15 @@ const resolvedActiveFormFields = computed(() => {
     return {
       id: entry.fieldId,
       name,
+      columnName: field?.name || 'Field',
+      label: rawLabel,
       type: field?.type || null,
       locked: field ? isFieldReadOnly(field) : false,
       missing: !field,
       required: !!entry.required,
       editable: entry?.editable !== false,
       noFuture: entry?.noFuture === true,
+      description: typeof entry?.description === 'string' ? entry.description : '',
       auto,
       autoType,
       autoTemplate,
@@ -1248,7 +1291,17 @@ watch(
         aria-hidden="true"
       />
       <div>
-        <div class="db-form-builder__title">{{ activeForm.name }}</div>
+        <input
+          v-if="canCreateForms && !isReadonly"
+          class="db-form-builder__title db-form-builder__title-input"
+          type="text"
+          aria-label="Form name"
+          :value="activeForm.name"
+          v-keep-typing
+          @keydown="handleFormNameKeydown"
+          @change="renameForm($event.target.value)"
+        />
+        <div v-else class="db-form-builder__title">{{ activeForm.name }}</div>
         <div class="db-form-builder__meta">{{ activeForm.fields.length }} fields</div>
       </div>
     </div>
@@ -1461,13 +1514,34 @@ watch(
         </div>
         <div class="db-form-field__header">
           <div class="db-form-field__title">
-            <div class="db-form-field-name">{{ field.name }}</div>
+            <div class="db-form-field-name">{{ field.columnName }}</div>
             <div class="db-form-field-meta">
               {{ field.missing ? 'Missing field' : formatFieldType(field.type) }}
             </div>
           </div>
           <span v-if="field.locked" class="db-form-field-lock">Locked</span>
         </div>
+        <input
+          class="db-form-builder__input db-form-field-label-input"
+          type="text"
+          aria-label="Label on the form"
+          maxlength="200"
+          :value="field.label"
+          :disabled="field.missing || isReadonly"
+          :placeholder="`Label on the form (optional, otherwise ${field.columnName})`"
+          v-keep-typing
+          @change="updateFormFieldLabel(field.id, $event.target.value)"
+        />
+        <textarea
+          class="db-form-builder__textarea db-form-field-description"
+          aria-label="Description"
+          :value="field.description"
+          :disabled="field.missing || isReadonly"
+          placeholder="Description shown under this field on the form (optional)"
+          rows="2"
+          v-keep-typing
+          @change="updateFormFieldDescription(field.id, $event.target.value)"
+        ></textarea>
         <div class="db-form-field-controls">
           <label class="db-form-field-toggle">
             <input

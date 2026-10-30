@@ -322,4 +322,38 @@ test.describe('database forms', () => {
     await expect(placeSelect.locator('option', { hasText: 'Dinosaurs' })).toHaveCount(1);
     await expect(placeSelect.locator('option', { hasText: 'Zone A' })).toHaveCount(0);
   });
+
+  test('a form can be renamed, and its fields labelled and described for the people filling it in', async ({ alice: page, workspaceId }) => {
+    const id = await createPage(page, workspaceId, { title: unique('Faults'), kind: 'DATABASE' });
+    const forms = async () => (await (await page.request.get(`/api/pages/${id}/database`)).json()).forms ?? [];
+    const nameField = (await (await page.request.get(`/api/pages/${id}/database`)).json()).fields.find((f: any) => f.name === 'Name').id;
+    await page.request.post(`/api/pages/${id}/database/forms`, { data: { name: 'Form', fields: [{ fieldId: nameField }] } });
+    await page.goto(`/doc/${id}`);
+    await main(page).getByRole('button', { name: /^Forms/ }).click();
+    await main(page).getByRole('button', { name: 'Edit', exact: true }).click();
+    const builder = main(page).locator('.db-form-builder');
+
+    const title = builder.getByLabel('Form name');
+    await title.fill('Report a fault');
+    await title.press('Enter');
+    const nameBlock = builder.locator('.db-form-field', { has: page.locator('.db-form-field-name', { hasText: /^Name$/ }) });
+    const label = nameBlock.getByLabel('Label on the form');
+    await label.fill("What's the fault?");
+    await label.blur();
+    const description = nameBlock.getByLabel('Description');
+    await description.fill('The exhibit and what is wrong with it');
+    await description.blur();
+    await expect.poll(async () => {
+      const [form] = await forms();
+      const fields = Array.isArray(form?.fields) ? form.fields : form?.fields?.fields ?? [];
+      return [form?.name, fields[0]?.label, fields[0]?.description];
+    }).toEqual(['Report a fault', "What's the fault?", 'The exhibit and what is wrong with it']);
+
+    const [form] = await forms();
+    await page.goto(`/form/${form.id}`);
+    await expect(page.getByText('Report a fault', { exact: true })).toBeVisible();
+    // The field's own label, in place of the column's name
+    const field = page.locator('.form-field').filter({ has: page.locator('.form-field__label', { hasText: "What's the fault?" }) });
+    await expect(field.locator('.form-field__description')).toHaveText('The exhibit and what is wrong with it');
+  });
 });

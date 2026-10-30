@@ -92,6 +92,7 @@ export class DatabaseValuesService {
       requiredWhen?: { fieldId: string; op: string; value?: any };
       visibleWhen?: { fieldId: string; op: string; value?: any };
       noFuture?: boolean;
+      description?: string;
     }> = [];
     const relationTargetCache = new Map<string, Set<string> | null>();
     const resolveRelationTargetFields = async (pageId: string) => {
@@ -205,6 +206,7 @@ export class DatabaseValuesService {
       let requiredWhen: { fieldId: string; op: string; value?: any } | null = null;
       let visibleWhen: { fieldId: string; op: string; value?: any } | null = null;
       let noFuture = false;
+      let description = '';
       if (typeof entry === 'string') {
         fieldId = entry.trim();
       } else if (entry && typeof entry === 'object' && !Array.isArray(entry)) {
@@ -228,12 +230,14 @@ export class DatabaseValuesService {
         visibleWhen = normalizeVisibleWhen((entry as any).visibleWhen);
         // A date that can't be later than the day it's entered
         noFuture = (entry as any).noFuture === true && fieldMap.get(fieldId)?.type === DatabaseFieldType.DATE;
+        // Help shown under the field on the form
+        if (typeof (entry as any).description === 'string') description = (entry as any).description.trim().slice(0, 1000);
       }
       if (!fieldId || !allowed.has(fieldId) || seen.has(fieldId)) {
         continue;
       }
       seen.add(fieldId);
-      const extra = noFuture ? { noFuture } : {};
+      const extra = { ...(noFuture ? { noFuture } : {}), ...(description ? { description } : {}) };
       if (auto) {
         const base = { fieldId, label, required, editable, auto, ...extra };
         const withSource = selectSource ? { ...base, selectSource } : base;

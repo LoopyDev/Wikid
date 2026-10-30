@@ -501,6 +501,23 @@ describe('forms', () => {
     expect(sent.body.data[reviewer.id]).toEqual([USERS.bob.id]);
   });
 
+  it("keeps a form field's description, and renames a form", async () => {
+    const { pageId, titleFieldId } = await createDatabase();
+    const form = await alice.post(`/pages/${pageId}/database/forms`, {
+      name: 'Report',
+      fields: [{ fieldId: titleFieldId, description: '  What happened, in a sentence  ' }],
+    });
+    expect(form.body.fields[0].description).toBe('What happened, in a sentence');
+    const long = await alice.patch(`/database-forms/${form.body.id}`, { fields: [{ fieldId: titleFieldId, description: 'x'.repeat(1500) }] });
+    expect(long.body.fields[0].description).toHaveLength(1000);
+    const cleared = await alice.patch(`/database-forms/${form.body.id}`, { fields: [{ fieldId: titleFieldId, description: '  ' }] });
+    expect(cleared.body.fields[0].description).toBeUndefined();
+
+    const renamed = await alice.patch(`/database-forms/${form.body.id}`, { name: '  Incident report ' });
+    expect(renamed.body.name).toBe('Incident report');
+    expect((await alice.get(`/database-forms/${form.body.id}`)).body.name).toBe('Incident report');
+  });
+
   it('creates a form, reads it and submits entries', async () => {
     const { pageId, titleFieldId } = await createDatabase();
     const count = await addField(pageId, { name: 'Count', type: 'NUMBER' });
