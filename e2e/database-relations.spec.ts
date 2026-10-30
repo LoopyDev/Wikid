@@ -237,4 +237,40 @@ test.describe('database relations', () => {
     await page.locator('.db-row-menu').getByRole('button', { name: 'No colour' }).click();
     await expect(egypt.locator('.db-row-color-dot')).toHaveCount(0);
   });
+
+  test("closing a column's menu with Escape keeps its changes, like clicking away", async ({ alice: page, workspaceId }) => {
+    const zones = await createPage(page, workspaceId, { title: unique('Zones'), kind: 'DATABASE' });
+    const exhibitsTitle = unique('Exhibits');
+    await createPage(page, workspaceId, { title: exhibitsTitle, kind: 'DATABASE' });
+    const id = await createPage(page, workspaceId, { title: unique('Visits'), kind: 'DATABASE' });
+    await page.request.post(`/api/pages/${id}/database/fields`, {
+      data: { name: 'Place', type: 'RELATION', options: { relation: { pageId: zones, allowMultiple: false } } },
+    });
+    await page.goto(`/doc/${id}`);
+    const menu = page.locator('.db-field-menu');
+    const openPlace = async () => {
+      await main(page).locator('thead th', { hasText: 'Place' }).locator('button').first().click();
+      await menu.locator('.block-menu__item', { hasText: 'Relation' }).first().click();
+    };
+    const target = () => menu.locator('.db-relation-settings__field', { hasText: 'Target database' }).locator('select');
+
+    await openPlace();
+    await target().selectOption({ label: exhibitsTitle });
+    await page.keyboard.press('Escape');
+    await expect(menu).toBeHidden();
+    await openPlace();
+    await expect(target().locator('option:checked')).toHaveText(exhibitsTitle);
+    await page.keyboard.press('Escape');
+
+    // Escape while typing a new name still puts the name back
+    await main(page).locator('thead th', { hasText: 'Place' }).locator('button').first().click();
+    await menu.locator('.db-add-column-input').fill('Somewhere');
+    await page.keyboard.press('Escape');
+    await expect(menu).toBeHidden();
+    await expect(main(page).locator('thead th', { hasText: 'Place' })).toBeVisible();
+
+    await page.reload();
+    await openPlace();
+    await expect(target().locator('option:checked')).toHaveText(exhibitsTitle);
+  });
 });

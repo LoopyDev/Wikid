@@ -1866,6 +1866,12 @@ const handleFieldMenuKeydown = (event) => {
     && !sortMenu.value.open
   ) return;
   if (event.key === 'Escape') {
+    // Keeps the column's changes, as clicking away does (Escape in the name box puts the name back first)
+    if (fieldMenu.value.open) {
+      commitFieldName();
+      commitFieldOptions();
+      commitRelationOptions();
+    }
     closeFieldMenu();
     closeAddFieldMenu();
     closeMultiSelectMenu();
