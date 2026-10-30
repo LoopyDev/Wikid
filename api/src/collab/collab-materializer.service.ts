@@ -83,7 +83,7 @@ export class CollabMaterializerService implements OnModuleInit, OnModuleDestroy 
         if (!this.shouldMaterialize(now, doc.updatedAt, doc.materializedAt, doc.materializeRequestedAt)) {
           continue;
         }
-        await this.materializeDocument(doc.documentName);
+        await this.materializeOnce(doc.documentName);
       }
     } catch (err) {
       console.warn('Collab materializer failed', err);
@@ -129,11 +129,33 @@ export class CollabMaterializerService implements OnModuleInit, OnModuleDestroy 
   async materializeDocuments(documentNames: string[]) {
     for (const name of documentNames) {
       try {
-        await this.materializeDocument(name);
+        await this.materializeOnce(name);
       } catch (err) {
         console.warn('On-demand materialization failed', { documentName: name, error: err });
       }
     }
+  }
+
+  // One copy of a document at a time: two at once race each other (both creating the same rows).
+  // A copy asked for while one runs waits for it, then copies again only if there's something newer.
+  private readonly copying = new Map<string, Promise<void>>();
+
+  private async materializeOnce(documentName: string): Promise<void> {
+    const running = this.copying.get(documentName);
+    if (running) {
+      await running.catch(() => undefined);
+      const record = await this.prisma.collabDoc.findUnique({
+        where: { documentName },
+        select: { updatedAt: true, materializedAt: true },
+      });
+      if (record?.materializedAt && record.updatedAt <= record.materializedAt) return;
+      return this.materializeOnce(documentName);
+    }
+    const copy = this.materializeDocument(documentName).finally(() => {
+      if (this.copying.get(documentName) === copy) this.copying.delete(documentName);
+    });
+    this.copying.set(documentName, copy);
+    return copy;
   }
 
   private async materializeDocument(documentName: string) {
@@ -152,8 +174,9 @@ export class CollabMaterializerService implements OnModuleInit, OnModuleDestroy 
     if (parsed.kind === PageKind.DATABASE) {
       try {
         const state = databaseStateFromYjsState(record.state);
-        await this.materializeDatabaseState(parsed.pageId, state);
-        await this.markMaterialized(documentName);
+        await this.materializeDatabaseState(parsed.pageId, state, record.updatedAt);
+        // As of the state copied: one stored meanwhile is still to copy
+        await this.markMaterialized(documentName, record.updatedAt);
       } catch (err) {
         console.warn('Database materialization failed', { documentName, error: err });
       }
@@ -274,7 +297,9 @@ export class CollabMaterializerService implements OnModuleInit, OnModuleDestroy 
     return sanitized;
   }
 
-  private async materializeDatabaseState(pageId: string, state: CollabDatabaseState) {
+  // stateAt: when the state was stored. Rows and fields made after it (through the API, say)
+  // aren't in it yet rather than deleted, so they're kept: the next copy sees them.
+  private async materializeDatabaseState(pageId: string, state: CollabDatabaseState, stateAt: Date) {
     if (!state.fields.length) return;
     const page = await this.prisma.page.findUnique({
       where: { id: pageId },
@@ -350,7 +375,7 @@ export class CollabMaterializerService implements OnModuleInit, OnModuleDestroy 
         });
       }
       await tx.databaseField.deleteMany({
-        where: { databaseId: database.id, id: { notIn: fieldIds } },
+        where: { databaseId: database.id, id: { notIn: fieldIds }, createdAt: { lte: stateAt } },
       });
       for (const [index, row] of rows.entries()) {
         const data = this.sanitizeDatabaseRowData(fields, row.data, {
@@ -380,10 +405,10 @@ export class CollabMaterializerService implements OnModuleInit, OnModuleDestroy 
       }
       if (rowIds.length) {
         await tx.databaseRow.deleteMany({
-          where: { databaseId: database.id, id: { notIn: rowIds } },
+          where: { databaseId: database.id, id: { notIn: rowIds }, createdAt: { lte: stateAt } },
         });
       } else {
-        await tx.databaseRow.deleteMany({ where: { databaseId: database.id } });
+        await tx.databaseRow.deleteMany({ where: { databaseId: database.id, createdAt: { lte: stateAt } } });
       }
     });
   }
@@ -407,10 +432,11 @@ export class CollabMaterializerService implements OnModuleInit, OnModuleDestroy 
     await this.markMaterialized(documentName);
   }
 
-  private async markMaterialized(documentName: string) {
+  // at: the stored state's time, when that's what was copied (so a state stored since is newer)
+  private async markMaterialized(documentName: string, at?: Date) {
     await this.prisma.$executeRaw`
       UPDATE "CollabDoc"
-      SET "materializedAt" = NOW(), "materializeRequestedAt" = NULL
+      SET "materializedAt" = COALESCE(${at ?? null}::timestamp, NOW()), "materializeRequestedAt" = NULL
       WHERE "documentName" = ${documentName}
     `;
   }
