@@ -234,4 +234,32 @@ test.describe('database forms', () => {
       return row ? [row.data[author], row.data[reviewer]] : null;
     }).toEqual([['00000000-0000-0000-0000-000000000011'], ['00000000-0000-0000-0000-000000000012']]);
   });
+
+  test('a form shows one input for each field', async ({ alice: page, workspaceId }) => {
+    // The notes under relation fields used to start the inputs' v-if chain again, adding a
+    // text box under most fields
+    const id = await createPage(page, workspaceId, { title: unique('Visits'), kind: 'DATABASE' });
+    const db = async () => (await (await page.request.get(`/api/pages/${id}/database`)).json());
+    const nameField = (await db()).fields.find((f: any) => f.name === 'Name').id;
+    const fieldIds = [nameField];
+    for (const data of [
+      { name: 'Count', type: 'NUMBER' },
+      { name: 'Day', type: 'DATE' },
+      { name: 'Kind', type: 'SELECT', options: { choices: ['School', 'Family'] } },
+      { name: 'Paid', type: 'CHECKBOX' },
+      { name: 'Link', type: 'URL' },
+      { name: 'Host', type: 'PERSON' },
+    ]) {
+      fieldIds.push((await (await page.request.post(`/api/pages/${id}/database/fields`, { data })).json()).id);
+    }
+    const form = await (await page.request.post(`/api/pages/${id}/database/forms`, {
+      data: { name: 'Visit', fields: fieldIds.map((fieldId) => ({ fieldId })) },
+    })).json();
+    await page.goto(`/form/${form.id}`);
+    const fields = page.locator('.form-field').filter({ has: page.locator('.form-field__label', { hasText: /^(Name|Count|Day|Kind|Paid|Link|Host)$/ }) });
+    await expect(fields).toHaveCount(7);
+    for (const field of await fields.all()) {
+      await expect(field.locator('input, select, textarea'), await field.locator('.form-field__label').innerText()).toHaveCount(1);
+    }
+  });
 });
