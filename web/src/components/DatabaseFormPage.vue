@@ -309,6 +309,8 @@ const getFieldSource = (field) => {
   return typeof options.source === 'string' ? options.source : null;
 };
 const isAssetTagField = (field) => getFieldSource(field) === 'assetTag';
+// The record's ID (what its asset tag's QR code holds) is only worth showing when the database has asset tags
+const hasAssetTags = computed(() => databaseFields.value.some((field) => isAssetTagField(field)));
 const fieldPlaceholder = (field) => (isAssetTagField(field) ? 'Generated on submit' : field.label);
 
 const normalizeFormConfig = (rawConfig, options = {}) => {
@@ -1288,7 +1290,7 @@ onBeforeUnmount(() => {
             Back to list
           </button>
         </div>
-        <div v-if="!isUpdateMode || activeRow" class="form-field">
+        <div v-if="hasAssetTags && (!isUpdateMode || activeRow)" class="form-field">
           <div class="form-field__label-row">
             <label class="form-field__label">Item ID</label>
           </div>
