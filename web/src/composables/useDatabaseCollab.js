@@ -84,7 +84,10 @@ export function useDatabaseCollab({ props, workspace, fields, rows, sorting, col
         }
       }
       const pageId = typeof rawPageId === 'string' ? rawPageId : null;
-      result.push(hydrateRow({ id, data, pageId }));
+      const rawCreatedBy = getEntryValue(entry, 'createdBy');
+      // Who added the row (for "Created by" columns)
+      const createdBy = typeof rawCreatedBy === 'string' ? rawCreatedBy : null;
+      result.push(hydrateRow({ id, data, pageId, createdBy }));
       seen.add(id);
     };
     order.forEach((id) => pushRow(id));
@@ -196,6 +199,9 @@ export function useDatabaseCollab({ props, workspace, fields, rows, sorting, col
         if (row?.pageId) {
           rowMap.set('pageId', row.pageId);
         }
+        if (row?.createdById) {
+          rowMap.set('createdBy', row.createdById);
+        }
         collabRowsMap.value.set(row.id, rowMap);
         collabRowOrder.value.push([row.id]);
       });
@@ -231,6 +237,9 @@ export function useDatabaseCollab({ props, workspace, fields, rows, sorting, col
           if (row.pageId && !existing.get('pageId')) {
             existing.set('pageId', row.pageId);
           }
+          if (row.createdById && !existing.get('createdBy')) {
+            existing.set('createdBy', row.createdById);
+          }
           if (!existingOrder.has(row.id)) {
             rowOrder.push([row.id]);
             existingOrder.add(row.id);
@@ -246,6 +255,9 @@ export function useDatabaseCollab({ props, workspace, fields, rows, sorting, col
         rowMap.set('data', dataMap);
         if (row?.pageId) {
           rowMap.set('pageId', row.pageId);
+        }
+        if (row?.createdById) {
+          rowMap.set('createdBy', row.createdById);
         }
         rowsMap.set(row.id, rowMap);
         rowOrder.push([row.id]);

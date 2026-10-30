@@ -57,6 +57,9 @@ export const isMembersField = (field) => getFieldSource(field) === 'members';
 // A column of workspace members, holding their user ids: a Person column, or a wiki's Owners
 export const isPersonField = (field) => field?.type === 'PERSON';
 export const isPeopleField = (field) => isPersonField(field) || isMembersField(field);
+// A person column showing who added each row: kept on the row, set when it's added
+export const isCreatedByField = (field) => isPersonField(field) && getFieldSource(field) === 'createdBy';
+export const CREATED_BY_OPTIONS = { source: 'createdBy', readonly: true };
 // Whether a column holds several values (people included) rather than one
 export const holdsSeveral = (field) =>
   field?.type === 'MULTI_SELECT' || (isPersonField(field) && normalizeFieldOptions(field).allowMultiple === true);
@@ -104,15 +107,15 @@ export const isSystemField = (field) => {
   return source === 'page' || source === 'members' || source === 'lastEdited';
 };
 
-export const isFieldTypeLocked = (field) => isSystemField(field) || isAssetTagField(field);
+export const isFieldTypeLocked = (field) => isSystemField(field) || isAssetTagField(field) || isCreatedByField(field);
 
-export const isFieldOptionsLocked = (field) => isSystemField(field) || isAssetTagField(field);
+export const isFieldOptionsLocked = (field) => isSystemField(field) || isAssetTagField(field) || isCreatedByField(field);
 
 export const isFieldDeleteLocked = (field) => isSystemField(field);
 
 export const isFieldReadOnly = (field) => {
   const options = normalizeFieldOptions(field);
-  if (options.source === 'lastEdited') return true;
+  if (options.source === 'lastEdited' || options.source === 'createdBy') return true;
   if (options.source === 'page') return !!options.readonly;
   return !!options.readonly;
 };

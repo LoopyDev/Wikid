@@ -137,6 +137,25 @@ describe('rows', () => {
     expect(html).not.toContain(USERS.alice.id);
   });
 
+  it('records who added each row, for a "Created by" column', async () => {
+    const { pageId, titleFieldId } = await createDatabase();
+    const createdBy = await addField(pageId, { name: 'Created by', type: 'PERSON', options: { source: 'createdBy' } });
+    expect(createdBy.options).toEqual({ source: 'createdBy', readonly: true });
+    // Only a person column can be one
+    expect((await addField(pageId, { name: 'Odd', type: 'TEXT', options: { source: 'createdBy' } })).options.source).toBeUndefined();
+
+    const row = await alice.post(`/pages/${pageId}/database/rows`, { data: { [titleFieldId]: 'By hand' } });
+    expect(row.body.createdById).toBe(USERS.alice.id);
+    const form = await alice.post(`/pages/${pageId}/database/forms`, { name: 'Add', fields: [{ fieldId: titleFieldId }] });
+    const submitted = await alice.post(`/database-forms/${form.body.id}/submit`, { data: { [titleFieldId]: 'From the form' } });
+    expect(submitted.body.createdById).toBe(USERS.alice.id);
+    const read = await alice.get(`/pages/${pageId}/database`);
+    expect(read.body.rows.map((r: any) => r.createdById)).toEqual([USERS.alice.id, USERS.alice.id]);
+
+    const exported = await alice.download('/export/html', { method: 'POST', body: { rootPageId: pageId } });
+    expect(Buffer.from(exported.bytes).toString('utf8')).toContain(`<td>${USERS.alice.name}</td>`);
+  });
+
   it('stores values according to the field types', async () => {
     const { pageId, titleFieldId } = await createDatabase();
     const num = await addField(pageId, { name: 'Number', type: 'NUMBER' });

@@ -125,6 +125,8 @@ model DatabaseRow {
   createdAt    DateTime                 @default(now())
   updatedAt    DateTime                 @updatedAt
   pageId       String?                  @db.Uuid
+  // Who added the row: set when it's created, never changed (null for rows from before this)
+  createdById  String?                  @db.Uuid
   // Cell values for search; kept up to date by Postgres (see the add_search migration).
   searchVector Unsupported("tsvector")?
   database     Database                 @relation(fields: [databaseId], references: [id])

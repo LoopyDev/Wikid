@@ -275,10 +275,24 @@ export class CollabMaterializerService implements OnModuleInit, OnModuleDestroy 
       };
     });
     const fieldIds = fields.map((field) => field.id);
+    // Who added each row, as the browser that added it stamped it: kept only if they're in the
+    // workspace, and only when the row is first saved (it never changes after)
+    const stampedBy = [...new Set(state.rows.map((row) => row.createdBy).filter((id): id is string => !!id))];
+    const members = stampedBy.length
+      ? new Set(
+          (
+            await this.prisma.userWorkspace.findMany({
+              where: { workspaceId: page.workspaceId, userId: { in: stampedBy } },
+              select: { userId: true },
+            })
+          ).map((member) => member.userId)
+        )
+      : new Set<string>();
     const rows = state.rows.map((row) => ({
       id: row.id,
       data: row.data,
       pageId: row.pageId,
+      createdById: row.createdBy && members.has(row.createdBy) ? row.createdBy : null,
     }));
     const rowIds = rows.map((row) => row.id);
     await this.prisma.$transaction(async (tx) => {
@@ -322,6 +336,7 @@ export class CollabMaterializerService implements OnModuleInit, OnModuleDestroy 
           data,
           position: index + 1,
           ...(row.pageId ? { pageId: row.pageId } : {}),
+          ...(row.createdById ? { createdById: row.createdById } : {}),
         };
         await tx.databaseRow.upsert({
           where: { id: row.id },

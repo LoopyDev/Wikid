@@ -19,7 +19,7 @@ import { clearYMap, cloneForSeed, ensureCollabRowDataMap, generateId, hydrateRow
 import { ROW_COLORS, ROW_COLOR_KEY, rowColor, multiSelectDotStyle, multiSelectPillStyle } from '../utils/database/colors';
 import { ADD_COLUMN_ID, ADD_COLUMN_LABEL, ADD_COLUMN_SIZE, ASSET_TAG_COLUMN_SIZE, AUTO_SIZE_BASE, AUTO_SIZE_BUFFER, AUTO_SIZE_CHAR_LIMIT, AUTO_SIZE_CHAR_WIDTH, AUTO_SIZE_FIRST_EXTRA, AUTO_SIZE_MULTI_MEMBERS_PLACEHOLDER, AUTO_SIZE_MULTI_PILL_GAP, AUTO_SIZE_MULTI_PILL_PADDING, AUTO_SIZE_MULTI_PLACEHOLDER, AUTO_SIZE_PAGE_ICON_EXTRA, AUTO_SIZE_RELATION_PLACEHOLDER, AUTO_SIZE_SELECT_EXTRA, AUTO_SIZE_SELECT_PLACEHOLDER, COLUMN_DEFAULT_SIZE, COLUMN_MAX_SIZE, COLUMN_MIN_SIZE, FIRST_COLUMN_MIN_SIZE, ROW_ID_COLUMN_ID, ROW_ID_COLUMN_LABEL, ROW_ID_COLUMN_MIN_SIZE, ROW_ID_COLUMN_SIZE } from '../utils/database/columnLayout';
 import { AUDIT_VIEW_ID, DEFAULT_INITIAL_STATUS, GOVERNANCE_FILTER_ID, auditStatusOptions, getAuditStatusClass, getComplianceRecordId } from '../utils/database/compliance';
-import { fieldTypeIcons, fieldTypes, getFieldSource, getLinkedFromConfig, getMultiSelectChoiceValues, getRelationConfig, isAssetTagField, isLinkedFromField, isFieldDeleteLocked, isFieldOptionsLocked, isFieldReadOnly, isFieldTypeLocked, isLastEditedField, isMembersField, isPageField, isPeopleField, isPersonField, isRelationField, isSelectField, normalizeFieldOptions } from '../utils/database/fieldOptions';
+import { fieldTypeIcons, fieldTypes, getFieldSource, getLinkedFromConfig, getMultiSelectChoiceValues, getRelationConfig, isAssetTagField, isLinkedFromField, isFieldDeleteLocked, isFieldOptionsLocked, isFieldReadOnly, isFieldTypeLocked, isLastEditedField, isMembersField, isPageField, isPeopleField, isPersonField, isCreatedByField, CREATED_BY_OPTIONS, isRelationField, isSelectField, normalizeFieldOptions } from '../utils/database/fieldOptions';
 import { DEFAULT_FORM_ICON, buildFormField, conditionValues, normalizeFormIcon } from '../utils/database/forms';
 import { OPERATOR_LABELS, operatorNeedsValue, operatorsForFieldType, sortByType } from '../utils/database/views';
 import { colorFromId } from '../utils/presenceColor';
@@ -245,7 +245,9 @@ const emitFieldUpdated = (field) => {
   );
 };
 
-const buildFormFieldsFromDatabase = () => fields.value.filter((field) => field?.id).map(buildFormField);
+// Every column there's something to fill in for (not "Linked from" or "Created by")
+const buildFormFieldsFromDatabase = () =>
+  fields.value.filter((field) => field?.id && field.type !== 'LINKED_FROM' && !isCreatedByField(field)).map(buildFormField);
 
 const normalizeFormAuto = (raw, fieldId, selectSource = null) => {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
@@ -1210,6 +1212,8 @@ const activeMultiSelectRelationError = computed(() => {
 });
 
 const needsMembers = computed(() => fields.value.some((field) => isPeopleField(field)));
+// One "Created by" column is enough
+const hasCreatedByField = computed(() => fields.value.some((field) => isCreatedByField(field)));
 const hasViewConfig = computed(() => !!activeSavedView.value || Array.isArray(props.hiddenFieldIds));
 const viewHiddenFieldIds = computed(() =>
   activeSavedView.value
@@ -2749,12 +2753,13 @@ watch(
   { immediate: true }
 );
 
-const createFieldWithType = async (type, { linkedFrom: chosenLinkedFrom = null } = {}) => {
+// createdBy: a "Created by" column (a person column showing who added each row)
+const createFieldWithType = async (type, { linkedFrom: chosenLinkedFrom = null, createdBy = false } = {}) => {
   if (isReadonly.value) return;
   if (!type) return;
   const trimmed = addFieldName.value.trim();
-  let name = trimmed || addFieldPlaceholder.value;
-  let options = {};
+  let name = trimmed || (createdBy ? 'Created by' : addFieldPlaceholder.value);
+  let options = createdBy ? { ...CREATED_BY_OPTIONS } : {};
   if (type === 'SELECT' || type === 'MULTI_SELECT') {
     options = { choices: [] };
   }
@@ -2802,7 +2807,7 @@ const createFieldWithType = async (type, { linkedFrom: chosenLinkedFrom = null }
       fieldMap.set('type', type);
       if (type === 'SELECT' || type === 'MULTI_SELECT') {
         fieldMap.set('options', normalizeFieldOptions({ options }));
-      } else if (type === 'RELATION' || type === 'LINKED_FROM') {
+      } else if (type === 'RELATION' || type === 'LINKED_FROM' || type === 'PERSON') {
         fieldMap.set('options', { ...options });
       } else {
         fieldMap.set('options', {});
@@ -3107,6 +3112,8 @@ const addRow = async () => {
       const id = generateId();
       const rowMap = new Y.Map();
       rowMap.set('data', new Y.Map());
+      // Who added it, for "Created by" columns (the server keeps it when it first saves the row)
+      if (activeUser.value?.id) rowMap.set('createdBy', activeUser.value.id);
       doc.transact(() => {
         rowsMap.set(id, rowMap);
         rowOrder.push([id]);
@@ -3952,6 +3959,17 @@ onBeforeUnmount(() => {
               <span class="block-menu__icon">{{ fieldTypeIcons[type.value] || 'Tx' }}</span>
               <span class="block-menu__text">
                 <span class="block-menu__title">{{ type.label }}</span>
+              </span>
+            </button>
+            <button
+              v-if="!hasCreatedByField"
+              class="block-menu__item"
+              type="button"
+              @click="createFieldWithType('PERSON', { createdBy: true })"
+            >
+              <span class="block-menu__icon">{{ fieldTypeIcons.PERSON }}</span>
+              <span class="block-menu__text">
+                <span class="block-menu__title">Created by</span>
               </span>
             </button>
           </div>
