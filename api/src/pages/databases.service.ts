@@ -1087,16 +1087,26 @@ export class DatabasesService {
       const database = await this.getDatabaseForPage(pageId, user, { requireWrite: true });
       const position = payload.position ?? (await this.databaseSetup.nextDatabaseRowPosition(database.id));
       const data = payload.data ? await this.sanitizeDatabaseRowData(database.id, payload.data) : {};
-      row = await this.prisma.databaseRow.create({
-        data: {
-          id,
-          databaseId: database.id,
-          data,
-          position,
-          ...(isUuid(user?.userId) ? { createdById: user?.userId } : {}),
-        },
-        select: { id: true, databaseId: true, pageId: true, data: true },
-      });
+      try {
+        row = await this.prisma.databaseRow.create({
+          data: {
+            id,
+            databaseId: database.id,
+            data,
+            position,
+            ...(isUuid(user?.userId) ? { createdById: user?.userId } : {}),
+          },
+          select: { id: true, databaseId: true, pageId: true, data: true },
+        });
+      } catch (err) {
+        // Saved from the live document meanwhile (a row added in the table is): carry on with that
+        if ((err as { code?: string })?.code !== 'P2002') throw err;
+        row = await this.prisma.databaseRow.findUnique({
+          where: { id },
+          select: { id: true, databaseId: true, pageId: true, data: true },
+        });
+        if (!row) throw err;
+      }
     }
     const database = await this.prisma.database.findUnique({
       where: { id: row.databaseId },

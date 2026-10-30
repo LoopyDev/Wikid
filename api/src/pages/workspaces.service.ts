@@ -120,7 +120,16 @@ export class WorkspacesService {
         throw new ForbiddenException('Only workspace owners can delete this workspace');
       }
     }
-    await this.prisma.$transaction((tx) => this.removeWorkspace(tx, workspaceId));
+    // Postgres can pick this to cancel when it deadlocks with a database being saved from its live
+    // document at the same moment; trying again then goes through
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        await this.prisma.$transaction((tx) => this.removeWorkspace(tx, workspaceId));
+        break;
+      } catch (err) {
+        if (attempt >= 3 || !String((err as Error)?.message || '').includes('40P01')) throw err;
+      }
+    }
     return { ok: true };
   }
 
