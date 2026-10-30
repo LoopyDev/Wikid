@@ -367,4 +367,27 @@ test.describe('databases', () => {
     await alice.reload();
     await expect(main(alice).locator('tbody tr').nth(1).locator('.db-multi-cell')).toHaveText('Bob');
   });
+
+  test('columns added, changed and deleted through the API show up live, and stay', async ({ alice: page, workspaceId }) => {
+    // They used to change only the database, not the live document, whose next save then
+    // deleted a new column (with its cells and form fields) and put back a changed one
+    const id = await createPage(page, workspaceId, { title: unique('Exhibits'), kind: 'DATABASE' });
+    await page.goto(`/doc/${id}`);
+    await expect(main(page).getByRole('button', { name: 'Add row' })).toBeVisible();
+    const headers = main(page).locator('thead th');
+    const header = (name: string) => headers.filter({ hasText: new RegExp(`^\\s*${name}\\s*$`) });
+
+    const field = await (await page.request.post(`/api/pages/${id}/database/fields`, { data: { name: 'Zone', type: 'TEXT' } })).json();
+    await expect(header('Zone')).toHaveCount(1);
+    await page.request.patch(`/api/database-fields/${field.id}`, { data: { name: 'Thematic zone', type: 'NUMBER' } });
+    await expect(header('Thematic zone')).toHaveCount(1);
+    const extra = await (await page.request.post(`/api/pages/${id}/database/fields`, { data: { name: 'Notes', type: 'TEXT' } })).json();
+    await expect(header('Notes')).toHaveCount(1);
+    await page.request.delete(`/api/database-fields/${extra.id}`);
+    await expect(header('Notes')).toHaveCount(0);
+
+    await page.reload();
+    await expect(header('Thematic zone')).toHaveCount(1);
+    await expect(header('Notes')).toHaveCount(0);
+  });
 });

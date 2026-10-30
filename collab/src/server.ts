@@ -278,6 +278,35 @@ const applyRowDelete = (document: Y.Doc, rowId: string) => {
   }
 };
 
+// A field (column) changed or deleted through the API (a copy of the API's applyCollabFieldChange
+// and applyCollabFieldDelete in api/src/collab/collab-database.util.ts). Only into a document
+// that's been filled in: an empty one is filled from the database when first opened.
+type FieldChange = { id: string; name: string; type: string; options: Record<string, any> };
+const sameJson = (left: unknown, right: unknown) => JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
+const applyFieldChange = (document: Y.Doc, field: FieldChange) => {
+  const fieldsMap = document.getMap('fields');
+  const fieldOrder = document.getArray('fieldOrder');
+  if (!fieldsMap.size) return;
+  const stored = fieldsMap.get(field.id);
+  const fieldMap: Y.Map<any> = stored instanceof Y.Map ? (stored as Y.Map<any>) : new Y.Map<any>();
+  const options = field.options && typeof field.options === 'object' && !Array.isArray(field.options) ? field.options : {};
+  if (fieldMap.get('name') !== field.name) fieldMap.set('name', field.name);
+  if (fieldMap.get('type') !== field.type) fieldMap.set('type', field.type);
+  const storedOptions = fieldMap.get('options');
+  if (!sameJson(storedOptions instanceof Y.Map ? storedOptions.toJSON() : storedOptions, options)) fieldMap.set('options', options);
+  if (!(stored instanceof Y.Map)) fieldsMap.set(field.id, fieldMap);
+  if (!fieldOrder.toArray().map((id) => String(id)).includes(field.id)) fieldOrder.push([field.id]);
+};
+const applyFieldDelete = (document: Y.Doc, fieldId: string) => {
+  const fieldsMap = document.getMap('fields');
+  const fieldOrder = document.getArray('fieldOrder');
+  fieldsMap.delete(fieldId);
+  const order = fieldOrder.toArray().map((id) => String(id));
+  for (let index = order.length - 1; index >= 0; index -= 1) {
+    if (order[index] === fieldId) fieldOrder.delete(index, 1);
+  }
+};
+
 const server = new Server({
   name: 'wikid-collab',
   port,
@@ -320,6 +349,8 @@ const server = new Server({
     if (
       path !== '/collab/push/db-row' &&
       path !== '/collab/push/db-row-delete' &&
+      path !== '/collab/push/db-field' &&
+      path !== '/collab/push/db-field-delete' &&
       path !== '/collab/flush' &&
       path !== '/collab/broadcast'
     ) {
@@ -398,7 +429,19 @@ const server = new Server({
     }
     const connection = await instance.openDirectConnection(documentName, { source: 'api' });
     try {
-      if (path === '/collab/push/db-row-delete') {
+      if (path === '/collab/push/db-field' || path === '/collab/push/db-field-delete') {
+        const field = body?.field;
+        const fieldId = path === '/collab/push/db-field' ? (typeof field?.id === 'string' ? field.id.trim() : '') : typeof body?.fieldId === 'string' ? body.fieldId.trim() : '';
+        if (!fieldId || (path === '/collab/push/db-field' && (typeof field?.name !== 'string' || typeof field?.type !== 'string'))) {
+          response.writeHead(400, { 'Content-Type': 'application/json' });
+          response.end(JSON.stringify({ ok: false, error: 'field is required' }));
+          throw null;
+        }
+        await connection.transact((document) => {
+          if (path === '/collab/push/db-field') applyFieldChange(document, { id: fieldId, name: field.name, type: field.type, options: field.options });
+          else applyFieldDelete(document, fieldId);
+        });
+      } else if (path === '/collab/push/db-row-delete') {
         const rowId = typeof body?.rowId === 'string' ? body.rowId.trim() : '';
         if (!rowId) {
           response.writeHead(400, { 'Content-Type': 'application/json' });
