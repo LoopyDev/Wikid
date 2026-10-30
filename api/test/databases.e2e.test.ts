@@ -137,6 +137,25 @@ describe('rows', () => {
     expect(html).not.toContain(USERS.alice.id);
   });
 
+  it('records who added each row, for a "Created by" column', async () => {
+    const { pageId, titleFieldId } = await createDatabase();
+    const createdBy = await addField(pageId, { name: 'Created by', type: 'PERSON', options: { source: 'createdBy' } });
+    expect(createdBy.options).toEqual({ source: 'createdBy', readonly: true });
+    // Only a person column can be one
+    expect((await addField(pageId, { name: 'Odd', type: 'TEXT', options: { source: 'createdBy' } })).options.source).toBeUndefined();
+
+    const row = await alice.post(`/pages/${pageId}/database/rows`, { data: { [titleFieldId]: 'By hand' } });
+    expect(row.body.createdById).toBe(USERS.alice.id);
+    const form = await alice.post(`/pages/${pageId}/database/forms`, { name: 'Add', fields: [{ fieldId: titleFieldId }] });
+    const submitted = await alice.post(`/database-forms/${form.body.id}/submit`, { data: { [titleFieldId]: 'From the form' } });
+    expect(submitted.body.createdById).toBe(USERS.alice.id);
+    const read = await alice.get(`/pages/${pageId}/database`);
+    expect(read.body.rows.map((r: any) => r.createdById)).toEqual([USERS.alice.id, USERS.alice.id]);
+
+    const exported = await alice.download('/export/html', { method: 'POST', body: { rootPageId: pageId } });
+    expect(Buffer.from(exported.bytes).toString('utf8')).toContain(`<td>${USERS.alice.name}</td>`);
+  });
+
   it('stores values according to the field types', async () => {
     const { pageId, titleFieldId } = await createDatabase();
     const num = await addField(pageId, { name: 'Number', type: 'NUMBER' });
@@ -367,7 +386,8 @@ describe('forms', () => {
     const received = await addField(pageId, { name: 'Received', type: 'DATE' });
     const form = await alice.post(`/pages/${pageId}/database/forms`, {
       name: 'Intake',
-      fields: [{ fieldId: titleFieldId, required: true }, { fieldId: received.id, auto: { type: 'today' } }],
+      // Not editable: locked, and set by the server
+      fields: [{ fieldId: titleFieldId, required: true }, { fieldId: received.id, auto: { type: 'today' }, editable: false }],
     });
     expect(form.status).toBe(201);
     expect(form.body.fields[1].auto).toEqual({ type: 'today' });
@@ -386,6 +406,16 @@ describe('forms', () => {
     expect(await submit('2001-01-01')).toBe(serverToday);
     expect(await submit('not a date')).toBe(serverToday);
     expect(await submit()).toBe(serverToday);
+
+    // Editable: today is only a starting value, and whatever date is sent stands
+    const editable = await alice.post(`/pages/${pageId}/database/forms`, {
+      name: 'Backdated',
+      fields: [{ fieldId: titleFieldId }, { fieldId: received.id, auto: { type: 'today' } }],
+    });
+    const submitEditable = async (sent?: string) =>
+      (await alice.post(`/database-forms/${editable.body.id}/submit`, { data: { [titleFieldId]: 'Entry', ...(sent ? { [received.id]: sent } : {}) } })).body.data[received.id];
+    expect(await submitEditable('2001-01-01')).toBe('2001-01-01');
+    expect(await submitEditable()).toBe(serverToday);
   });
 
   it("turns a date away that's later than today when the form says no future", async () => {
@@ -451,7 +481,7 @@ describe('forms', () => {
       name: 'Report',
       fields: [
         { fieldId: titleFieldId },
-        { fieldId: author.id, auto: { type: 'currentUser' } },
+        { fieldId: author.id, auto: { type: 'currentUser' }, editable: false },
         { fieldId: reviewer.id, required: true },
       ],
     });

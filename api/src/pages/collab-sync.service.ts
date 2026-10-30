@@ -72,7 +72,7 @@ export class CollabSyncService {
 
   async updateCollabDatabaseRowForPage(
     database: { pageId: string; workspaceId: string },
-    row: { id: string; data?: Prisma.InputJsonValue | null; pageId?: string | null }
+    row: { id: string; data?: Prisma.InputJsonValue | null; pageId?: string | null; createdById?: string | null }
   ) {
     if (!database?.pageId || !database.workspaceId || !row?.id) return;
     const documentName = `ws:${database.workspaceId}:db:${database.pageId}`;
@@ -82,6 +82,7 @@ export class CollabSyncService {
         id: row.id,
         data: row.data && typeof row.data === 'object' && !Array.isArray(row.data) ? (row.data as Record<string, any>) : {},
         pageId: row.pageId || null,
+        createdBy: row.createdById || null,
       }),
       'Failed to sync collab db row',
       { rowId: row.id },
@@ -120,7 +121,7 @@ export class CollabSyncService {
 
   async pushCollabDatabaseRowUpdate(
     database: { pageId: string; workspaceId: string },
-    row: { id: string; data?: Prisma.InputJsonValue | null; pageId?: string | null }
+    row: { id: string; data?: Prisma.InputJsonValue | null; pageId?: string | null; createdById?: string | null }
   ) {
     if (!this.collabServerUrl || !this.collabApiSecret) return;
     if (!database?.pageId || !database.workspaceId || !row?.id) return;
@@ -130,6 +131,7 @@ export class CollabSyncService {
       rowId: row.id,
       data: row.data && typeof row.data === 'object' && !Array.isArray(row.data) ? row.data : {},
       pageId: row.pageId || null,
+      createdBy: row.createdById || null,
     };
     try {
       const res = await fetch(`${this.collabServerUrl}/collab/push/db-row`, {

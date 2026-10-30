@@ -13,6 +13,8 @@ export type CollabDatabaseRow = {
   id: string;
   data: Record<string, any>;
   pageId?: string;
+  // Who added the row, as the live document has it (stamped by the browser that added it)
+  createdBy?: string;
 };
 
 export type CollabDatabaseState = {
@@ -82,7 +84,9 @@ const parseRow = (id: string, entry: any): CollabDatabaseRow | null => {
     }
   }
   const pageId = typeof rawPageId === 'string' && isUuid(rawPageId) ? rawPageId : undefined;
-  return { id, data, pageId };
+  const rawCreatedBy = getEntryValue(entry, 'createdBy');
+  const createdBy = typeof rawCreatedBy === 'string' && isUuid(rawCreatedBy) ? rawCreatedBy : undefined;
+  return { id, data, pageId, ...(createdBy ? { createdBy } : {}) };
 };
 
 const databaseStateFromDoc = (doc: Y.Doc): CollabDatabaseState => {
@@ -157,7 +161,7 @@ const valuesEqual = (left: any, right: any) => {
 
 export const updateCollabDatabaseRowState = (
   state: Buffer,
-  row: { id: string; data?: Record<string, any> | null; pageId?: string | null }
+  row: { id: string; data?: Record<string, any> | null; pageId?: string | null; createdBy?: string | null }
 ) => {
   if (!row?.id) return null;
   const doc = new Y.Doc();
@@ -219,8 +223,12 @@ export const updateCollabDatabaseRowState = (
   if (!changed && !order.includes(row.id)) {
     changed = true;
   }
+  // Who added it, once: never changed after
+  const nextCreatedBy = row.createdBy && isUuid(row.createdBy) && !rowMap.get('createdBy') ? row.createdBy : null;
+  if (nextCreatedBy) changed = true;
   if (!changed) return null;
   doc.transact(() => {
+    if (nextCreatedBy) rowMap.set('createdBy', nextCreatedBy);
     existingKeys.forEach((key) => {
       if (!nextKeys.has(key)) {
         dataMap.delete(key);

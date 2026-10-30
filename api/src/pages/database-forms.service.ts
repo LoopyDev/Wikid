@@ -380,7 +380,13 @@ export class DatabaseFormsService {
       const auto = entry?.auto;
       if (!auto) return;
       const field = fieldMap.get(entry.fieldId);
-      const value = resolveAutoValue(auto, field, filtered[entry.fieldId]);
+      // Editable, it's a starting value: what was sent stands, and the autofill only fills a gap.
+      // Not editable, it's locked and set here, whatever was sent.
+      if (entry?.editable !== false && field && this.databaseValues.coerceDatabaseFieldValue(field, filtered[entry.fieldId]) !== undefined) {
+        return;
+      }
+      // (A locked "today" still looks at the date sent, allowing for the submitter's time zone)
+      const value = resolveAutoValue(auto, field, rawData[entry.fieldId]);
       if (value !== undefined) {
         autoData[entry.fieldId] = value;
       }

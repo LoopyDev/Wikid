@@ -6,7 +6,7 @@ import { AUTO_SIZE_RELATION_PLACEHOLDER } from '../utils/database/columnLayout';
 import { api } from '../api/client';
 import { auditStatusOptions, DEFAULT_INITIAL_STATUS, GOVERNANCE_FILTER_ID, governanceFilterChoices, governanceFilterOption } from '../utils/database/compliance';
 import { buildFormField, conditionValues, DEFAULT_FORM_ICON, getConditionOpOptions, normalizeRequiredWhenOp } from '../utils/database/forms';
-import { formatFieldType, getFieldSource, getRelationConfig, isFieldReadOnly, normalizeFieldOptions } from '../utils/database/fieldOptions';
+import { formatFieldType, getFieldSource, getRelationConfig, isCreatedByField, isFieldReadOnly, normalizeFieldOptions } from '../utils/database/fieldOptions';
 import { normalizeFilterValues, stringifyValue } from '../utils/database/cellValues';
 
 // The form builder for one form of a database: which fields it asks for and how (fixed or
@@ -790,8 +790,9 @@ const relationRowsForPage = (pageId) => relationRowsByPageId.value[pageId] || []
 const formFieldOptions = computed(() => {
   const used = new Set(activeForm.value?.fields.map((field) => field.fieldId) ?? []);
   return fields.value
-    // A "Linked from" field is worked out from another database, so there's nothing to fill in
-    .filter((field) => field?.id && !used.has(field.id) && field.type !== 'LINKED_FROM')
+    // A "Linked from" field is worked out from another database, and "Created by" is whoever
+    // submits, so there's nothing to fill in
+    .filter((field) => field?.id && !used.has(field.id) && field.type !== 'LINKED_FROM' && !isCreatedByField(field))
     .map((field) => ({
       id: field.id,
       name: field.name || 'Field',
@@ -1650,6 +1651,9 @@ watch(
         </div>
         <div v-if="field.autoType === 'fixed' && field.autoFixedHint" class="db-form-field-hint">
           {{ field.autoFixedHint }}
+        </div>
+        <div v-if="field.autoType" class="db-form-field-hint">
+          {{ field.editable ? 'Filled in, but can be changed. Untick Editable to lock it.' : 'Filled in automatically and locked.' }}
         </div>
         <div v-if="field.autoType === 'currentUser' && field.type !== 'PERSON'" class="db-form-field-controls">
           <label class="db-form-field-label">User value</label>

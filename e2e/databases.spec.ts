@@ -336,6 +336,38 @@ test.describe('databases', () => {
     await expect(main(page).locator('tbody tr').first().locator('.db-multi-pill')).toHaveText(['Alice', 'Bob']);
   });
 
+  test('a "Created by" column shows who added each row, and can\'t be changed', async ({ alice, bob, workspaceId }) => {
+    const id = await createPage(alice, workspaceId, { title: unique('Faults'), kind: 'DATABASE' });
+    await alice.goto(`/doc/${id}`);
+    await bob.goto(`/doc/${id}`);
+    for (const page of [alice, bob]) await expect(main(page).getByRole('button', { name: 'Add row' })).toBeVisible();
+
+    // Each adds a row in the table
+    await main(alice).getByRole('button', { name: 'Add row' }).click();
+    await expect(main(bob).locator('tbody tr')).toHaveCount(1);
+    await main(bob).getByRole('button', { name: 'Add row' }).click();
+    await expect(main(alice).locator('tbody tr')).toHaveCount(2);
+
+    // Offered once, from the new column menu
+    await main(alice).locator('thead th').last().locator('button').first().click();
+    const menu = alice.locator('.db-add-column-menu');
+    await menu.locator('.block-menu__item', { hasText: 'Created by' }).click();
+    await expect(main(alice).locator('thead th', { hasText: 'Created by' })).toBeVisible();
+    for (const page of [alice, bob]) {
+      const cells = main(page).locator('tbody tr').locator('.db-multi-cell');
+      await expect(cells.nth(0)).toHaveText('Alice');
+      await expect(cells.nth(1)).toHaveText('Bob');
+      // Read-only: nothing to pick
+      await expect(cells.first()).toBeDisabled();
+    }
+    await main(alice).locator('thead th').last().locator('button').first().click();
+    await expect(menu.locator('.block-menu__item', { hasText: 'Created by' })).toHaveCount(0);
+    await alice.keyboard.press('Escape');
+
+    await alice.reload();
+    await expect(main(alice).locator('tbody tr').nth(1).locator('.db-multi-cell')).toHaveText('Bob');
+  });
+
   test('columns added, changed and deleted through the API show up live, and stay', async ({ alice: page, workspaceId }) => {
     // They used to change only the database, not the live document, whose next save then
     // deleted a new column (with its cells and form fields) and put back a changed one
