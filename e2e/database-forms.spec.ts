@@ -283,4 +283,43 @@ test.describe('database forms', () => {
     await page.goto(`/form/${await formFor()}`);
     await expect(itemId).toBeVisible();
   });
+
+  test("a form shows a column as it was just changed in the table, not as of the last save", async ({ alice: page, workspaceId }) => {
+    // A change made in the table reached the database's own tables, which forms read, only at the
+    // next periodic save, so a relation pointed elsewhere still offered the old database's rows
+    const target = async (title: string, row: string) => {
+      const id = await createPage(page, workspaceId, { title: unique(title), kind: 'DATABASE' });
+      const name = (await (await page.request.get(`/api/pages/${id}/database`)).json()).fields.find((f: any) => f.name === 'Name').id;
+      await page.request.post(`/api/pages/${id}/database/rows`, { data: { data: { [name]: row } } });
+      return id;
+    };
+    const zones = await target('Zones', 'Zone A');
+    const exhibitsTitle = unique('Exhibits');
+    const exhibits = await createPage(page, workspaceId, { title: exhibitsTitle, kind: 'DATABASE' });
+    const exhibitName = (await (await page.request.get(`/api/pages/${exhibits}/database`)).json()).fields.find((f: any) => f.name === 'Name').id;
+    await page.request.post(`/api/pages/${exhibits}/database/rows`, { data: { data: { [exhibitName]: 'Dinosaurs' } } });
+
+    const id = await createPage(page, workspaceId, { title: unique('Visits'), kind: 'DATABASE' });
+    const place = await (await page.request.post(`/api/pages/${id}/database/fields`, {
+      data: { name: 'Place', type: 'RELATION', options: { relation: { pageId: zones, allowMultiple: false } } },
+    })).json();
+    const form = await (await page.request.post(`/api/pages/${id}/database/forms`, { data: { name: 'Visit', fields: [{ fieldId: place.id }] } })).json();
+
+    // Point the relation at Exhibits from the table
+    await page.goto(`/doc/${id}`);
+    await expect(main(page).locator('thead th', { hasText: 'Place' })).toBeVisible();
+    await main(page).locator('thead th', { hasText: 'Place' }).locator('button').first().click();
+    const menu = page.locator('.db-field-menu');
+    await menu.locator('.block-menu__item', { hasText: 'Relation' }).first().click();
+    await menu.locator('.db-relation-settings__field', { hasText: 'Target database' }).locator('select').selectOption({ label: exhibitsTitle });
+    // Clicking away keeps the change (Escape would cancel it)
+    await page.mouse.click(5, 300);
+    await expect(menu).toBeHidden();
+
+    // Straight to the form: Exhibits' rows, not Zones'
+    await page.goto(`/form/${form.id}`);
+    const placeSelect = page.locator('.form-field').filter({ has: page.locator('.form-field__label', { hasText: /^Place$/ }) }).locator('select');
+    await expect(placeSelect.locator('option', { hasText: 'Dinosaurs' })).toHaveCount(1);
+    await expect(placeSelect.locator('option', { hasText: 'Zone A' })).toHaveCount(0);
+  });
 });

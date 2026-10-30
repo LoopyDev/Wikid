@@ -404,6 +404,9 @@ const server = new Server({
       }
       let flushed = 0;
       for (const docName of documentNames) {
+        // Only documents someone has open: opening one that isn't would load it and save it
+        // again unchanged, marking it as changed for nothing
+        if (!instance.documents.has(docName)) continue;
         try {
           const conn = await instance.openDirectConnection(docName, { source: 'flush' });
           const document = conn.document;

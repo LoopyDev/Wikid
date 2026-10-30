@@ -92,6 +92,40 @@ export class CollabMaterializerService implements OnModuleInit, OnModuleDestroy 
     }
   }
 
+  /**
+   * Brings a database's own tables up to date with its live document, before something reads
+   * them that must see its columns as they are now (a form's fields, a relation's options): the
+   * collab server saves what it hasn't yet, then the database is copied from it if that's newer.
+   * Changes made in a table otherwise reach the tables only at the next periodic save.
+   */
+  async catchUpDatabase(pageId: string, workspaceId: string) {
+    if (!isUuid(pageId) || !isUuid(workspaceId)) return;
+    const documentName = `ws:${workspaceId}:db:${pageId}`;
+    await this.flushLiveDocuments([documentName]);
+    const record = await this.prisma.collabDoc.findUnique({
+      where: { documentName },
+      select: { updatedAt: true, materializedAt: true },
+    });
+    if (!record || (record.materializedAt && record.updatedAt <= record.materializedAt)) return;
+    await this.materializeDocuments([documentName]);
+  }
+
+  // Asks the collab server to save the documents someone has open; carries on if it can't
+  async flushLiveDocuments(documentNames: string[]) {
+    const collabServerUrl = process.env.COLLAB_SERVER_URL;
+    const collabApiSecret = process.env.COLLAB_API_SECRET;
+    if (!collabServerUrl || !collabApiSecret || !documentNames.length) return;
+    try {
+      await fetch(`${collabServerUrl}/collab/flush`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${collabApiSecret}` },
+        body: JSON.stringify({ documentNames }),
+      });
+    } catch {
+      // Collab server unavailable: what's stored is the latest there is
+    }
+  }
+
   async materializeDocuments(documentNames: string[]) {
     for (const name of documentNames) {
       try {
