@@ -7,6 +7,7 @@ import { ComplianceService } from '../compliance/compliance.service';
 import { PageAccessService } from './page-access.service';
 import { DatabaseValuesService } from './database-values.service';
 import { DatabasesService } from './databases.service';
+import { CollabMaterializerService } from '../collab/collab-materializer.service';
 import { POSITION_INCREMENT, COMPLIANCE_RECORD_KEY, getFieldSource, normalizeFormIcon } from './pages.shared';
 
 // Database forms: their fields and settings, and submitting entries through them.
@@ -18,6 +19,7 @@ export class DatabaseFormsService {
     private readonly access: PageAccessService,
     private readonly databaseValues: DatabaseValuesService,
     private readonly databases: DatabasesService,
+    private readonly materializer: CollabMaterializerService,
   ) {}
 
   private readonly DEFAULT_FORM_ICON = 'icon:pencil-square';
@@ -233,12 +235,16 @@ export class DatabaseFormsService {
       select: { id: true, name: true, icon: true, fields: true, databaseId: true },
     });
     if (!form) throw new NotFoundException('Form not found');
+    const access = await this.prisma.database.findUnique({ where: { id: form.databaseId }, select: { pageId: true, workspaceId: true } });
+    if (!access) throw new NotFoundException('Database not found');
+    await this.access.requirePageAccess(access.pageId, user);
+    // The database's columns as they are now, not as of its last periodic save
+    await this.materializer.catchUpDatabase(access.pageId, access.workspaceId);
     const database = await this.prisma.database.findUnique({
       where: { id: form.databaseId },
       select: { id: true, pageId: true, workspaceId: true, complianceMode: true, fields: { orderBy: { position: 'asc' } } },
     });
     if (!database) throw new NotFoundException('Database not found');
-    await this.access.requirePageAccess(database.pageId, user);
     // Person fields are filled in with the workspace's members (whom anyone in it can list)
     const people = database.fields.some((field) => field.type === DatabaseFieldType.PERSON)
       ? (
@@ -286,6 +292,8 @@ export class DatabaseFormsService {
     });
     if (!database) throw new NotFoundException('Database not found');
     await this.access.requirePageAccess(database.pageId, user, { requireWrite: true });
+    // Checked against the database's columns as they are now (a choice added since its last save)
+    await this.materializer.catchUpDatabase(database.pageId, database.workspaceId);
     const storage = this.databaseValues.normalizeDatabaseFormStorage(form.fields ?? []);
     const allowedFields = await this.databaseValues.sanitizeDatabaseFormFields(form.databaseId, storage.fields);
     const config = storage.config
