@@ -267,4 +267,20 @@ test.describe('database forms', () => {
       await expect(field.locator('input, select, textarea'), await field.locator('.form-field__label').innerText()).toHaveCount(1);
     }
   });
+
+  test("a form shows the record's ID only when the database has asset tags", async ({ alice: page, workspaceId }) => {
+    const id = await createPage(page, workspaceId, { title: unique('Loans'), kind: 'DATABASE' });
+    const nameField = (await (await page.request.get(`/api/pages/${id}/database`)).json()).fields.find((f: any) => f.name === 'Name').id;
+    const formFor = async () =>
+      (await (await page.request.post(`/api/pages/${id}/database/forms`, { data: { name: unique('Loan'), fields: [{ fieldId: nameField }] } })).json()).id;
+    const itemId = page.locator('.form-field__label', { hasText: /^Item ID$/ });
+
+    await page.goto(`/form/${await formFor()}`);
+    await expect(page.locator('.form-field__label', { hasText: /^Name$/ })).toBeVisible();
+    await expect(itemId).toHaveCount(0);
+
+    await page.request.post(`/api/pages/${id}/database/fields`, { data: { name: 'Tag', type: 'TEXT', options: { source: 'assetTag', readonly: true } } });
+    await page.goto(`/form/${await formFor()}`);
+    await expect(itemId).toBeVisible();
+  });
 });
