@@ -1387,15 +1387,6 @@ onBeforeUnmount(() => {
                 {{ option.label || option.id }}
               </option>
             </select>
-            <div v-if="field.type === 'RELATION' && relationOptionsLoadingForField(field)" class="form-field__note muted">
-              Loading relation options...
-            </div>
-            <div
-              v-else-if="field.type === 'RELATION' && relationOptionsErrorForField(field)"
-              class="form-field__note alert"
-            >
-              {{ relationOptionsErrorForField(field) }}
-            </div>
             <select
               v-else-if="field.type === 'SELECT' && field.selectSource?.type === 'relation'"
               class="form-input"
@@ -1412,18 +1403,6 @@ onBeforeUnmount(() => {
                 {{ option.label }}
               </option>
             </select>
-            <div
-              v-if="field.type === 'SELECT' && field.selectSource?.type === 'relation' && selectSourceLoadingForField(field)"
-              class="form-field__note muted"
-            >
-              Loading relation options...
-            </div>
-            <div
-              v-else-if="field.type === 'SELECT' && field.selectSource?.type === 'relation' && selectSourceErrorForField(field)"
-              class="form-field__note alert"
-            >
-              {{ selectSourceErrorForField(field) }}
-            </div>
             <select
               v-else-if="field.type === 'SELECT'"
               class="form-input"
@@ -1478,6 +1457,28 @@ onBeforeUnmount(() => {
               :disabled="field.readOnly"
               @input="updateFieldValue(field.id, $event.target.value)"
             />
+            <!-- A relation's options loading, or failing to (apart from the inputs above, or a second input shows) -->
+            <div v-if="field.type === 'RELATION' && relationOptionsLoadingForField(field)" class="form-field__note muted">
+              Loading relation options...
+            </div>
+            <div
+              v-else-if="field.type === 'RELATION' && relationOptionsErrorForField(field)"
+              class="form-field__note alert"
+            >
+              {{ relationOptionsErrorForField(field) }}
+            </div>
+            <div
+              v-else-if="field.type === 'SELECT' && field.selectSource?.type === 'relation' && selectSourceLoadingForField(field)"
+              class="form-field__note muted"
+            >
+              Loading relation options...
+            </div>
+            <div
+              v-else-if="field.type === 'SELECT' && field.selectSource?.type === 'relation' && selectSourceErrorForField(field)"
+              class="form-field__note alert"
+            >
+              {{ selectSourceErrorForField(field) }}
+            </div>
           </template>
         </div>
         <div v-if="requiresAmendReason" class="form-field">
