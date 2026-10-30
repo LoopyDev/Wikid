@@ -523,35 +523,13 @@ export class HtmlExportService {
   }
 
   /**
-   * Ask the Hocuspocus collab server to flush its in-memory state to the DB
-   * for the given document names. No-op if collab server is unreachable.
-   */
-  private async flushCollabDocs(docNames: string[]): Promise<void> {
-    const collabServerUrl = process.env.COLLAB_SERVER_URL;
-    const collabApiSecret = process.env.COLLAB_API_SECRET;
-    if (!collabServerUrl || !collabApiSecret || !docNames.length) return;
-    try {
-      await fetch(`${collabServerUrl}/collab/flush`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${collabApiSecret}`,
-        },
-        body: JSON.stringify({ documentNames: docNames }),
-      });
-    } catch {
-      // Collab server unavailable; proceed with whatever is in the DB
-    }
-  }
-
-  /**
    * Batch-fetch live Yjs states and return a map of pageId → parsed JSON content.
    */
   private async fetchLiveContent(pageIds: string[], workspaceId: string): Promise<Map<string, any>> {
     if (!pageIds.length) return new Map();
     const docNames = pageIds.map((id) => `ws:${workspaceId}:${id}`);
     // Force-flush collab server's in-memory state to DB first
-    await this.flushCollabDocs(docNames);
+    await this.materializer.flushLiveDocuments(docNames);
     const collabDocs = await this.prisma.collabDoc.findMany({
       where: { documentName: { in: docNames } },
       select: { documentName: true, state: true },
@@ -576,7 +554,7 @@ export class HtmlExportService {
     const dbPages = pages.filter((p) => p.kind === 'DATABASE');
     if (!dbPages.length) return;
     const dbDocNames = dbPages.map((p) => `ws:${workspaceId}:db:${p.id}`);
-    await this.flushCollabDocs(dbDocNames);
+    await this.materializer.flushLiveDocuments(dbDocNames);
     await this.materializer.materializeDocuments(dbDocNames);
   }
 

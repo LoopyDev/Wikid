@@ -11,6 +11,7 @@ import { CollabSyncService } from './collab-sync.service';
 import { DatabaseValuesService } from './database-values.service';
 import { WikiService } from './wiki.service';
 import { PagesService } from './pages.service';
+import { CollabMaterializerService } from '../collab/collab-materializer.service';
 import { KEPT_VALUE_PREFIX, keptValueKey, normalizeKeptValue } from '../utils/cell-values.util';
 import { POSITION_INCREMENT, COMPLIANCE_RECORD_KEY, DEFAULT_COMPLIANCE_WORKFLOW, ROW_COLOR_KEY, normalizePageTitle, normalizeRowColor, getFieldSource } from './pages.shared';
 
@@ -27,6 +28,7 @@ export class DatabasesService {
     private readonly databaseValues: DatabaseValuesService,
     private readonly wiki: WikiService,
     private readonly pages: PagesService,
+    private readonly materializer: CollabMaterializerService,
   ) {}
 
   private readonly RELATION_HISTORY_FIELDS = {
@@ -520,6 +522,9 @@ export class DatabasesService {
   }
 
   async getDatabase(pageId: string, user?: { userId?: string; userName?: string }) {
+    // As the live document has it, for whoever reads it here (a form's relation options, say)
+    const { page: accessible } = await this.access.requirePageAccess(pageId, user);
+    if (accessible.kind === PageKind.DATABASE) await this.materializer.catchUpDatabase(accessible.id, accessible.workspaceId);
     // Include the database page's current title: inline views only store a copy from when
     // they were inserted, so exports would otherwise show a stale name
     const page = await this.prisma.page.findUnique({ where: { id: pageId }, select: { title: true } });
