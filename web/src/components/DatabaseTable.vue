@@ -2037,7 +2037,7 @@ const tableRows = computed(() => {
   });
 });
 
-const { viewFilteredRows, viewSorting, boardColumns, cardBodyFields, cardFieldCandidates, galleryCardField, galleryCardValue, openRowCard, rowTitle } = useViewRows({ fields, fieldById, tableRows, activeSavedView, isBoardView, hiddenFieldIdSet, displayValueForField, getChoiceLabel, rowPageId, openRowPageOverlay, ensureRowPage, isReadonly, workspace });
+const { viewFilteredRows, viewSorting, shownRows, boardColumns, cardBodyFields, cardFieldCandidates, galleryCardField, galleryCardValue, openRowCard, rowTitle } = useViewRows({ fields, fieldById, tableRows, activeSavedView, isBoardView, hiddenFieldIdSet, displayValueForField, getChoiceLabel, rowPageId, openRowPageOverlay, ensureRowPage, isReadonly, workspace, sortedRows: () => table.getRowModel().rows.map((row) => row.original) });
 
 // A gallery cover listing linked rows ("Linked from" or a relation): stacked cells that open them,
 // as many as the view says before "Show more"
@@ -3714,10 +3714,10 @@ onBeforeUnmount(() => {
               </div>
             </details>
           </div>
-          <div v-if="!viewFilteredRows.length" class="database-table__empty muted">No matching rows.</div>
+          <div v-if="!shownRows.length" class="database-table__empty muted">No matching rows.</div>
           <div v-else class="db-gallery__grid">
             <div
-              v-for="row in viewFilteredRows"
+              v-for="row in shownRows"
               :key="row.id"
               role="button"
               tabindex="0"
@@ -3794,9 +3794,9 @@ onBeforeUnmount(() => {
               </div>
             </details>
           </div>
-          <div v-if="!viewFilteredRows.length" class="database-table__empty muted">No matching rows.</div>
+          <div v-if="!shownRows.length" class="database-table__empty muted">No matching rows.</div>
           <ul v-else class="db-list__rows">
-            <li v-for="row in viewFilteredRows" :key="row.id" class="db-list__row">
+            <li v-for="row in shownRows" :key="row.id" class="db-list__row">
               <button class="db-list__title" type="button" @click="openRowCard(row)">
                 <PageIcon class="db-list__icon" :icon="rowIcon(row)" fallback="📄" aria-hidden="true" />
                 <span class="db-list__name">{{ rowTitle(row) }}</span>
