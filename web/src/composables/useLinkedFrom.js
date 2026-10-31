@@ -80,5 +80,5 @@ export function useLinkedFrom({ pageId, fields, workspace }) {
     return incomingRelations.value;
   };
 
-  return { linkedRowsFor, incomingRelations, incomingRelationsLoading, loadIncomingRelations };
+  return { linkedRows, linkedRowsFor, incomingRelations, incomingRelationsLoading, loadIncomingRelations };
 }

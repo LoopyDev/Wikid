@@ -273,4 +273,62 @@ test.describe('database relations', () => {
     await openPlace();
     await expect(target().locator('option:checked')).toHaveText(exhibitsTitle);
   });
+
+  test("a column is wide enough for its pills from the first load, unless it's been dragged narrower", async ({ alice: page, workspaceId }) => {
+    const projects = await createPage(page, workspaceId, { title: unique('Projects'), kind: 'DATABASE' });
+    const tasksTitle = unique('Tasks');
+    const tasks = await createPage(page, workspaceId, { title: tasksTitle, kind: 'DATABASE' });
+    const longName = 'Rewrite the whole home page';
+
+    await page.goto(`/doc/${projects}`);
+    await expect(main(page).getByRole('button', { name: 'Add row' })).toBeVisible();
+    await addNamedRow(page, projects, longName);
+
+    await page.goto(`/doc/${tasks}`);
+    await expect(main(page).getByRole('button', { name: 'Add row' })).toBeVisible();
+    await addNamedRow(page, tasks, longName);
+    await main(page).locator('thead th').last().locator('button').first().click();
+    await page.locator('.db-add-column-menu .block-menu__item', { hasText: 'Relation' }).click();
+    await expect(main(page).locator('thead th')).toHaveCount(3);
+    await chooseRelation(page, 0, longName);
+    await expect(main(page).locator('.db-relation-pill')).toHaveText(longName);
+
+    await page.goto(`/doc/${projects}`);
+    await expect(main(page).getByRole('button', { name: 'Add row' })).toBeVisible();
+    await main(page).locator('thead th').last().locator('button').first().click();
+    await page.locator('.db-add-column-menu .block-menu__item', { hasText: 'Linked from' }).click();
+    await expect(main(page).locator('thead th')).toHaveCount(3);
+    await expect(main(page).locator('.db-linked-pill')).toHaveText(longName);
+
+    // How far a pill sticks out of its cell: nothing, once fitted
+    const overflow = (pills: string) => main(page).evaluate((root, selector) => {
+      const pill = root.querySelector(selector);
+      const cell = pill?.closest('td');
+      return pill && cell ? pill.getBoundingClientRect().right - cell.getBoundingClientRect().right : Infinity;
+    }, pills);
+    await page.reload();
+    await expect(main(page).locator('.db-linked-pill')).toHaveText(longName);
+    await expect.poll(() => overflow('.db-linked-pill')).toBeLessThanOrEqual(0);
+
+    // Dragged narrower, it stays so when the linked rows load again
+    const header = main(page).locator('thead th').nth(1);
+    const before = (await header.boundingBox())!;
+    await header.hover();
+    const handle = (await header.locator('.db-resizer').boundingBox())!;
+    await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(handle.x - 100, handle.y + handle.height / 2, { steps: 5 });
+    await page.mouse.up();
+    const narrower = (await header.boundingBox())!.width;
+    expect(narrower).toBeLessThan(before.width - 50);
+    const reloaded = page.waitForResponse((res) => res.url().includes('/linked-rows'));
+    await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+    await reloaded;
+    await page.waitForTimeout(200);
+    expect((await header.boundingBox())!.width).toBe(narrower);
+
+    await page.goto(`/doc/${tasks}`);
+    await expect(main(page).locator('.db-relation-pill')).toHaveText(longName);
+    await expect.poll(() => overflow('.db-relation-pill')).toBeLessThanOrEqual(0);
+  });
 });

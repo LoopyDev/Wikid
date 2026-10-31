@@ -70,7 +70,7 @@ const loading = ref(false);
 const error = ref(null);
 const fields = ref([]);
 // "Linked from" columns: the rows of other databases linking to these ones
-const { linkedRowsFor, incomingRelations, incomingRelationsLoading, loadIncomingRelations } = useLinkedFrom({
+const { linkedRows, linkedRowsFor, incomingRelations, incomingRelationsLoading, loadIncomingRelations } = useLinkedFrom({
   pageId: computed(() => props.pageId),
   fields,
   workspace,
@@ -644,6 +644,16 @@ const primeRelationOptions = (fieldList) => {
   });
 };
 
+// The labels of the pills a cell shows, or null for a column without pills
+const pillLabelsFor = (row, field) => {
+  if (field.type === 'MULTI_SELECT' || isPersonField(field)) {
+    return getMultiSelectValues(row, field).map((value) => getChoiceLabel(field, value)).filter(Boolean);
+  }
+  if (isLinkedFromField(field)) return linkedRowsFor(field.id, row.id).map((entry) => entry.title).filter(Boolean);
+  if (field.type === 'RELATION') return getRelationEntries(row, field).map((entry) => getRelationLabel(field, entry));
+  return null;
+};
+
 const getAutoColumnSizing = (fields, rows) => {
   const sizing = {};
   fields.forEach((field, index) => {
@@ -665,14 +675,11 @@ const getAutoColumnSizing = (fields, rows) => {
       maxChars = placeholder.length;
     }
     for (const row of rows) {
-      if (isMultiSelect) {
-        const values = getMultiSelectValues(row, field);
-        if (!values.length) continue;
+      const labels = pillLabelsFor(row, field);
+      if (labels) {
         let rowChars = 0;
         let rowPills = 0;
-        for (const value of values) {
-          const label = getChoiceLabel(field, value);
-          if (!label) continue;
+        for (const label of labels) {
           const remaining = AUTO_SIZE_CHAR_LIMIT - rowChars;
           if (remaining <= 0) break;
           rowChars += Math.min(label.length, remaining);
@@ -700,9 +707,9 @@ const getAutoColumnSizing = (fields, rows) => {
       }
     }
     maxChars = Math.min(AUTO_SIZE_CHAR_LIMIT, maxChars);
-    if (isSelect || isRelation) {
-      maxExtra = Math.max(maxExtra, AUTO_SIZE_SELECT_EXTRA);
-    }
+    if (isSelect) maxExtra = AUTO_SIZE_SELECT_EXTRA;
+    // A relation's pills are followed by the button that changes them
+    if (isRelation) maxExtra += AUTO_SIZE_SELECT_EXTRA;
     const iconExtra = index === 0 && isPageField(field) ? AUTO_SIZE_PAGE_ICON_EXTRA : 0;
     const padding = AUTO_SIZE_BASE + AUTO_SIZE_BUFFER + (index === 0 ? AUTO_SIZE_FIRST_EXTRA : 0) + iconExtra + maxExtra;
     const rawSize = Math.ceil(maxChars * AUTO_SIZE_CHAR_WIDTH + padding);
@@ -710,6 +717,19 @@ const getAutoColumnSizing = (fields, rows) => {
   });
   return sizing;
 };
+
+// Columns dragged to a width, which fitting leaves alone
+const resizedColumnIds = new Set();
+// Linked rows, relation names and people load after the table does, so columns are fitted to them
+// as they arrive. Only ever wider, so a reload of them doesn't make columns shift back and forth.
+const widenColumnsToFit = () => {
+  const fitted = getAutoColumnSizing(fields.value, rows.value);
+  const wider = Object.entries(fitted).filter(
+    ([id, size]) => !resizedColumnIds.has(id) && size > (columnSizing.value[id] ?? COLUMN_DEFAULT_SIZE)
+  );
+  if (wider.length) columnSizing.value = { ...columnSizing.value, ...Object.fromEntries(wider) };
+};
+watch([linkedRows, relationOptionsByPageId, workspaceMembers], widenColumnsToFit);
 
 const openAssetTagPreview = async (value) => {
   const text = typeof value === 'string' ? value.trim() : '';
@@ -2173,7 +2193,11 @@ const table = useVueTable({
     globalFilter.value = typeof updater === 'function' ? updater(globalFilter.value) : updater;
   },
   onColumnSizingChange: (updater) => {
-    columnSizing.value = typeof updater === 'function' ? updater(columnSizing.value) : updater;
+    const next = typeof updater === 'function' ? updater(columnSizing.value) : updater;
+    Object.keys(next).forEach((id) => {
+      if (next[id] !== columnSizing.value[id]) resizedColumnIds.add(id);
+    });
+    columnSizing.value = next;
   },
   onColumnSizingInfoChange: (updater) => {
     columnSizingInfo.value = typeof updater === 'function' ? updater(columnSizingInfo.value) : updater;
@@ -2626,6 +2650,7 @@ const loadDatabase = async () => {
     fields.value = nextFields;
     rows.value = nextRows;
     primeRelationOptions(nextFields);
+    resizedColumnIds.clear();
     columnSizing.value = {
       [ROW_ID_COLUMN_ID]: ROW_ID_COLUMN_SIZE,
       ...getAutoColumnSizing(nextFields, nextRows),
