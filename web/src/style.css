@@ -3229,6 +3229,38 @@ button {
   color: var(--text-primary);
 }
 
+/* The form's name, edited in place */
+.db-form-builder__title-input {
+  font: inherit;
+  font-weight: 600;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 2px 6px;
+  margin-left: -7px;
+  width: 100%;
+  min-width: 0;
+}
+
+.db-form-builder__title-input:hover,
+.db-form-builder__title-input:focus {
+  border-color: var(--context-menu-border);
+  outline: none;
+}
+
+.db-form-builder__input.db-form-field-label-input {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+}
+
+.db-form-builder__textarea.db-form-field-description {
+  width: 100%;
+  margin: 4px 0 8px;
+  min-height: 0;
+  resize: vertical;
+}
+
 .db-form-builder__meta {
   font-size: 0.8rem;
   color: var(--text-muted);
@@ -6989,6 +7021,14 @@ button {
 
 .form-field--flash-b::after {
   animation: form-field-flash-b 360ms ease var(--flash-delay, 0ms);
+}
+
+/* A field's description, from the form builder, under its label */
+.form-field__description {
+  margin: -2px 0 8px;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  white-space: pre-wrap;
 }
 
 .form-field__note {

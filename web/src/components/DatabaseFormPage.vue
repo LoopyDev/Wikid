@@ -462,6 +462,7 @@ const resolvedFields = computed(() => {
       auto,
       autoValue: field && auto ? resolveAutoValue(field, auto) : undefined,
       noFuture: entry?.noFuture === true && field?.type === 'DATE',
+      description: typeof entry?.description === 'string' ? entry.description.trim() : '',
     };
   });
 });
@@ -1336,6 +1337,7 @@ onBeforeUnmount(() => {
               Required
             </span>
           </div>
+          <p v-if="field.description && !field.missing" class="form-field__description">{{ field.description }}</p>
           <div v-if="field.missing" class="form-field__note muted">This field no longer exists in the database.</div>
           <template v-else>
             <input

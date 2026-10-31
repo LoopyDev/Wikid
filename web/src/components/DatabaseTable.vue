@@ -346,9 +346,12 @@ const normalizeFormFieldEntry = (entry) => {
   const visibleWhen = normalizeFormVisibleWhen(entry.visibleWhen);
   const dateField = fields.value.find((field) => field?.id === fieldId);
   const noFuture = entry.noFuture === true && dateField?.type === 'DATE';
+  // Help shown under the field on the form
+  const description = typeof entry.description === 'string' ? entry.description.trim().slice(0, 1000) : '';
   const base = {
     ...(auto ? { fieldId, label, required, editable, auto } : { fieldId, label, required, editable }),
     ...(noFuture ? { noFuture } : {}),
+    ...(description ? { description } : {}),
   };
   const withSource = selectSource ? { ...base, selectSource } : base;
   const withRequired = requiredWhen ? { ...withSource, requiredWhen } : withSource;
