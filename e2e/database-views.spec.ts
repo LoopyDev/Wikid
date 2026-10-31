@@ -261,6 +261,29 @@ test.describe('database views', () => {
     await expect(cells).toHaveCount(4);
     await expect(main(page).locator('.db-gallery__card').first().locator('.db-gallery__cover-more')).toHaveText('Show 1 more');
   });
+  test("a gallery's and a list's menus aren't cut off by a short view", async ({ alice: page, workspaceId }) => {
+    await openPage(page, await createPage(page, workspaceId));
+    await newDatabaseFromSidebar(page, unique('Short'));
+
+    // With no rows the view is much shorter than either menu, so the bottom of the menu must still be the one on top
+    const lastOptionOnTop = () => main(page).locator('.db-card-fields__menu > :last-child').evaluate((el) => {
+      const box = el.getBoundingClientRect();
+      const top = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+      return !!top && el.contains(top);
+    });
+
+    await main(page).getByRole('button', { name: 'Create form view' }).click();
+    await page.locator('.block-menu__item', { hasText: 'Gallery' }).click();
+    await openViewOptions(page);
+    expect(await lastOptionOnTop()).toBe(true);
+    await page.mouse.click(5, 5);
+
+    await main(page).getByRole('button', { name: 'Create form view' }).click();
+    await page.locator('.block-menu__item', { hasText: 'One row per line' }).click();
+    await main(page).locator('.db-card-fields__toggle', { hasText: 'Properties' }).click();
+    expect(await lastOptionOnTop()).toBe(true);
+  });
+
   test("a gallery can show its colours: a card's own, its select values' and its linked rows'", async ({ alice: page, workspaceId }) => {
     const api = page.request;
     const titleOf = async (id: string) => (await (await api.get(`/api/pages/${id}/database`)).json()).fields.find((f: any) => f.name === 'Name').id;

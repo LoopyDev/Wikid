@@ -3502,7 +3502,12 @@ onBeforeUnmount(() => {
     </div>
     <div v-if="loading" class="muted">Loading database...</div>
     <div v-else class="database-table__panel">
-      <div ref="tableWrapRef" class="database-table__wrap" @focusout="onTableFocusOut">
+      <div
+        ref="tableWrapRef"
+        class="database-table__wrap"
+        :class="{ 'database-table__wrap--menus': isGalleryView || isListView }"
+        @focusout="onTableFocusOut"
+      >
         <template v-if="showTableView">
           <div v-if="isAuditView" class="db-audit-key" :style="{ minWidth: `${table.getTotalSize()}px` }">
             <div class="db-audit-key__title">Governance status</div>

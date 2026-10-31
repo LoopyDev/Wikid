@@ -2039,6 +2039,11 @@ button {
   background: var(--content-bg);
 }
 
+/* Gallery and list views don't scroll sideways, and their menus must reach past a short view */
+.database-table__wrap--menus {
+  overflow: visible;
+}
+
 .database-table--embedded .database-table__wrap {
   display: contents;
 }
