@@ -4,8 +4,9 @@ import { getMultiSelectValues, stringifyValue, valueForField } from '../utils/da
 import { toComparableDate } from '../utils/database/views';
 
 // The rows a saved view shows: its filters and sort applied to the table's rows, and the board's
-// columns and gallery's cards built from them.
-export function useViewRows({ fields, fieldById, tableRows, activeSavedView, isBoardView, hiddenFieldIdSet, displayValueForField, getChoiceLabel, rowPageId, openRowPageOverlay, ensureRowPage, isReadonly, workspace }) {
+// columns and gallery's cards built from them. sortedRows gives them after the table's sort and
+// search, which is the order every view shows.
+export function useViewRows({ fields, fieldById, tableRows, activeSavedView, isBoardView, hiddenFieldIdSet, displayValueForField, getChoiceLabel, rowPageId, openRowPageOverlay, ensureRowPage, isReadonly, workspace, sortedRows }) {
   const matchesFilterRule = (row, rule) => {
     const field = fieldById.value.get(rule.fieldId);
     if (!field) return true;
@@ -115,6 +116,7 @@ export function useViewRows({ fields, fieldById, tableRows, activeSavedView, isB
       .filter((sort) => fieldById.value.has(sort.fieldId))
       .map((sort) => ({ id: sort.fieldId, desc: sort.direction === 'desc' }))
   );
+  const shownRows = computed(() => sortedRows());
   // --- Gallery / Board derived data ---
   const boardGroupField = computed(() => {
     const id = activeSavedView.value?.config?.groupFieldId;
@@ -123,7 +125,7 @@ export function useViewRows({ fields, fieldById, tableRows, activeSavedView, isB
   const boardColumns = computed(() => {
     if (!isBoardView.value) return [];
     const field = boardGroupField.value;
-    const rowsForBoard = viewFilteredRows.value;
+    const rowsForBoard = shownRows.value;
     if (!field) {
       return [{ key: '__all__', label: 'All', rows: rowsForBoard }];
     }
@@ -185,5 +187,5 @@ export function useViewRows({ fields, fieldById, tableRows, activeSavedView, isB
     if (targetPage && typeof openRowPageOverlay === 'function') openRowPageOverlay(targetPage);
   };
 
-  return { viewFilteredRows, viewSorting, boardColumns, cardBodyFields, cardFieldCandidates, galleryCardField, galleryCardValue, openRowCard, rowTitle };
+  return { viewFilteredRows, viewSorting, shownRows, boardColumns, cardBodyFields, cardFieldCandidates, galleryCardField, galleryCardValue, openRowCard, rowTitle };
 }

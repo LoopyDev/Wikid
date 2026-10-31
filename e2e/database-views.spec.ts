@@ -261,6 +261,51 @@ test.describe('database views', () => {
     await expect(cells).toHaveCount(4);
     await expect(main(page).locator('.db-gallery__card').first().locator('.db-gallery__cover-more')).toHaveText('Show 1 more');
   });
+  test('gallery, list and board views show rows in the sort chosen, and the filter box narrows them', async ({ alice: page, workspaceId }) => {
+    await openPage(page, await createPage(page, workspaceId));
+    const id = await newDatabaseFromSidebar(page, unique('Fruit'));
+    for (const name of ['Banana', 'Apple', 'Cherry']) await addNamedRow(page, id, name);
+    for (const [name, type] of [['Cards', 'GALLERY'], ['Lines', 'LIST'], ['Lanes', 'BOARD']]) {
+      expect((await page.request.post(`/api/pages/${id}/database/views`, { data: { name, type, config: {} } })).status()).toBe(201);
+    }
+    await page.reload();
+
+    const sortDescending = async () => {
+      await main(page).getByRole('button', { name: 'Sort', exact: true }).click();
+      const config = page.locator('.db-view-config-menu');
+      await config.getByRole('button', { name: '+ Add sort' }).click();
+      await config.locator('select').nth(1).selectOption('desc');
+      await page.keyboard.press('Escape');
+      await page.mouse.click(5, 5);
+    };
+    const views = [
+      { name: 'Cards', titles: main(page).locator('.db-gallery__title') },
+      { name: 'Lines', titles: main(page).locator('.db-list__name') },
+      { name: 'Lanes', titles: main(page).locator('.db-board__card-title') },
+    ];
+    for (const { name, titles } of views) {
+      await main(page).getByRole('button', { name }).click();
+      await expect(titles).toHaveText(['Banana', 'Apple', 'Cherry']);
+      await sortDescending();
+      await expect(titles).toHaveText(['Cherry', 'Banana', 'Apple']);
+    }
+
+    // And after a reload, from the saved view
+    const saved = async () => {
+      const { views: all = [] } = await (await page.request.get(`/api/pages/${id}/database`)).json();
+      return all.map((view: any) => view.config?.sorts?.[0]?.direction);
+    };
+    await expect.poll(saved).toEqual(['desc', 'desc', 'desc']);
+    await page.reload();
+    await main(page).getByRole('button', { name: 'Cards' }).click();
+    const cards = views[0].titles;
+    await expect(cards).toHaveText(['Cherry', 'Banana', 'Apple']);
+
+    await main(page).getByRole('button', { name: 'Filter rows' }).click();
+    await main(page).getByPlaceholder('Filter rows').fill('an');
+    await expect(cards).toHaveText(['Banana']);
+  });
+
   test("a gallery's and a list's menus aren't cut off by a short view", async ({ alice: page, workspaceId }) => {
     await openPage(page, await createPage(page, workspaceId));
     await newDatabaseFromSidebar(page, unique('Short'));
