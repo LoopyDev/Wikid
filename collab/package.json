@@ -21,6 +21,6 @@
     "@types/node": "^22.9.0",
     "@types/jsonwebtoken": "^9.0.6",
     "tsx": "^4.19.2",
-    "typescript": "^5.6.3"
+    "typescript": "^7.0.2"
   }
 }
