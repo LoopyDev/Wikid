@@ -1,7 +1,7 @@
 import { Injectable, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { Prisma, WorkspaceRole, PageKind } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { updateCollabTitleState } from '../collab/collab-doc.util';
+import { CollabState, updateCollabTitleState } from '../collab/collab-doc.util';
 import {
   CollabFieldChange,
   deleteCollabDatabaseFieldState,
@@ -27,7 +27,7 @@ export class CollabSyncService {
 
   private async applyCollabStateUpdate(
     documentName: string,
-    updater: (state: Buffer) => Buffer | null,
+    updater: (state: Uint8Array) => CollabState | null,
     warnMessage: string,
     warnContext: Record<string, unknown> = {},
   ) {

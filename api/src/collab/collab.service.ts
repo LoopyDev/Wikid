@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import type { CollabState } from './collab-doc.util';
 import { extractPageIdFromDocName } from '../utils/collab-doc-name.util';
 import { deleteDatabasesWithContents } from '../utils/delete-databases.util';
 
@@ -14,7 +15,7 @@ export class CollabService {
     });
   }
 
-  async storeState(documentName: string, state: Buffer) {
+  async storeState(documentName: string, state: CollabState) {
     return this.prisma.collabDoc.upsert({
       where: { documentName },
       create: { documentName, state },

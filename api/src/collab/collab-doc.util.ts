@@ -7,6 +7,11 @@ import { BLOCK_ID_TYPES, normalizeEditorContent } from '../pages/editor-doc.util
 
 const COLLAB_FRAGMENT = 'default';
 
+// A document's state, for storing in CollabDoc.state. Yjs types it as any Uint8Array, and Prisma's
+// Bytes need one backed by a plain ArrayBuffer, which the copy is.
+export type CollabState = Uint8Array<ArrayBuffer>;
+export const encodeCollabState = (doc: Y.Doc): CollabState => new Uint8Array(Y.encodeStateAsUpdate(doc));
+
 const hasBlockIdIssues = (node: any) => {
   const seen = new Set<string>();
   let hasDuplicate = false;
@@ -43,12 +48,12 @@ const hasBlockIdIssues = (node: any) => {
 export type CollabDocNormalization = {
   normalized: ReturnType<typeof normalizeEditorContent>;
   title: string | null;
-  repairedState: Buffer | null;
+  repairedState: CollabState | null;
   hadDuplicateIds: boolean;
   hadInvalidIds: boolean;
 };
 
-export const normalizeCollabDocState = async (state: Buffer): Promise<CollabDocNormalization> => {
+export const normalizeCollabDocState = async (state: Uint8Array): Promise<CollabDocNormalization> => {
   const doc = new Y.Doc();
   Y.applyUpdate(doc, new Uint8Array(state));
   const title = doc.getText('title').toString().trim() || null;
@@ -57,14 +62,14 @@ export const normalizeCollabDocState = async (state: Buffer): Promise<CollabDocN
   const json = pmNode?.toJSON ? pmNode.toJSON() : null;
   const { hasDuplicate, hasInvalid } = hasBlockIdIssues(json);
   const normalized = normalizeEditorContent(json ?? null);
-  let repairedState: Buffer | null = null;
+  let repairedState: CollabState | null = null;
   if (hasDuplicate || hasInvalid) {
     prosemirrorJSONToYXmlFragment(
       collabSchema,
       { type: normalized.type || 'doc', content: normalized.content },
       fragment
     );
-    repairedState = Buffer.from(Y.encodeStateAsUpdate(doc));
+    repairedState = encodeCollabState(doc);
   }
   return {
     normalized,
@@ -75,12 +80,12 @@ export const normalizeCollabDocState = async (state: Buffer): Promise<CollabDocN
   };
 };
 
-export const editorDocFromYjsState = async (state: Buffer) => {
+export const editorDocFromYjsState = async (state: Uint8Array) => {
   const result = await normalizeCollabDocState(state);
   return result.normalized;
 };
 
-export const updateCollabTitleState = (state: Buffer, title: string) => {
+export const updateCollabTitleState = (state: Uint8Array, title: string) => {
   const doc = new Y.Doc();
   Y.applyUpdate(doc, new Uint8Array(state));
   const text = doc.getText('title');
@@ -94,5 +99,5 @@ export const updateCollabTitleState = (state: Buffer, title: string) => {
       text.insert(0, title);
     }
   }, 'title-server');
-  return Buffer.from(Y.encodeStateAsUpdate(doc));
+  return encodeCollabState(doc);
 };
