@@ -1,6 +1,7 @@
 import * as Y from 'yjs';
 import { DatabaseFieldType } from '@prisma/client';
 import { isUuid } from '../utils/uuid.util';
+import { encodeCollabState } from './collab-doc.util';
 
 export type CollabDatabaseField = {
   id: string;
@@ -127,7 +128,7 @@ const databaseStateFromDoc = (doc: Y.Doc): CollabDatabaseState => {
   return { fields, rows };
 };
 
-export const databaseStateFromYjsState = (state: Buffer): CollabDatabaseState => {
+export const databaseStateFromYjsState = (state: Uint8Array): CollabDatabaseState => {
   const doc = new Y.Doc();
   Y.applyUpdate(doc, new Uint8Array(state));
   return databaseStateFromDoc(doc);
@@ -160,7 +161,7 @@ const valuesEqual = (left: any, right: any) => {
 };
 
 export const updateCollabDatabaseRowState = (
-  state: Buffer,
+  state: Uint8Array,
   row: { id: string; data?: Record<string, any> | null; pageId?: string | null; createdBy?: string | null }
 ) => {
   if (!row?.id) return null;
@@ -246,10 +247,10 @@ export const updateCollabDatabaseRowState = (
       rowOrder.push([row.id]);
     }
   }, 'db-row-server');
-  return Buffer.from(Y.encodeStateAsUpdate(doc));
+  return encodeCollabState(doc);
 };
 
-export const deleteCollabDatabaseRowState = (state: Buffer, rowId: string) => {
+export const deleteCollabDatabaseRowState = (state: Uint8Array, rowId: string) => {
   if (!rowId) return null;
   const doc = new Y.Doc();
   Y.applyUpdate(doc, new Uint8Array(state));
@@ -269,7 +270,7 @@ export const deleteCollabDatabaseRowState = (state: Buffer, rowId: string) => {
       rowOrder.delete(indices[idx], 1);
     }
   }, 'db-row-delete-server');
-  return Buffer.from(Y.encodeStateAsUpdate(doc));
+  return encodeCollabState(doc);
 };
 
 // A field (column) changed through the API, into the live document, so the next save from it
@@ -278,18 +279,18 @@ export const deleteCollabDatabaseRowState = (state: Buffer, rowId: string) => {
 // first opened, and one holding just this field would make that save delete everything else.
 export type CollabFieldChange = { id: string; name: string; type: string; options: Record<string, any> };
 
-export const updateCollabDatabaseFieldState = (state: Buffer, field: CollabFieldChange) => {
+export const updateCollabDatabaseFieldState = (state: Uint8Array, field: CollabFieldChange) => {
   if (!field?.id) return null;
   const doc = new Y.Doc();
   Y.applyUpdate(doc, new Uint8Array(state));
-  return applyCollabFieldChange(doc, field) ? Buffer.from(Y.encodeStateAsUpdate(doc)) : null;
+  return applyCollabFieldChange(doc, field) ? encodeCollabState(doc) : null;
 };
 
-export const deleteCollabDatabaseFieldState = (state: Buffer, fieldId: string) => {
+export const deleteCollabDatabaseFieldState = (state: Uint8Array, fieldId: string) => {
   if (!fieldId) return null;
   const doc = new Y.Doc();
   Y.applyUpdate(doc, new Uint8Array(state));
-  return applyCollabFieldDelete(doc, fieldId) ? Buffer.from(Y.encodeStateAsUpdate(doc)) : null;
+  return applyCollabFieldDelete(doc, fieldId) ? encodeCollabState(doc) : null;
 };
 
 // The changes themselves, on a document (the collab server has a copy, for documents it has open)

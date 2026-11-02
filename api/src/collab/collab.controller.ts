@@ -32,7 +32,8 @@ export class CollabController {
     if (!result?.state) {
       throw new NotFoundException('Document not found');
     }
-    return { state: result.state.toString('base64') };
+    // Prisma returns Bytes as a Uint8Array, whose toString() ignores the encoding
+    return { state: Buffer.from(result.state).toString('base64') };
   }
 
   @Public()
@@ -45,8 +46,7 @@ export class CollabController {
     if (!state || typeof state !== 'string') {
       throw new BadRequestException('state is required');
     }
-    const buffer = Buffer.from(state, 'base64');
-    await this.collabService.storeState(documentName, buffer);
+    await this.collabService.storeState(documentName, new Uint8Array(Buffer.from(state, 'base64')));
     return { ok: true };
   }
 
