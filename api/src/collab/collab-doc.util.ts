@@ -1,4 +1,7 @@
 import * as Y from 'yjs';
+// A static import compiles to require(), so y-prosemirror shares this file's copy of Yjs. A dynamic
+// import() would load Yjs's ESM build as well, and the two copies fail each other's type checks.
+import { prosemirrorJSONToYXmlFragment, yXmlFragmentToProsemirror } from 'y-prosemirror';
 import { collabSchema } from './collab-doc.schema';
 import { BLOCK_ID_TYPES, normalizeEditorContent } from '../pages/editor-doc.util';
 
@@ -46,7 +49,6 @@ export type CollabDocNormalization = {
 };
 
 export const normalizeCollabDocState = async (state: Buffer): Promise<CollabDocNormalization> => {
-  const { yXmlFragmentToProsemirror, prosemirrorJSONToYXmlFragment } = await import('y-prosemirror');
   const doc = new Y.Doc();
   Y.applyUpdate(doc, new Uint8Array(state));
   const title = doc.getText('title').toString().trim() || null;

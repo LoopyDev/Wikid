@@ -28,4 +28,5 @@
 
 ## Tooling
 - TypeScript: Typed codebase for server, collab, and web.
-- ts-node / tsx: Local dev runtime for TypeScript services.
+- tsc --watch / tsx: Local dev runtime for TypeScript services. The API compiles with tsc and runs under
+  node --watch (NestJS needs tsc's decorator metadata); collab and the seed script run with tsx.
