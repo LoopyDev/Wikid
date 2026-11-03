@@ -33,7 +33,7 @@ jobs:
         working-directory: api
         run: |
           npx prisma generate --generator client
-          npx prisma generate --schema prisma/compliance/schema.prisma
+          npx prisma generate --config prisma.compliance.config.ts
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
