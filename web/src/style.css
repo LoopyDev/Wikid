@@ -7733,6 +7733,9 @@ button {
   flex: 1;
   min-height: 0;
   overflow: hidden;
+  /* Keeps the page's own z-indexes (drag handles, block menus) inside it, so overlays drawn after
+     it, like the row page drawer (.page-overlay), always cover the page underneath */
+  isolation: isolate;
 }
 
 /* Split pane layout */

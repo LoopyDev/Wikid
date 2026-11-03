@@ -139,6 +139,31 @@ test.describe('database view blocks', () => {
     await expect(fruits(bob)).toHaveCount(1);
   });
 
+  test("an open row page covers the page underneath: a click on its drag handle closes the row page", async ({ alice: page, workspaceId }) => {
+    const db = await createPage(page, workspaceId, { title: unique('Fruit'), kind: 'DATABASE' });
+    const nameField = (await (await page.request.get(`/api/pages/${db}/database`)).json()).fields.find((f: any) => f.name === 'Name').id;
+    await page.request.post(`/api/pages/${db}/database/rows`, { data: { data: { [nameField]: 'Apple' } } });
+    await openPage(page, await createPage(page, workspaceId, { title: unique('Report') }));
+    await page.evaluate((pageId) => {
+      (document.querySelector('.ProseMirror') as any).editor.chain().focus('end').insertContent({ type: 'databaseView', attrs: { pageId } }).run();
+    }, db);
+    const block = page.locator('.ce-database-view');
+
+    // Hovering the block shows its drag handle, which stays put when the row's page opens
+    await block.hover();
+    const handle = page.locator('.drag-handle--floating:not(.drag-handle--list) .drag-handle__btn--drag');
+    await expect(handle).toBeVisible();
+    const box = (await handle.boundingBox())!;
+    await block.locator('.db-page-input__open').first().click();
+    const overlay = page.locator('.page-overlay');
+    await expect(overlay.locator('.page-overlay__title-input')).toHaveValue('Apple');
+
+    // The darkened page underneath takes no clicks: this one closes the row page, not opens a menu
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    await expect(overlay).toHaveCount(0);
+    await expect(page.locator('.block-menu')).toHaveCount(0);
+  });
+
   test("a database view block's controls can be turned off, showing everyone the block's own view", async ({ alice: page, workspaceId }) => {
     const db = await createPage(page, workspaceId, { title: unique('Fruit'), kind: 'DATABASE' });
     const nameField = (await (await page.request.get(`/api/pages/${db}/database`)).json()).fields.find((f: any) => f.name === 'Name').id;
