@@ -121,7 +121,7 @@ test.describe('editor menus', () => {
     await expect.poll(() => outline(page)).toEqual(['paragraph: Top', 'paragraph: Right']);
   });
 
-  test('dragging an image moves its block, and clicking it opens it in a new tab', async ({ alice: page, workspaceId }) => {
+  test('dragging an image moves its block, and clicking it opens it in the image viewer', async ({ alice: page, workspaceId }) => {
     await openPage(page, await createPage(page, workspaceId));
     await typeParagraphs(page, ['One', 'Two']);
     // An image after the paragraphs
@@ -146,14 +146,15 @@ test.describe('editor menus', () => {
     });
     await expect.poll(() => outline(page)).toEqual(['image', 'paragraph: One', 'paragraph: Two']);
 
-    const opened = page.context().waitForEvent('page');
+    // Clicking it opens it in the viewer, over the page
+    const viewer = page.locator('.pswp');
     await image.locator('img').click();
-    const tab = await opened;
-    expect(new URL(tab.url()).pathname).toBe('/vite.svg');
-    await tab.close();
+    await expect(viewer.locator('.pswp__item:not([aria-hidden="true"]) img.pswp__img')).toHaveAttribute('src', '/vite.svg');
+    await expect(viewer.getByRole('link', { name: 'Open in a new tab' })).toHaveAttribute('href', '/vite.svg');
+    await page.keyboard.press('Escape');
+    await expect(viewer).toHaveCount(0);
 
     // Resizing it, ending over the image, doesn't open it
-    const tabs = page.context().pages().length;
     const handle = await image.getByRole('button', { name: 'Resize image' }).boundingBox();
     await page.mouse.move(handle!.x + handle!.width / 2, handle!.y + handle!.height / 2);
     await page.mouse.down();
@@ -161,7 +162,41 @@ test.describe('editor menus', () => {
     await page.mouse.up();
     await expect(image).toHaveCSS('width', /^1[78]\d/);
     await page.waitForTimeout(300);
-    expect(page.context().pages()).toHaveLength(tabs);
+    await expect(viewer).toHaveCount(0);
+  });
+
+  test("the image viewer moves through the page's images, including ones saved without their size", async ({ alice: page, workspaceId }) => {
+    await openPage(page, await createPage(page, workspaceId));
+    await page.evaluate(() => {
+      const ed = (document.querySelector('.ProseMirror') as any).editor;
+      ed.chain().focus('end').insertContent([
+        { type: 'image', attrs: { src: '/vite.svg?first', naturalWidth: 240, naturalHeight: 120 } },
+        { type: 'paragraph' },
+        { type: 'image', attrs: { src: '/vite.svg?second', width: '200px' } },
+      ]).run();
+    });
+    const images = editor(page).locator('.tiptap-image-resizable img');
+    await expect(images).toHaveCount(2);
+    const shown = page.locator('.pswp__item:not([aria-hidden="true"]) img.pswp__img');
+
+    // Opened at the image clicked, then the arrow keys move between them
+    await images.nth(1).click();
+    await expect(shown).toHaveAttribute('src', '/vite.svg?second');
+    await page.keyboard.press('ArrowLeft');
+    await expect(shown).toHaveAttribute('src', '/vite.svg?first');
+    await expect(page.getByRole('link', { name: 'Open in a new tab' })).toHaveAttribute('href', '/vite.svg?first');
+    await page.getByRole('button', { name: 'Close' }).click();
+    await expect(page.locator('.pswp')).toHaveCount(0);
+
+    // Opened at the other, the one without a size is measured, and shown at its own size (32px)
+    await page.reload();
+    await images.nth(0).click();
+    await expect(shown).toHaveAttribute('src', '/vite.svg?first');
+    await page.keyboard.press('ArrowRight');
+    await expect(shown).toHaveAttribute('src', '/vite.svg?second');
+    await expect.poll(() => shown.evaluate((img) => img.getBoundingClientRect().width)).toBeGreaterThan(20);
+    await page.getByRole('button', { name: 'Close' }).click();
+    await expect(page.locator('.pswp')).toHaveCount(0);
   });
 
   test("the block menu colours a block's text, and the panel follows the block", async ({ alice: page, workspaceId }) => {
