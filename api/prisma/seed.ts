@@ -2,11 +2,12 @@ import { PrismaClient } from '@prisma/client';
 import * as dotenv from 'dotenv';
 import { randomBytes, scrypt } from 'crypto';
 import { promisify } from 'util';
+import { pgAdapter } from '../src/prisma/pg-adapter.util';
 
 dotenv.config();
 
 const scryptAsync = promisify(scrypt);
-const prisma = new PrismaClient();
+const prisma = new PrismaClient({ adapter: pgAdapter(process.env.DATABASE_URL) });
 
 async function hashPassword(password: string): Promise<string> {
   const salt = randomBytes(16).toString('hex');

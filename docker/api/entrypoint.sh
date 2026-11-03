@@ -24,13 +24,27 @@ use_secret COLLAB_API_SECRET
 
 echo "Applying database migrations..."
 npx prisma migrate deploy
-npx prisma migrate deploy --schema prisma/compliance/schema.prisma
+npx prisma migrate deploy --config prisma.compliance.config.ts
 
-# Seed the demo accounts only on a fresh database, so restarts don't reset passwords
-if ! node -e "new (require('@prisma/client').PrismaClient)().user.count().then((n) => process.exit(n > 0 ? 0 : 1), () => process.exit(1))"; then
+# Seed the demo accounts only on a fresh database, so restarts don't reset passwords (the seed sets
+# the admin's). Only an exit of 10 means "no users": any failure, which exits 1, stops startup
+# instead, since seeding a database that has users would reset that password.
+set +e
+node -e "
+const { PrismaClient } = require('@prisma/client');
+const { pgAdapter } = require('./dist/src/prisma/pg-adapter.util');
+new PrismaClient({ adapter: pgAdapter(process.env.DATABASE_URL) }).user.count()
+  .then((n) => process.exit(n > 0 ? 0 : 10), (err) => { console.error(err); process.exit(1); });
+"
+users=$?
+set -e
+if [ "$users" -eq 10 ]; then
   echo "Seeding demo data..."
   # The compiled seed: the image has no TypeScript runner
   node dist/prisma/seed.js
+elif [ "$users" -ne 0 ]; then
+  echo "Couldn't check the database for users; not starting" >&2
+  exit 1
 fi
 
 # Everything above needs root (the secrets volume, migrations). The API itself, and the Chromium it

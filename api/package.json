@@ -5,20 +5,17 @@
   "private": true,
   "scripts": {
     "prisma:generate": "prisma generate",
-    "prisma:generate:compliance": "prisma generate --schema prisma/compliance/schema.prisma",
+    "prisma:generate:compliance": "prisma generate --config prisma.compliance.config.ts",
     "prisma:migrate": "prisma migrate dev",
-    "prisma:migrate:compliance": "prisma migrate dev --schema prisma/compliance/schema.prisma",
+    "prisma:migrate:compliance": "prisma migrate dev --config prisma.compliance.config.ts",
     "prisma:reset": "prisma migrate reset --force",
     "prisma:db:push": "prisma db push",
-    "prisma:db:push:compliance": "prisma db push --schema prisma/compliance/schema.prisma",
+    "prisma:db:push:compliance": "prisma db push --config prisma.compliance.config.ts",
     "prisma:seed": "prisma db seed",
     "start:dev": "node scripts/dev.mjs",
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit && tsc -p test/tsconfig.json",
     "test:e2e": "vitest run --config test/vitest.config.ts"
-  },
-  "prisma": {
-    "seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",
@@ -26,10 +23,11 @@
     "@nestjs/common": "^11.2.8",
     "@nestjs/core": "^11.2.8",
     "@nestjs/platform-express": "^11.2.8",
-    "@prisma/client": "^6.19.3",
+    "@prisma/adapter-pg": "^7.10.1",
+    "@prisma/client": "^7.10.1",
     "dotenv": "^16.4.5",
     "jsonwebtoken": "^9.0.3",
-    "prisma": "^6.19.3",
+    "prisma": "^7.10.1",
     "prosemirror-model": "^1.21.0",
     "puppeteer": "^25.16.0",
     "reflect-metadata": "^0.2.2",

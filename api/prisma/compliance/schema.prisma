@@ -5,7 +5,6 @@ generator complianceClient {
 
 datasource db {
   provider = "postgresql"
-  url      = env("COMPLIANCE_DATABASE_URL")
 }
 
 model ComplianceRecord {

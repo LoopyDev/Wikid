@@ -12,11 +12,11 @@ COPY web/package.json web/
 COPY mcp/package.json mcp/
 RUN npm ci -w api
 WORKDIR /app/api
-COPY api/tsconfig.json api/tsconfig.build.json ./
+COPY api/tsconfig.json api/tsconfig.build.json api/prisma.config.ts api/prisma.compliance.config.ts ./
 COPY api/prisma ./prisma
 COPY api/src ./src
 RUN npx prisma generate \
-  && npx prisma generate --schema prisma/compliance/schema.prisma \
+  && npx prisma generate --config prisma.compliance.config.ts \
   && npm run build \
   && cp -r prisma/generated dist/prisma/generated
 
@@ -40,7 +40,8 @@ COPY mcp/package.json mcp/
 RUN npm ci -w api --omit=dev
 
 WORKDIR /app/api
-# The schemas and migrations, for "prisma migrate deploy" at startup
+# The schemas, migrations and Prisma configs, for "prisma migrate deploy" at startup
+COPY api/prisma.config.ts api/prisma.compliance.config.ts ./
 COPY api/prisma ./prisma
 RUN npx prisma generate
 COPY --from=build /app/api/dist ./dist
