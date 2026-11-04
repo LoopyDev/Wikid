@@ -16,25 +16,37 @@ const warnBeforeLeaving = (event) => {
   event.returnValue = '';
 };
 
-const placeholder = (previewUrl, size) => {
+// The preview is drawn from the file itself, at most twice the placeholder's width (sharp on
+// high-density screens); one that can't be drawn (an SVG, say) leaves a blank of its shape
+const PREVIEW_MAX_WIDTH = 720;
+const drawPreview = async (canvas, file) => {
+  try {
+    const bitmap = await createImageBitmap(file);
+    canvas.getContext('2d')?.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close?.();
+  } catch {
+    // stays blank
+  }
+};
+
+const placeholder = (file, size) => {
   const el = document.createElement('div');
   el.className = 'image-upload-pending';
   el.contentEditable = 'false';
   el.setAttribute('role', 'status');
-  const img = document.createElement('img');
-  img.src = previewUrl;
-  img.alt = '';
-  if (size) {
-    img.width = size.width;
-    img.height = size.height;
-  }
+  const preview = document.createElement('canvas');
+  preview.className = 'image-upload-pending__preview';
+  const scale = size ? Math.min(1, PREVIEW_MAX_WIDTH / size.width) : 1;
+  preview.width = size ? Math.max(1, Math.round(size.width * scale)) : 320;
+  preview.height = size ? Math.max(1, Math.round(size.height * scale)) : 180;
+  drawPreview(preview, file);
   const bar = document.createElement('div');
   bar.className = 'image-upload-pending__bar';
   const fill = document.createElement('span');
   bar.append(fill);
   const label = document.createElement('span');
   label.className = 'image-upload-pending__label';
-  el.append(img, bar, label);
+  el.append(preview, bar, label);
   const setProgress = (fraction) => {
     const percent = Math.round(Math.max(0, Math.min(1, fraction)) * 100);
     fill.style.width = `${percent}%`;
@@ -81,8 +93,7 @@ export const ImageUploads = Extension.create({
  */
 export async function withUploadPlaceholder(editor, pos, file, size, upload) {
   const id = `upload-${(nextId += 1)}`;
-  const previewUrl = URL.createObjectURL(file);
-  const { el, setProgress } = placeholder(previewUrl, size);
+  const { el, setProgress } = placeholder(file, size);
   const at = Math.max(0, Math.min(pos, editor.state.doc.content.size));
   editor.view.dispatch(editor.state.tr.setMeta(key, { add: { id, pos: at, el } }));
   if ((pending += 1) === 1) window.addEventListener('beforeunload', warnBeforeLeaving);
@@ -94,6 +105,5 @@ export async function withUploadPlaceholder(editor, pos, file, size, upload) {
   } finally {
     if ((pending -= 1) === 0) window.removeEventListener('beforeunload', warnBeforeLeaving);
     if (!editor.isDestroyed) editor.view.dispatch(editor.state.tr.setMeta(key, { remove: id }));
-    URL.revokeObjectURL(previewUrl);
   }
 }

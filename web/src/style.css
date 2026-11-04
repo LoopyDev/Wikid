@@ -5303,10 +5303,12 @@ button {
   margin: 10px 0;
 }
 
-:is(.tiptap-editor .ProseMirror, .tiptap-editor.ProseMirror) .image-upload-pending img {
+.image-upload-pending__preview {
+  display: block;
   width: 100%;
   height: auto;
-  margin: 0;
+  border-radius: 10px;
+  background: var(--surface-muted);
   opacity: 0.45;
 }
 
@@ -5376,6 +5378,11 @@ button {
   float: left;
   height: 0;
   pointer-events: none;
+}
+
+/* Nor over an image uploading there */
+:is(.tiptap-editor .ProseMirror, .tiptap-editor.ProseMirror) :is(p, h1, h2, h3, h4, h5, h6).is-editor-empty:has(.image-upload-pending)::before {
+  content: none;
 }
 
 /* No "type '/'" hint while the page's content is still on its way */
