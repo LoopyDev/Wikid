@@ -267,33 +267,74 @@ const copyBlockLink = async () => {
 
 const isSyncedHandle = computed(() => !!handleState.value?.node?.attrs?.[SYNCED_FROM_ATTR]);
 
-const turnIntoParagraph = () => {
-  withHandleSelection((chain) => chain.setParagraph().run());
-  closeTuneMenu();
-};
+// Turn into is for text blocks, and lists and their items. Other blocks (dividers, images, embeds,
+// callouts, columns, tables) don't have it: there it changed the block next to them, or nothing.
+const TEXT_BLOCK_TYPES = new Set(['paragraph', 'heading', 'codeBlock']);
+const LIST_TYPES = { bulletList: 'listItem', orderedList: 'listItem', taskList: 'taskItem' };
+const LIST_ITEM_TYPES = new Set(['listItem', 'taskItem']);
+const handleType = computed(() => handleState.value?.node?.type?.name || '');
+const canTurnInto = computed(() => TEXT_BLOCK_TYPES.has(handleType.value) || handleType.value in LIST_TYPES || LIST_ITEM_TYPES.has(handleType.value));
+// A whole list only turns into another kind of list: as text, only its first item would change
+const turnIntoListsOnly = computed(() => handleType.value in LIST_TYPES);
 
-const turnIntoHeading = (level) => {
-  withHandleSelection((chain) => chain.toggleHeading({ level }).run());
-  closeTuneMenu();
-};
+// What the block is now, ticked in the menu: paragraph, heading1-3, codeBlock, or a list type (for
+// an item, its list's)
+const currentBlockKind = computed(() => {
+  const node = getHandleNode();
+  const type = node?.type?.name;
+  if (type === 'heading') return `heading${node.attrs?.level}`;
+  if (LIST_ITEM_TYPES.has(type)) {
+    try {
+      return editor.value.state.doc.resolve(handleState.value.pos).parent.type.name;
+    } catch {
+      return '';
+    }
+  }
+  return type || '';
+});
 
-const toggleTodo = () => {
-  withHandleSelection((chain) => chain.toggleTaskList().run());
-  closeTuneMenu();
-};
+const TURN_INTO_OPTIONS = [
+  { kind: 'paragraph', icon: 'Tx', title: 'Paragraph', hint: 'Turn into text' },
+  { kind: 'heading1', icon: 'H1', title: 'Heading 1', hint: 'Large heading' },
+  { kind: 'heading2', icon: 'H2', title: 'Heading 2', hint: 'Section heading' },
+  { kind: 'heading3', icon: 'H3', title: 'Heading 3', hint: 'Sub heading' },
+  { kind: 'codeBlock', icon: '</>', title: 'Code block', hint: 'Monospace block' },
+  { kind: 'taskList', icon: '[ ]', title: 'To-do', hint: 'Checkbox list' },
+  { kind: 'bulletList', icon: '*', title: 'Bulleted list', hint: 'Turn into bullets' },
+  { kind: 'orderedList', icon: '1.', title: 'Numbered list', hint: 'Turn into ordered' },
+];
+const turnIntoOptions = computed(() => (turnIntoListsOnly.value ? TURN_INTO_OPTIONS.filter((option) => option.kind in LIST_TYPES) : TURN_INTO_OPTIONS));
 
-const toggleBullet = () => {
-  withHandleSelection((chain) => chain.toggleBulletList().run());
-  closeTuneMenu();
-};
-
-const toggleOrdered = () => {
-  withHandleSelection((chain) => chain.toggleOrderedList().run());
-  closeTuneMenu();
-};
-
-const turnIntoCodeBlock = () => {
-  withHandleSelection((chain) => chain.setCodeBlock().run());
+const turnInto = (kind) => {
+  const node = getHandleNode();
+  const pos = handleState.value?.pos;
+  if (!editor.value || !node || pos == null || pos < 0 || kind === currentBlockKind.value) {
+    closeTuneMenu();
+    return;
+  }
+  // Into the block's text: its own, or its first item's
+  let textPos = node.isTextblock ? pos + 1 : null;
+  node.descendants((child, offset) => {
+    if (textPos != null) return false;
+    if (child.isTextblock) textPos = pos + 1 + offset + 1;
+  });
+  if (textPos == null) return;
+  const toList = kind in LIST_TYPES;
+  let chain = editor.value.chain().focus().setTextSelection(textPos);
+  // An item turning into text leaves its list first, all the way out of a nested one
+  if (LIST_ITEM_TYPES.has(node.type.name) && !toList) {
+    const $text = editor.value.state.doc.resolve(textPos);
+    for (let depth = $text.depth; depth > 0; depth -= 1) {
+      if ($text.node(depth).type.name === node.type.name) chain = chain.liftListItem(node.type.name);
+    }
+  }
+  if (kind === 'paragraph') chain = chain.setParagraph();
+  else if (kind.startsWith('heading')) chain = chain.setHeading({ level: Number(kind.slice(-1)) });
+  else if (kind === 'codeBlock') chain = chain.setCodeBlock();
+  else if (kind === 'bulletList') chain = chain.toggleBulletList();
+  else if (kind === 'orderedList') chain = chain.toggleOrderedList();
+  else if (kind === 'taskList') chain = chain.toggleTaskList();
+  chain.run();
   closeTuneMenu();
 };
 
@@ -408,6 +449,7 @@ const clearHighlight = () => {
 
 const openPanel = (next) => {
   if (isImageBlock.value && next !== 'root') return;
+  if (next === 'turnInto' && !canTurnInto.value) return;
   if (isHorizontalRule.value && next === 'highlight') return;
   if (!isHorizontalRule.value && next === 'divider') return;
   if (!isHorizontalRule.value && next === 'dividerAlign') return;
@@ -442,6 +484,7 @@ watch(
     const panel = panelState.value;
     const offPanel =
       (type === 'image' && panel !== 'root') ||
+      (panel === 'turnInto' && !canTurnInto.value) ||
       (type === 'horizontalRule' && panel === 'highlight') ||
       (type !== 'horizontalRule' && (panel === 'divider' || panel === 'dividerAlign')) ||
       (type !== 'pageLink' && (panel === 'pageLinkStyle' || panel === 'pageLinkAttributes'));
@@ -459,7 +502,7 @@ watch(
       <div :key="panelState" class="block-menu__panel">
         <template v-if="panelState === 'root'">
           <div class="block-menu__panel-scroll block-menu__panel-scroll--root">
-            <button v-if="!isImageBlock" class="block-menu__item block-menu__item--submenu" type="button" @click.stop="openPanel('turnInto')">
+            <button v-if="canTurnInto" class="block-menu__item block-menu__item--submenu" type="button" @click.stop="openPanel('turnInto')">
               <span class="block-menu__icon"><i class="bi bi-arrow-repeat" aria-hidden="true"></i></span>
               <span class="block-menu__text">
                 <span class="block-menu__title">Turn into…</span>
@@ -567,61 +610,13 @@ watch(
             <span class="block-menu__panel-title">Turn into</span>
           </div>
           <div class="block-menu__panel-scroll">
-            <button class="block-menu__item" type="button" @click="turnIntoParagraph">
-              <span class="block-menu__icon">Tx</span>
+            <button v-for="option in turnIntoOptions" :key="option.kind" class="block-menu__item" type="button" @click="turnInto(option.kind)">
+              <span class="block-menu__icon">{{ option.icon }}</span>
               <span class="block-menu__text">
-                <span class="block-menu__title">Paragraph</span>
-                <span class="block-menu__hint">Turn into text</span>
+                <span class="block-menu__title">{{ option.title }}</span>
+                <span class="block-menu__hint">{{ option.hint }}</span>
               </span>
-            </button>
-            <button class="block-menu__item" type="button" @click="turnIntoHeading(1)">
-              <span class="block-menu__icon">H1</span>
-              <span class="block-menu__text">
-                <span class="block-menu__title">Heading 1</span>
-                <span class="block-menu__hint">Large heading</span>
-              </span>
-            </button>
-            <button class="block-menu__item" type="button" @click="turnIntoHeading(2)">
-              <span class="block-menu__icon">H2</span>
-              <span class="block-menu__text">
-                <span class="block-menu__title">Heading 2</span>
-                <span class="block-menu__hint">Section heading</span>
-              </span>
-            </button>
-            <button class="block-menu__item" type="button" @click="turnIntoHeading(3)">
-              <span class="block-menu__icon">H3</span>
-              <span class="block-menu__text">
-                <span class="block-menu__title">Heading 3</span>
-                <span class="block-menu__hint">Sub heading</span>
-              </span>
-            </button>
-            <button class="block-menu__item" type="button" @click="turnIntoCodeBlock">
-              <span class="block-menu__icon">&lt;/&gt;</span>
-              <span class="block-menu__text">
-                <span class="block-menu__title">Code block</span>
-                <span class="block-menu__hint">Monospace block</span>
-              </span>
-            </button>
-            <button class="block-menu__item" type="button" @click="toggleTodo">
-              <span class="block-menu__icon">[ ]</span>
-              <span class="block-menu__text">
-                <span class="block-menu__title">To-do</span>
-                <span class="block-menu__hint">Checkbox list</span>
-              </span>
-            </button>
-            <button class="block-menu__item" type="button" @click="toggleBullet">
-              <span class="block-menu__icon">*</span>
-              <span class="block-menu__text">
-                <span class="block-menu__title">Bulleted list</span>
-                <span class="block-menu__hint">Turn into bullets</span>
-              </span>
-            </button>
-            <button class="block-menu__item" type="button" @click="toggleOrdered">
-              <span class="block-menu__icon">1.</span>
-              <span class="block-menu__text">
-                <span class="block-menu__title">Numbered list</span>
-                <span class="block-menu__hint">Turn into ordered</span>
-              </span>
+              <span v-if="option.kind === currentBlockKind" class="block-menu__chevron">✓</span>
             </button>
           </div>
         </template>
