@@ -47,6 +47,7 @@
     "gifenc": "^1.0.3",
     "lowlight": "3.3.0",
     "marked": "^18.1.1",
+    "photoswipe": "5.4.4",
     "pinia": "^4.1.0",
     "qrcode": "^1.5.3",
     "three": "^0.186.1",

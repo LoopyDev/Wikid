@@ -8,6 +8,7 @@
 - @tanstack/vue-table: Data grid for database views.
 - Bootstrap Icons + custom SVGs: Icon library for UI visuals.
 - emoji-picker-element: Emoji/icon picker UI.
+- PhotoSwipe: Full-screen image viewer (zoom, pan, swipe), loaded on first use.
 
 ## Backend API (api/src/)
 - NestJS: HTTP API and application layer.

@@ -1,7 +1,7 @@
 <script setup>
 import { NodeViewWrapper } from '@tiptap/vue-3';
 import { computed, onBeforeUnmount, ref } from 'vue';
-import { openImage } from '../utils/openImage';
+import { openImages } from '../utils/openImage';
 
 const props = defineProps({
   editor: { type: Object, required: true },
@@ -59,14 +59,30 @@ const onDragStart = (event) => {
   props.extension.options.dragBlock(event, { pos, node: props.node });
 };
 
-// Clicking it opens it on a page of its own, unless the click ended a resize
+// Clicking it opens it in the image viewer, with the page's other images either side of it, unless
+// the click ended a resize
 const onClick = (event) => {
   if (resized) {
     resized = false;
     return;
   }
   if (event.button !== 0 || event.target.closest('.tiptap-image-resize-handle')) return;
-  openImage(props.node?.attrs?.src);
+  const { state, view } = props.editor;
+  const here = typeof props.getPos === 'function' ? props.getPos() : -1;
+  const images = [];
+  let index = 0;
+  state.doc.descendants((node, pos) => {
+    if (node.type.name !== 'image' || !node.attrs.src) return;
+    if (pos === here) index = images.length;
+    images.push({
+      src: node.attrs.src,
+      alt: node.attrs.alt || '',
+      width: Number(node.attrs.naturalWidth) || undefined,
+      height: Number(node.attrs.naturalHeight) || undefined,
+      element: view.nodeDOM(pos),
+    });
+  });
+  openImages(images, index);
 };
 
 const imagePos = computed(() => {

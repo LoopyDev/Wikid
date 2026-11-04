@@ -164,6 +164,31 @@ test.describe('database view blocks', () => {
     await expect(page.locator('.block-menu')).toHaveCount(0);
   });
 
+  test("Escape in the image viewer closes only the viewer, not the row page it's over", async ({ alice: page, workspaceId }) => {
+    const db = await createPage(page, workspaceId, { title: unique('Fruit'), kind: 'DATABASE' });
+    const nameField = (await (await page.request.get(`/api/pages/${db}/database`)).json()).fields.find((f: any) => f.name === 'Name').id;
+    await page.request.post(`/api/pages/${db}/database/rows`, { data: { data: { [nameField]: 'Apple' } } });
+    await openPage(page, await createPage(page, workspaceId, { title: unique('Report') }));
+    await page.evaluate((pageId) => {
+      (document.querySelector('.ProseMirror') as any).editor.chain().focus('end').insertContent({ type: 'databaseView', attrs: { pageId } }).run();
+    }, db);
+    await page.locator('.ce-database-view .db-page-input__open').first().click();
+    const overlay = page.locator('.page-overlay');
+    await expect(overlay.locator('.page-overlay__title-input')).toHaveValue('Apple');
+
+    // An image on the row's page, opened in the viewer
+    await expect(overlay.locator('.ProseMirror')).toBeVisible();
+    await overlay.locator('.ProseMirror').evaluate((el) => {
+      (el as any).editor.chain().focus('end').setImage({ src: '/vite.svg', naturalWidth: 240, naturalHeight: 120 }).run();
+    });
+    await overlay.locator('.tiptap-image-resizable img').click();
+    await expect(page.locator('.pswp')).toBeVisible();
+
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.pswp')).toHaveCount(0);
+    await expect(overlay).toBeVisible();
+  });
+
   test("a database view block's controls can be turned off, showing everyone the block's own view", async ({ alice: page, workspaceId }) => {
     const db = await createPage(page, workspaceId, { title: unique('Fruit'), kind: 'DATABASE' });
     const nameField = (await (await page.request.get(`/api/pages/${db}/database`)).json()).fields.find((f: any) => f.name === 'Name').id;
