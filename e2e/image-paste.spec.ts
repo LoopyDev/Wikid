@@ -108,3 +108,74 @@ test.describe('pasted and dropped images', () => {
     await expectImagesLoad(page, 1);
   });
 });
+
+test.describe('image uploads in progress', () => {
+  // Holds uploads until release() (or fails them), so what shows meanwhile can be checked
+  async function holdUploads(page: Page, { fail = false } = {}) {
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => { release = resolve; });
+    await page.route(/\/uploads(\?|$)/, async (route) => {
+      if (route.request().method() !== 'POST') return route.continue();
+      await released;
+      if (fail) return route.fulfill({ status: 500, contentType: 'application/json', body: '{"message":"Storage unavailable"}' });
+      return route.continue();
+    });
+    return () => release();
+  }
+  const pending = (page: Page) => editor(page).locator('.image-upload-pending');
+
+  test('a pasted image shows its progress where it will go, while you carry on typing', async ({ alice: page, workspaceId }) => {
+    await openPage(page, await createPage(page, workspaceId));
+    await editor(page).click();
+    await page.keyboard.type('Before', { delay: 20 });
+    await page.keyboard.press('Enter');
+    const release = await holdUploads(page);
+    await pasteImageFile(page);
+    await expect(pending(page)).toBeVisible();
+    await expect(pending(page)).toHaveAttribute('role', 'status');
+    await expect(pending(page)).toContainText(/Uploading image… \d+%/);
+    // Not part of the page: nothing saved for it yet
+    expect(await images(page)).toEqual([]);
+
+    // Typing goes on meanwhile, after it
+    await page.keyboard.type('After', { delay: 20 });
+    release();
+    await expect(pending(page)).toHaveCount(0);
+    await expect.poll(() => outline(page)).toEqual(['paragraph: Before', 'image', 'paragraph: After']);
+    await expectImagesLoad(page, 1);
+  });
+
+  test('a failed upload leaves no placeholder or image behind', async ({ alice: page, workspaceId }) => {
+    await openPage(page, await createPage(page, workspaceId));
+    await editor(page).click();
+    const release = await holdUploads(page, { fail: true });
+    const alerted = page.waitForEvent('dialog').then(async (dialog) => {
+      const message = dialog.message();
+      await dialog.accept();
+      return message;
+    });
+    await pasteImageFile(page);
+    await expect(pending(page)).toBeVisible();
+    release();
+    expect(await alerted).toBe('Image upload failed.');
+    await expect(pending(page)).toHaveCount(0);
+    expect(await images(page)).toEqual([]);
+  });
+
+  test('leaving the page while an image uploads asks first', async ({ alice: page, workspaceId }) => {
+    await openPage(page, await createPage(page, workspaceId));
+    await editor(page).click();
+    const release = await holdUploads(page);
+    await pasteImageFile(page);
+    await expect(pending(page)).toBeVisible();
+    const asked = page.waitForEvent('dialog');
+    page.reload().catch(() => {});
+    const dialog = await asked;
+    expect(dialog.type()).toBe('beforeunload');
+    await dialog.dismiss();
+    // Staying keeps the upload, which then finishes
+    await expect(pending(page)).toBeVisible();
+    release();
+    await expect.poll(() => images(page)).toHaveLength(1);
+  });
+});

@@ -287,7 +287,7 @@ test.describe('loading', () => {
     const chooser = page.waitForEvent('filechooser');
     await page.keyboard.press('Enter');
     await (await chooser).setFiles({ name: 'cached.png', mimeType: 'image/png', buffer: png });
-    const img = editor(page).locator('img');
+    const img = editor(page).locator('.tiptap-image-resizable img');
     const shown = () => img.evaluate((el: HTMLImageElement) => el.complete && el.naturalWidth === 200 && el.currentSrc.includes('/api/uploads/'));
     await expect.poll(shown).toBe(true);
     await waitForSaved(page);
@@ -328,7 +328,7 @@ test.describe('loading', () => {
     await page.keyboard.press('Enter');
     await (await chooser).setFiles({ name: 'wide.png', mimeType: 'image/png', buffer: png });
 
-    const img = editor(page).locator('img');
+    const img = editor(page).locator('.tiptap-image-resizable img');
     await expect(img).toHaveAttribute('width', '320');
     await expect(img).toHaveAttribute('height', '180');
     await expect(img).toHaveAttribute('loading', 'lazy');

@@ -5286,12 +5286,47 @@ button {
   width: 100%;
   height: auto;
   border-radius: 10px;
-  /* Clicking it opens it in a new tab */
+  /* Clicking it opens it in the image viewer */
   cursor: zoom-in;
 }
 
 .tiptap-image-resizable {
   cursor: default;
+}
+
+/* An image still uploading, where it'll go: its preview, faded, with its progress below */
+.image-upload-pending {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: min(100%, 360px);
+  margin: 10px 0;
+}
+
+:is(.tiptap-editor .ProseMirror, .tiptap-editor.ProseMirror) .image-upload-pending img {
+  width: 100%;
+  height: auto;
+  margin: 0;
+  opacity: 0.45;
+}
+
+.image-upload-pending__bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--surface-border);
+  overflow: hidden;
+}
+
+.image-upload-pending__bar span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 120ms linear;
+}
+
+.image-upload-pending__label {
+  font-size: 12px;
+  color: var(--text-muted);
 }
 
 .image-bubble-menu {

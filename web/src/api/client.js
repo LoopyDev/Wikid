@@ -84,6 +84,47 @@ async function request(path, options = {}) {
   }
 }
 
+// As request(), for a form, by XMLHttpRequest: fetch can't say how much of an upload has gone
+function postWithProgress(path, form, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `${API_BASE}${path}`);
+    xhr.withCredentials = true;
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable) onProgress?.(event.loaded / event.total);
+    };
+    xhr.onerror = () => {
+      notifyApiStatus('offline');
+      reject(new Error('Network error'));
+    };
+    xhr.onload = () => {
+      notifyApiStatus('online');
+      const raw = xhr.responseText;
+      if (xhr.status < 200 || xhr.status >= 300) {
+        const error = new Error(errorMessageFrom(raw, { statusText: xhr.statusText }));
+        error.status = xhr.status;
+        try {
+          error.body = JSON.parse(raw);
+        } catch {
+          error.body = null;
+        }
+        if (xhr.status === 401) notifyAuthExpired();
+        if (xhr.status === 403 && error.body?.code === 'PASSWORD_CHANGE_REQUIRED') {
+          window.dispatchEvent(new CustomEvent(PASSWORD_CHANGE_REQUIRED_EVENT));
+        }
+        reject(error);
+        return;
+      }
+      try {
+        resolve(JSON.parse(raw));
+      } catch (err) {
+        reject(err);
+      }
+    };
+    xhr.send(form);
+  });
+}
+
 function buildQs(params) {
   const p = new URLSearchParams();
   for (const [key, val] of Object.entries(params)) {
@@ -106,17 +147,15 @@ export const api = {
       body: JSON.stringify({ content }),
     });
   },
-  async uploadImage(file, { pageId, userId, userName } = {}) {
+  // onProgress(fraction) is called as the file goes up, from 0 to 1
+  async uploadImage(file, { pageId, userId, userName, onProgress } = {}) {
     if (!file) {
       throw new Error('file is required');
     }
     const form = new FormData();
     form.append('image', file);
     if (pageId) form.append('pageId', pageId);
-    return request(`/uploads${buildQs({ userId, userName })}`, {
-      method: 'POST',
-      body: form,
-    });
+    return postWithProgress(`/uploads${buildQs({ userId, userName })}`, form, onProgress);
   },
   async movePageToWorkspace(pageId, targetWorkspaceId, { userId, userName } = {}) {
     return request(`/pages/${pageId}/workspace${buildQs({ userId, userName })}`, {
