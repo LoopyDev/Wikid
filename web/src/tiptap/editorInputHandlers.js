@@ -4,11 +4,27 @@ import { markdownToHtml, shouldHandleMarkdownPaste } from '../utils/markdownPast
 import { describeUndoStacks, logUndoDebug, undoDebugEnabled } from '../utils/editorDebug';
 import { INDENT_EXCLUDED_ANCESTORS, applyCodeBlockIndentation, collectIndentTargets, findIndentTarget, hasAncestorOfType } from './indentation';
 import { MAX_INDENT as MAX_TEXT_INDENT } from './indent';
+import { isLocalImageSrc } from './resizableImage';
+
+const imageFiles = (dataTransfer) => Array.from(dataTransfer?.files || []).filter((file) => file.type.startsWith('image/'));
+
+// The images a paste holds as blob: addresses, while this tab can still read them, as files
+async function blobImageFiles(srcs) {
+  const files = await Promise.all(srcs.map(async (src, i) => {
+    try {
+      const blob = await (await fetch(src)).blob();
+      return blob.type.startsWith('image/') ? new File([blob], `pasted-${i + 1}.${blob.type.split('/')[1] || 'png'}`, { type: blob.type }) : null;
+    } catch {
+      return null;
+    }
+  }));
+  return files.filter(Boolean);
+}
 
 // The page editor's input handling (Tiptap's editorProps): pasting (markdown, block links as
 // synced blocks), typing, dropping, keys (Tab indent, undo in live editing, synced-block locks)
 // and clicks below the last block.
-export function createEditorProps({ lastTextInputAt, lastTextInputInfo, props, isCollabEnabled, isSyncedLocked, notifySyncedBlockLocked, insertSyncedBlockFromUrl, shouldInsertClickPlaceholder, insertClickPlaceholder, dragScroll, getEditor }) {
+export function createEditorProps({ lastTextInputAt, lastTextInputInfo, props, isCollabEnabled, isSyncedLocked, notifySyncedBlockLocked, insertSyncedBlockFromUrl, insertImageFiles, shouldInsertClickPlaceholder, insertClickPlaceholder, dragScroll, getEditor }) {
   return {
     attributes: {
       class: 'tiptap-editor',
@@ -21,6 +37,9 @@ export function createEditorProps({ lastTextInputAt, lastTextInputInfo, props, i
         el.style.removeProperty('font-family');
         el.style.removeProperty('font-size');
         if (!el.style.cssText.trim()) el.removeAttribute('style');
+      }
+      for (const img of doc.querySelectorAll('img')) {
+        if (isLocalImageSrc(img.getAttribute('src'))) img.remove();
       }
       return doc.body.innerHTML;
     },
@@ -40,6 +59,21 @@ export function createEditorProps({ lastTextInputAt, lastTextInputInfo, props, i
       const markdown = event.clipboardData.getData('text/markdown');
       const text = markdown || event.clipboardData.getData('text/plain');
       const html = event.clipboardData.getData('text/html');
+      // Images on their own (a screenshot, an image copied from a page or Finder) are uploaded, and
+      // put in once they are. With text too, it's the text being pasted (Word and Excel add a
+      // picture of it), so that's pasted as usual.
+      if (!text.trim()) {
+        const files = imageFiles(event.clipboardData);
+        const blobSrcs = files.length ? [] : [...new DOMParser().parseFromString(html, 'text/html').querySelectorAll('img')]
+          .map((img) => img.getAttribute('src'))
+          .filter((src) => /^blob:/i.test(src || ''));
+        if (files.length || blobSrcs.length) {
+          event.preventDefault();
+          const pos = view.state.selection.from;
+          (files.length ? Promise.resolve(files) : blobImageFiles(blobSrcs)).then((found) => insertImageFiles(found, pos));
+          return true;
+        }
+      }
       const parsed = parseBlockUrl(text);
       if (parsed?.blockId) {
         const confirmed = window.confirm('Paste as a synced block reference?');
@@ -58,9 +92,15 @@ export function createEditorProps({ lastTextInputAt, lastTextInputInfo, props, i
       }
       return false;
     },
-    handleDrop() {
+    handleDrop(view, event, _slice, moved) {
       dragScroll.restoreAfterDrop();
-      return false;
+      // Image files dropped in from outside the page are uploaded, and put in where they're dropped
+      const files = moved || props.readonly ? [] : imageFiles(event?.dataTransfer);
+      if (!files.length) return false;
+      event.preventDefault();
+      const pos = view.posAtCoords({ left: event.clientX, top: event.clientY })?.pos ?? view.state.selection.from;
+      insertImageFiles(files, pos);
+      return true;
     },
     handleKeyDown(view, event) {
       const syncedId = selectionSyncedReferenceId(view.state);
