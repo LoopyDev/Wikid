@@ -61,6 +61,77 @@ test.describe('editor menus', () => {
     await expect.poll(() => outline(page)).toEqual(['heading2: Second']);
   });
 
+  test("blocks that aren't text have no Turn into in their menu", async ({ alice: page, workspaceId }) => {
+    await openPage(page, await createPage(page, workspaceId));
+    await page.evaluate(() => {
+      const p = (text: string) => ({ type: 'paragraph', content: [{ type: 'text', text }] });
+      (document.querySelector('.ProseMirror') as any).editor.commands.setContent({ type: 'doc', content: [
+        { type: 'horizontalRule' },
+        { type: 'callout', content: [p('Note')] },
+        { type: 'table', content: [{ type: 'tableRow', content: [{ type: 'tableCell', content: [p('Cell')] }] }] },
+        p('After'),
+      ] });
+    });
+    const before = await outline(page);
+    for (const index of [0, 1, 2]) {
+      if (index === 2) await editor(page).locator('td').hover();
+      await (index === 2 ? page.locator('.drag-handle--floating:not(.drag-handle--list) .drag-handle__btn--drag') : await handleFor(page, index)).click();
+      await expect(menuItem(page, 'Delete')).toBeVisible();
+      await expect(menuItem(page, 'Turn into…')).toHaveCount(0);
+      await page.keyboard.press('Escape');
+    }
+    expect(await outline(page)).toEqual(before);
+  });
+
+  test("Turn into on a list item takes just that item out of the list; on the list, it changes the list's kind", async ({ alice: page, workspaceId }) => {
+    await openPage(page, await createPage(page, workspaceId));
+    await page.evaluate(() => {
+      const item = (text: string) => ({ type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text }] }] });
+      (document.querySelector('.ProseMirror') as any).editor.commands.setContent({ type: 'doc', content: [
+        { type: 'bulletList', content: [item('A'), item('B'), item('C')] },
+      ] });
+    });
+    const items = (kind: string, ...texts: string[]) => [kind, ...texts.flatMap((text) => ['  listItem', `    paragraph: ${text}`])];
+    const itemHandle = page.locator('.drag-handle--floating:not(.drag-handle--list) .drag-handle__btn--drag');
+    // The list's handle shows beside an item's, once you point at that
+    const openListMenu = async () => {
+      await editor(page).locator('li').nth(1).hover();
+      await itemHandle.hover();
+      await page.locator('.drag-handle--list .drag-handle__btn--drag').click();
+      await menuItem(page, 'Turn into…').click();
+    };
+
+    // The list's own handle: only kinds of list, with its own ticked, which leaves it as it is
+    await openListMenu();
+    await expect(menuItem(page, 'Heading 1')).toHaveCount(0);
+    await expect(menuItem(page, 'Bulleted list').locator('.block-menu__chevron')).toHaveText('✓');
+    await menuItem(page, 'Bulleted list').click();
+    await expect.poll(() => outline(page)).toEqual(items('bulletList', 'A', 'B', 'C'));
+    await openListMenu();
+    await menuItem(page, 'Numbered list').click();
+    await expect.poll(() => outline(page)).toEqual(items('orderedList', 'A', 'B', 'C'));
+
+    // An item's handle: B becomes a heading between the rest of the list
+    await editor(page).locator('li').nth(1).hover();
+    await itemHandle.click();
+    await menuItem(page, 'Turn into…').click();
+    await menuItem(page, 'Heading 1').click();
+    await expect.poll(() => outline(page)).toEqual([...items('orderedList', 'A'), 'heading1: B', ...items('orderedList', 'C')]);
+
+    // An item in a list in a list comes all the way out
+    await page.evaluate(() => {
+      const p = (text: string) => ({ type: 'paragraph', content: [{ type: 'text', text }] });
+      (document.querySelector('.ProseMirror') as any).editor.commands.setContent({ type: 'doc', content: [
+        { type: 'bulletList', content: [{ type: 'listItem', content: [p('A'), { type: 'bulletList', content: [{ type: 'listItem', content: [p('D')] }] }] }] },
+      ] });
+    });
+    await editor(page).locator('li li').hover();
+    await itemHandle.click();
+    await menuItem(page, 'Turn into…').click();
+    await menuItem(page, 'Paragraph').click();
+    await expect.poll(() => outline(page)).toEqual([...items('bulletList', 'A'), 'paragraph: D']);
+  });
+
   test('dragging a block by its handle moves it', async ({ alice: page, workspaceId }) => {
     await openPage(page, await createPage(page, workspaceId));
     await typeParagraphs(page, ['One', 'Two', 'Three']);
