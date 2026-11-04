@@ -304,6 +304,28 @@ const insertImageFromUpload = async (editor, range) => {
     .run();
 };
 
+// Pasted or dropped image files: uploaded, then put in at `pos`, which follows any edits (anyone's)
+// made while they upload
+const insertImageFiles = async (files, pos) => {
+  const ed = editor?.value;
+  if (props.readonly || !ed || !files.length) return;
+  let at = pos;
+  const follow = ({ transaction }) => { at = transaction.mapping.map(at); };
+  ed.on('transaction', follow);
+  let images;
+  try {
+    images = await Promise.all(files.map(async (file) => {
+      const [src, size] = await Promise.all([uploadImageFile(file), readImageSize(file)]);
+      return src ? { type: 'image', attrs: { src, ...imageSizeAttrs(size) } } : null;
+    }));
+  } finally {
+    ed.off('transaction', follow);
+  }
+  const content = images.filter(Boolean);
+  if (!content.length || ed.isDestroyed) return;
+  ed.chain().focus().insertContentAt(Math.min(at, ed.state.doc.content.size), content).run();
+};
+
 const { lastKnownCursorPos, serializeBlocksForAi, applyAiSuggestions, revertSuggestion, acceptSuggestion, revertAllSuggestions, acceptAllSuggestions, activeSuggestions, hoveredSuggestionIndex, suggestionWidgetPos, handleSuggestionMousemove, aiPromptVisible, aiPromptPos, aiPromptText, aiPromptInputRef, aiStreaming, showAiPrompt, closeAiPrompt, submitAiPrompt, runAiBubbleAction } = useEditorAi({ workspace, getEditor: () => editor?.value });
 
 const slashItems = createSlashItems({ insertToggleHeading, insertColumns, insertImageFromUpload, props, getResolvedPage, workspace, showAiPrompt });
@@ -598,7 +620,7 @@ const dragScroll = createDragScrollRestore();
 editor = useEditor({
   content: isCollabEnabled.value ? undefined : editorDocToTiptap(props.doc),
   editable: !props.readonly,
-  editorProps: createEditorProps({ lastTextInputAt, lastTextInputInfo, props, isCollabEnabled, isSyncedLocked, notifySyncedBlockLocked, insertSyncedBlockFromUrl, shouldInsertClickPlaceholder, insertClickPlaceholder, dragScroll, getEditor: () => editor?.value }),
+  editorProps: createEditorProps({ lastTextInputAt, lastTextInputInfo, props, isCollabEnabled, isSyncedLocked, notifySyncedBlockLocked, insertSyncedBlockFromUrl, insertImageFiles, shouldInsertClickPlaceholder, insertClickPlaceholder, dragScroll, getEditor: () => editor?.value }),
   extensions: createEditorExtensions({
     collab: isCollabEnabled.value
       ? { document: collabDoc.value, provider: collabReady.value ? collabProvider.value : null, user: cursorUser.value }
