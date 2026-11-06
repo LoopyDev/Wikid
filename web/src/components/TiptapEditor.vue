@@ -652,6 +652,29 @@ editor = useEditor({
     lastTextInputInfo,
     dragBlock: (event, options) => handleBlockDragStart(event, options),
   }),
+  // Taking over from the editor a new page was started in: its content goes in, and the cursor at
+  // its end, as soon as this one's on the page, so nothing typed in between goes astray
+  onMount({ editor: ed }) {
+    if (!props.seedCollabOnMount || !isCollabEnabled.value) return;
+    logSetup('mount-seed', { docName: currentDocName.value });
+    captureInitialAutoBlock(ed.state.doc);
+    seedCollabDocFromProps(ed, { force: true });
+    if (props.readonly) return;
+    ed.commands.focus('end');
+    // focus() waits a frame, and a keystroke can come in that frame. The editor's put on the page
+    // a few ticks after it's made (by EditorContent), all before the next keystroke can, so it
+    // takes focus as soon as it's there
+    const focusOnPage = async () => {
+      for (let tries = 0; tries < 10 && !ed.isDestroyed; tries += 1) {
+        if (ed.view.dom.isConnected) {
+          ed.view.focus();
+          return;
+        }
+        await nextTick();
+      }
+    };
+    focusOnPage();
+  },
   onCreate({ editor: ed }) {
     logSetup('create', {
       docName: currentDocName.value,
@@ -660,12 +683,6 @@ editor = useEditor({
     });
     captureInitialAutoBlock(ed.state.doc);
     nextTick(() => syncTableDomAttributes());
-    if (props.seedCollabOnMount && isCollabEnabled.value) {
-      seedCollabDocFromProps(ed, { force: true });
-      if (!props.readonly) {
-        nextTick(() => ed?.commands?.focus('end'));
-      }
-    }
   },
   onSelectionUpdate({ editor: ed }) {
     clearClickPlaceholderIfNeeded(ed?.view);

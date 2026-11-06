@@ -949,7 +949,10 @@ const hasSetupContent = (node) => {
 const handleUpdateDoc = async (updated) => {
   workspace.updateDoc(updated);
   const hasContent = hasSetupContent(updated);
-  if (isSetupPage.value && hasContent) {
+  // Kept up to date until the live editor takes over from this local one, which can be a moment
+  // after setup finishes: anything typed meanwhile goes across with the rest
+  const localEditor = !editorCollab.value;
+  if ((isSetupPage.value || (setupAutoCompleteTriggered.value && localEditor)) && hasContent) {
     setupSeedDoc.value = updated;
     logSetup('seed-doc', { captured: true });
   }
