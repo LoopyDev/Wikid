@@ -33,6 +33,7 @@ import { useSaveStatus } from '../composables/useSaveStatus';
 import { useClickPlaceholder } from '../composables/useClickPlaceholder';
 import { useCollabSeeding } from '../composables/useCollabSeeding';
 import { imageSizeAttrs, readImageSize } from '../utils/imageSize';
+import { withUploadPlaceholder } from '../tiptap/imageUploads';
 const props = defineProps({
   doc: {
     type: Object,
@@ -260,24 +261,28 @@ const pickImageFile = () =>
     input.click();
   });
 
-const uploadImageFile = async (file) => {
-  if (!file) return null;
-  if (props.readonly) return null;
+// Whether images can be uploaded here, saying why not
+const canUploadImages = () => {
+  if (props.readonly) return false;
   if (!workspace.hasApi) {
     window.alert('API unavailable.');
-    return null;
+    return false;
   }
   if (!props.pageId) {
     window.alert('Save this page before uploading images.');
-    return null;
+    return false;
   }
-  const user = workspace.activeUser;
-  if (!user?.id) {
+  if (!workspace.activeUser?.id) {
     window.alert('Login required to upload images.');
-    return null;
+    return false;
   }
+  return true;
+};
+
+const uploadImageFile = async (file, onProgress) => {
+  const user = workspace.activeUser;
   try {
-    const res = await api.uploadImage(file, { pageId: props.pageId, userId: user.id, userName: user.name });
+    const res = await api.uploadImage(file, { pageId: props.pageId, userId: user.id, userName: user.name, onProgress });
     return res?.file?.url || null;
   } catch (err) {
     console.warn('Image upload failed', err);
@@ -286,44 +291,27 @@ const uploadImageFile = async (file) => {
   }
 };
 
+// Image files, each uploaded and put in at `pos` as it finishes, showing its progress there till
+// then. `pos` follows any edits (anyone's) made meanwhile. With paragraphAfter, a paragraph follows
+// each, to carry on typing in.
+const insertImageFiles = async (files, pos, { paragraphAfter = false } = {}) => {
+  const ed = editor?.value;
+  if (!ed || !files.length || !canUploadImages()) return;
+  await Promise.all(files.map(async (file) => {
+    const size = await readImageSize(file);
+    const { result: src, pos: at } = await withUploadPlaceholder(ed, pos, file, size, (onProgress) => uploadImageFile(file, onProgress));
+    if (!src || at == null || ed.isDestroyed) return;
+    const image = { type: 'image', attrs: { src, ...imageSizeAttrs(size) } };
+    ed.chain().focus().insertContentAt(at, paragraphAfter ? [image, { type: 'paragraph' }] : image).run();
+  }));
+};
+
 const insertImageFromUpload = async (editor, range) => {
   if (props.readonly) return;
   const file = await pickImageFile();
   if (!file) return;
-  const [src, size] = await Promise.all([uploadImageFile(file), readImageSize(file)]);
-  if (!src) return;
-  const chain = editor.chain().focus();
-  if (range) {
-    chain.deleteRange(range);
-  }
-  chain
-    .insertContent([
-      { type: 'image', attrs: { src, ...imageSizeAttrs(size) } },
-      { type: 'paragraph' },
-    ])
-    .run();
-};
-
-// Pasted or dropped image files: uploaded, then put in at `pos`, which follows any edits (anyone's)
-// made while they upload
-const insertImageFiles = async (files, pos) => {
-  const ed = editor?.value;
-  if (props.readonly || !ed || !files.length) return;
-  let at = pos;
-  const follow = ({ transaction }) => { at = transaction.mapping.map(at); };
-  ed.on('transaction', follow);
-  let images;
-  try {
-    images = await Promise.all(files.map(async (file) => {
-      const [src, size] = await Promise.all([uploadImageFile(file), readImageSize(file)]);
-      return src ? { type: 'image', attrs: { src, ...imageSizeAttrs(size) } } : null;
-    }));
-  } finally {
-    ed.off('transaction', follow);
-  }
-  const content = images.filter(Boolean);
-  if (!content.length || ed.isDestroyed) return;
-  ed.chain().focus().insertContentAt(Math.min(at, ed.state.doc.content.size), content).run();
+  if (range) editor.chain().focus().deleteRange(range).run();
+  await insertImageFiles([file], editor.state.selection.from, { paragraphAfter: true });
 };
 
 const { lastKnownCursorPos, serializeBlocksForAi, applyAiSuggestions, revertSuggestion, acceptSuggestion, revertAllSuggestions, acceptAllSuggestions, activeSuggestions, hoveredSuggestionIndex, suggestionWidgetPos, handleSuggestionMousemove, aiPromptVisible, aiPromptPos, aiPromptText, aiPromptInputRef, aiStreaming, showAiPrompt, closeAiPrompt, submitAiPrompt, runAiBubbleAction } = useEditorAi({ workspace, getEditor: () => editor?.value });

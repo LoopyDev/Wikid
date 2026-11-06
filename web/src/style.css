@@ -5286,12 +5286,49 @@ button {
   width: 100%;
   height: auto;
   border-radius: 10px;
-  /* Clicking it opens it in a new tab */
+  /* Clicking it opens it in the image viewer */
   cursor: zoom-in;
 }
 
 .tiptap-image-resizable {
   cursor: default;
+}
+
+/* An image still uploading, where it'll go: its preview, faded, with its progress below */
+.image-upload-pending {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: min(100%, 360px);
+  margin: 10px 0;
+}
+
+.image-upload-pending__preview {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 10px;
+  background: var(--surface-muted);
+  opacity: 0.45;
+}
+
+.image-upload-pending__bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--surface-border);
+  overflow: hidden;
+}
+
+.image-upload-pending__bar span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 120ms linear;
+}
+
+.image-upload-pending__label {
+  font-size: 12px;
+  color: var(--text-muted);
 }
 
 .image-bubble-menu {
@@ -5341,6 +5378,11 @@ button {
   float: left;
   height: 0;
   pointer-events: none;
+}
+
+/* Nor over an image uploading there */
+:is(.tiptap-editor .ProseMirror, .tiptap-editor.ProseMirror) :is(p, h1, h2, h3, h4, h5, h6).is-editor-empty:has(.image-upload-pending)::before {
+  content: none;
 }
 
 /* No "type '/'" hint while the page's content is still on its way */

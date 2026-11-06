@@ -29,6 +29,7 @@ import DatabaseView from './databaseView';
 import DatabaseForm from './databaseForm';
 import SlashCommand from './slashCommand';
 import ResizableImage from './resizableImage';
+import { ImageUploads } from './imageUploads';
 import HorizontalRule from './horizontalRule';
 import Callout from './callout';
 import TableOfContents from './tableOfContents';
@@ -171,6 +172,7 @@ export function createEditorExtensions({
         inline: false,
         dragBlock,
       }),
+      ImageUploads,
       Placeholder.configure({
         showOnlyCurrent: true,
         showOnlyWhenEditable: true,
