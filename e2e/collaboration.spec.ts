@@ -44,9 +44,12 @@ test.describe('editing together', () => {
 
     await Promise.all([alice.keyboard.type(' 0123456789', { delay: 20 }), bob.keyboard.type(' ABCDEFGHIJ', { delay: 20 })]);
 
+    // Nothing's lost and each run of letters stays whole. Which space ends up where isn't checked:
+    // when both type a space at the very same spot in the same instant, one cursor can land
+    // between the two (about 1 run in 100), so the spaces swap places
     await expect.poll(async () => {
       const [first] = await blockTexts(alice);
-      return first.includes(' 0123456789') && first.includes(' ABCDEFGHIJ') && first.length === 'Line one:'.length + 22;
+      return first.startsWith('Line one:') && first.includes('0123456789') && first.includes('ABCDEFGHIJ') && first.length === 'Line one:'.length + 22;
     }).toBe(true);
     await expect.poll(() => blockTexts(bob)).toEqual(await blockTexts(alice));
   });
