@@ -40,6 +40,13 @@ export default Node.create({
         parseHTML: (element) => element.getAttribute('data-show-controls') !== 'false',
         renderHTML: (attributes) => (attributes.showControls === false ? { 'data-show-controls': 'false' } : {}),
       },
+      // The table's "Add row" and add-column buttons (rows and columns can still be added on the
+      // database's own page)
+      showAddButtons: {
+        default: true,
+        parseHTML: (element) => element.getAttribute('data-show-add-buttons') !== 'false',
+        renderHTML: (attributes) => (attributes.showAddButtons === false ? { 'data-show-add-buttons': 'false' } : {}),
+      },
     };
   },
   parseHTML() {

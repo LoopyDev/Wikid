@@ -48,6 +48,11 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  // "Add row" and the add-column button (turned off on a database view block that's just for show)
+  showAddButtons: {
+    type: Boolean,
+    default: true,
+  },
   hiddenFieldIds: {
     type: Array,
     default: null,
@@ -3562,7 +3567,7 @@ onBeforeUnmount(() => {
                 :key="header.id"
                 :class="{
                   'db-header--sorted': !!header.column.getIsSorted(),
-                  'db-header--add': header.column.id === ADD_COLUMN_ID,
+                  'db-header--add': header.column.id === ADD_COLUMN_ID && showAddButtons,
                   'db-header--dragging': draggingFieldId === header.column.id,
                   [`db-header--drop-${dropSideFor(header.column.id)}`]: !!dropSideFor(header.column.id),
                 }"
@@ -3587,7 +3592,9 @@ onBeforeUnmount(() => {
                     @click.stop="toggleSelectAll"
                   />
                   <template v-if="!header.isPlaceholder && header.column.id === ADD_COLUMN_ID">
+                    <!-- Without the button the column stays, as the space to the table's edge -->
                     <button
+                      v-if="showAddButtons"
                       class="db-add-column-btn"
                       type="button"
                       :disabled="isReadonly"
@@ -3680,7 +3687,7 @@ onBeforeUnmount(() => {
               </td>
             </tr>
           </tbody>
-          <tfoot>
+          <tfoot v-if="showAddButtons">
             <tr>
               <td class="db-add-row-cell" :colspan="visibleColumnCount">
                 <button class="db-add-row-btn" type="button" :disabled="isReadonly" @click="addRow">

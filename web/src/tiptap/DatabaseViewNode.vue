@@ -318,6 +318,7 @@ const handleHiddenFieldIdsUpdate = (next) => {
         :hidden-field-ids="shownHiddenFieldIds"
         :view-id="shownViewId"
         :toolbar-teleport-to="toolbarTarget"
+        :show-add-buttons="attrs.showAddButtons !== false"
         embedded
         @update:hidden-field-ids="handleHiddenFieldIdsUpdate"
       />
