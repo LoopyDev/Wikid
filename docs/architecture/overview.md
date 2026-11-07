@@ -23,7 +23,7 @@
     - Shared constants and helpers are in `pages.shared.ts`; password hashing is in `password.util.ts`.
   - `Collab`: endpoints the collab server calls to load/store Yjs state (`CollabDoc`), plus a materializer that periodically writes Yjs docs back to `Page.content` and database rows.
   - `Compliance`: compliance records, workflow transitions (Draft → Submitted → In Review → Closed/Sealed), and compliance uploads.
-  - `Uploads`: S3 uploads via `@aws-sdk/client-s3`; `PUBLIC_API_URL` sets the absolute URL base.
+  - `Uploads`: S3 uploads via `@aws-sdk/client-s3`; an upload's address is saved as `/api/uploads/<page>/<file>`, the path of `PUBLIC_API_URL` (the full `http://host:3000/uploads/...` when that isn't set, in development). The web app loads any address of that shape, with any site name, from its own API (`web/src/utils/uploadUrl.js`), so pages keep their images on a new address.
   - `Embeds`: `GET|POST /embeds/link` fetches Open Graph/title/description/image metadata for link previews.
   - `Ai`: `POST /ai/generate` streams Claude responses over SSE (needs `ANTHROPIC_API_KEY`).
   - `Search`: `GET /search?q=` finds pages (title and document text) and database rows (cell values) the user can see, using Postgres full-text search: generated `searchVector` columns with GIN indexes (`english` configuration; every word must match, each as a prefix). Page text comes from the stored `Page.content`, which the collab materializer refreshes every few minutes while a page is edited live. The web app's search window opens with Cmd/Ctrl+K.

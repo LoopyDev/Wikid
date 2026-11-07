@@ -136,7 +136,7 @@ The stack has to have been started at least once. To restore onto a new server, 
 
 Things the backups don't hold: the `.env` file (passwords for the databases and MinIO, and other secrets). The data restores without it, as nothing is encrypted with it, but you need it to rebuild the server: keep a copy somewhere safe.
 
-Rehearse a restore now and then on another machine. Note that images are saved in pages with the site's full address (for example `https://wiki.example.com/api/uploads/...`), so on a different address they're requested from the original site, and don't show unless you're logged in there.
+Rehearse a restore now and then on another machine. A backup can be restored at a different address (another machine, or a new domain): images are saved in pages as `/api/uploads/...`, and ones saved with a site's full address by older versions of Wikid are loaded from wherever Wikid now runs.
 
 CI checks backups and restores on every change (`npm run test:restore`, which backs up a test stack, changes it, restores, and compares). It uses the demo admin account and replaces the stack's data, so never point it at a real stack.
 
