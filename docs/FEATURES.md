@@ -32,10 +32,10 @@ What Wikid does today, and how much to rely on each part. Wikid is in early deve
 | Slash menu, block menu (turn into, colour, delete), dragging blocks, selected-text toolbar | Stable | |
 | Code blocks with syntax highlighting | Beta | |
 | Tables, callouts, columns, toggle headings, dividers, table of contents | Beta | |
-| Images: upload and resize | Beta | |
+| Images: upload, paste or drop (with upload progress), resize, and a full-screen viewer | Beta | |
 | Page links and link previews | Beta | |
 | Synced blocks: one block shown on several pages, kept in step | Beta | |
-| Database views and forms inside a page | Beta | |
+| Database views and forms inside a page | Beta | A view's title, controls, and add row and column buttons can each be hidden from its block menu. |
 | draw.io diagrams | Experimental | |
 | Gaussian splat (3D scan) embeds | Experimental | |
 
@@ -86,6 +86,7 @@ What Wikid does today, and how much to rely on each part. Wikid is in early deve
 | People the admin set a password for choose their own when they first log in | Stable | |
 | Change your own password | Stable | |
 | Admin settings (turn AI features on or off for everyone) | Stable | |
+| Nightly backups, and restoring one with a single command (`docker/backup.sh`, `docker/restore.sh`) | Stable | Tested in CI on every change. See [deployment](deployment.md#restoring). Images are saved with the site's full address, so after restoring at a different address they don't show yet. |
 | Dark and light themes | Beta | |
 
 ## AI (optional)
@@ -101,14 +102,13 @@ What Wikid does today, and how much to rely on each part. Wikid is in early deve
 First, making what's here solid: more automated tests (especially for Beta features), checks that every API
 route only lets the right people in, rate limiting on login, and two-factor authentication. Then, roughly in this order:
 
-1. A documented, tested restore from backups
-2. Page history: versions, who changed what, restoring a version
-3. Import from Markdown
-4. Page templates
-5. Groups and teams for permissions
-6. Admin audit log (logins, permission changes, deletions, exports)
-7. Comments and @mentions, with notifications
-8. Read-only share links
-9. Single sign-on (OIDC: Google, Microsoft Entra, Okta, Keycloak, Authentik)
-10. Page owners and "last reviewed" dates
-11. Later: invite links, optional email (invites, password reset), and open sign-up behind an admin switch
+1. Page history: versions, who changed what, restoring a version
+2. Import from Markdown
+3. Page templates
+4. Groups and teams for permissions
+5. Admin audit log (logins, permission changes, deletions, exports)
+6. Comments and @mentions, with notifications
+7. Read-only share links
+8. Single sign-on (OIDC: Google, Microsoft Entra, Okta, Keycloak, Authentik)
+9. Page owners and "last reviewed" dates
+10. Later: invite links, optional email (invites, password reset), and open sign-up behind an admin switch
