@@ -179,6 +179,7 @@ const isPageLinkBlock = computed(() => handleState.value?.node?.type?.name === '
 const isDatabaseViewBlock = computed(() => handleState.value?.node?.type?.name === 'databaseView');
 const databaseViewShowsTitle = computed(() => getHandleNode()?.attrs?.showTitle !== false);
 const databaseViewShowsControls = computed(() => getHandleNode()?.attrs?.showControls !== false);
+const databaseViewShowsAddButtons = computed(() => getHandleNode()?.attrs?.showAddButtons !== false);
 
 const currentCodeLanguage = computed(() => {
   const handleLang = handleState.value?.node?.attrs?.language;
@@ -376,7 +377,8 @@ const updatePageLinkAttrs = (attrs) => {
   return true;
 };
 
-// A database view block's title, or its controls (view picker, Columns, search), on or off
+// A database view block's title, its controls (view picker, Columns, search), or its add
+// row and column buttons, on or off
 const toggleDatabaseViewAttr = (name) => {
   if (!editor.value) return;
   const node = getHandleNode();
@@ -531,6 +533,13 @@ watch(
                 <span class="block-menu__title">Show controls</span>
               </span>
               <span v-if="databaseViewShowsControls" class="block-menu__chevron">✓</span>
+            </button>
+            <button v-if="isDatabaseViewBlock" class="block-menu__item" type="button" @click="toggleDatabaseViewAttr('showAddButtons')">
+              <span class="block-menu__icon">+</span>
+              <span class="block-menu__text">
+                <span class="block-menu__title">Show add row and column</span>
+              </span>
+              <span v-if="databaseViewShowsAddButtons" class="block-menu__chevron">✓</span>
             </button>
             <button v-if="isPageLinkBlock" class="block-menu__item block-menu__item--submenu" type="button" @click.stop="openPanel('pageLinkStyle')">
               <span class="block-menu__icon">St</span>

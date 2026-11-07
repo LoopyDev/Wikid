@@ -220,4 +220,43 @@ test.describe('database view blocks', () => {
     await expect(fruits).toHaveCount(2);
     await expect(block.locator('.ce-database-view__header-controls')).toBeHidden();
   });
+
+  test("a database view block's add row and column buttons can be turned off from its menu", async ({ alice: page, workspaceId }) => {
+    const db = await createPage(page, workspaceId, { title: unique('Stock'), kind: 'DATABASE' });
+    const doc = await createPage(page, workspaceId, { title: unique('Report') });
+    await openPage(page, doc);
+    await page.evaluate((pageId) => {
+      (document.querySelector('.ProseMirror') as any).editor.chain().focus('end').insertContent({ type: 'databaseView', attrs: { pageId } }).run();
+    }, db);
+    const block = page.locator('.ce-database-view');
+    const addRow = block.getByRole('button', { name: 'Add row' });
+    const addColumn = block.locator('.db-add-column-btn');
+    await expect(addRow).toBeVisible();
+    await expect(addColumn).toHaveCount(1);
+
+    const toggle = async () => {
+      await block.hover();
+      await page.locator('.drag-handle--floating:not(.drag-handle--list) .drag-handle__btn--drag').click();
+      await page.locator('.block-menu').getByRole('button', { name: 'Show add row and column' }).click();
+    };
+    await toggle();
+    await expect(addRow).toHaveCount(0);
+    await expect(addColumn).toHaveCount(0);
+    // The table and its columns stay
+    await expect(block.locator('.db-header-button').first()).toBeVisible();
+    await waitForSaved(page);
+    await page.reload();
+    await expect(block.locator('.db-header-button').first()).toBeVisible();
+    await expect(addRow).toHaveCount(0);
+    await expect(addColumn).toHaveCount(0);
+
+    // Still there on the database's own page
+    await page.goto(`/doc/${db}`);
+    await expect(page.getByRole('button', { name: 'Add row' })).toBeVisible();
+
+    await openPage(page, doc);
+    await toggle();
+    await expect(addRow).toBeVisible();
+    await expect(addColumn).toHaveCount(1);
+  });
 });
