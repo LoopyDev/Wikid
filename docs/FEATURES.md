@@ -86,7 +86,7 @@ What Wikid does today, and how much to rely on each part. Wikid is in early deve
 | People the admin set a password for choose their own when they first log in | Stable | |
 | Change your own password | Stable | |
 | Admin settings (turn AI features on or off for everyone) | Stable | |
-| Nightly backups, and restoring one with a single command (`docker/backup.sh`, `docker/restore.sh`) | Stable | Tested in CI on every change. See [deployment](deployment.md#restoring). Images are saved with the site's full address, so after restoring at a different address they don't show yet. |
+| Nightly backups, and restoring one with a single command (`docker/backup.sh`, `docker/restore.sh`) | Stable | Tested in CI on every change. See [deployment](deployment.md#restoring). |
 | Dark and light themes | Beta | |
 
 ## AI (optional)

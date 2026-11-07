@@ -15,9 +15,14 @@ const MAX_URL_IMAGE_BYTES = 10 * 1024 * 1024;
 export class UploadsController {
   constructor(private readonly uploads: UploadsService, private readonly pageAccess: PageAccessService) {}
 
+  // Saved in the page without the site's name (/api/uploads/...), so it still works when the same
+  // pages are served from another address: restored on another machine, or moved to a new domain
   private buildUrl(req: Request, filename: string) {
     const explicitBase = process.env.PUBLIC_API_URL?.trim();
-    if (explicitBase) return `${explicitBase.replace(/\/+$/, '')}/uploads/${filename}`;
+    if (explicitBase) {
+      const path = new URL(explicitBase, 'http://localhost').pathname.replace(/\/+$/, '');
+      return `${path}/uploads/${filename}`;
+    }
     const protocol = req.protocol;
     const host = req.get('host');
     return `${protocol}://${host}/uploads/${filename}`;

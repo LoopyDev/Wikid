@@ -1,3 +1,5 @@
+import { absoluteUploadSrc } from './uploadUrl';
+
 const EDITOR_VERSION = '3.11.1';
 
 const fallbackContent = [
@@ -269,7 +271,8 @@ export const editorDocToMarkdown = (raw) => {
       return '---';
     }
     if (block.type === 'image') {
-      const url = block.data?.file?.url || block.data?.url || '';
+      // With this site's full address: Markdown is read outside Wikid
+      const url = absoluteUploadSrc(block.data?.file?.url || block.data?.url || '');
       const caption = block.data.caption || '';
       if (!url) return '';
       return `![${caption || 'image'}](${url})`;
@@ -335,7 +338,8 @@ export const editorDocToMarkdownAsync = async (raw, fetchDatabase) => {
       return block.data?.style === 'stars' ? '***' : '---';
     }
     if (block.type === 'image') {
-      const url = block.data?.file?.url || block.data?.url || '';
+      // With this site's full address: Markdown is read outside Wikid
+      const url = absoluteUploadSrc(block.data?.file?.url || block.data?.url || '');
       const caption = block.data.caption || '';
       if (!url) return '';
       return `![${caption || 'image'}](${url})`;

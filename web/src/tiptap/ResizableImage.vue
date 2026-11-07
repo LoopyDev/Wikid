@@ -2,6 +2,7 @@
 import { NodeViewWrapper } from '@tiptap/vue-3';
 import { computed, onBeforeUnmount, ref } from 'vue';
 import { openImages } from '../utils/openImage';
+import { uploadSrc } from '../utils/uploadUrl';
 
 const props = defineProps({
   editor: { type: Object, required: true },
@@ -75,7 +76,7 @@ const onClick = (event) => {
     if (node.type.name !== 'image' || !node.attrs.src) return;
     if (pos === here) index = images.length;
     images.push({
-      src: node.attrs.src,
+      src: uploadSrc(node.attrs.src),
       alt: node.attrs.alt || '',
       width: Number(node.attrs.naturalWidth) || undefined,
       height: Number(node.attrs.naturalHeight) || undefined,
@@ -116,7 +117,7 @@ const loading = typeof window !== 'undefined' && window.location.pathname.starts
       @click="onClick"
     >
       <img
-        :src="node?.attrs?.src || ''"
+        :src="uploadSrc(node?.attrs?.src || '')"
         :alt="node?.attrs?.alt || ''"
         :width="naturalWidth && naturalHeight ? naturalWidth : undefined"
         :height="naturalWidth && naturalHeight ? naturalHeight : undefined"

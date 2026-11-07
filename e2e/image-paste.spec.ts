@@ -179,3 +179,35 @@ test.describe('image uploads in progress', () => {
     await expect.poll(() => images(page)).toHaveLength(1);
   });
 });
+
+// An image's address is saved without the site's name, so pages still show their images when
+// served from another address: a backup restored on another machine, or a move to a new domain.
+test.describe('image addresses', () => {
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+
+  test('an uploaded image is saved without the site name', async ({ alice: page, workspaceId }) => {
+    await openPage(page, await createPage(page, workspaceId));
+    await editor(page).click();
+    await pasteImageFile(page);
+    await expect.poll(async () => (await images(page))[0]?.src).toMatch(/^\/api\/uploads\/[^/]+\/[^/]+\.png$/);
+  });
+
+  test('an image saved with another site name loads from this one', async ({ alice: page, workspaceId }) => {
+    const id = await createPage(page, workspaceId);
+    const upload = await page.request.post('/api/uploads', {
+      multipart: { pageId: id, image: { name: 'dot.png', mimeType: 'image/png', buffer: png } },
+    });
+    expect(upload.status()).toBe(201);
+    const { key } = (await upload.json()).file;
+    // As saved before, on a site at another address
+    const src = `https://wiki.old-address.example/api/uploads/${key}`;
+    const content = { type: 'doc', content: [{ type: 'image', attrs: { src } }] };
+    expect((await page.request.put(`/api/pages/${id}/content`, { data: { content } })).status()).toBe(200);
+    await openPage(page, id);
+    const img = editor(page).locator('.tiptap-image-resizable img');
+    await expect.poll(() => img.evaluate((el: HTMLImageElement) => el.complete && el.naturalWidth)).toBe(1);
+    expect(await img.evaluate((el: HTMLImageElement) => new URL(el.currentSrc).host)).toBe(new URL(page.url()).host);
+    // The saved address is left as it was
+    expect((await images(page))[0].src).toBe(src);
+  });
+});
