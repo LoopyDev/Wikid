@@ -117,21 +117,28 @@ Or enable your provider's server backups (Hetzner and DigitalOcean offer them).
 
 ### Restoring
 
-With the stack running (replace the timestamps):
+`docker/restore.sh` puts a backup back: both databases and both file stores. Everything in the stack is replaced by the backup's, so take a fresh backup first if you might want to undo it.
 
 ```bash
-# Databases
-docker compose exec -T db pg_restore -U postgres -d wikid-tiptap --clean --if-exists < backups/wikid-STAMP.dump
-docker compose exec -T compliance-db pg_restore -U postgres -d wikid-compliance --clean --if-exists < backups/wikid-compliance-STAMP.dump
-
-# Files
-docker run --rm --volumes-from "$(docker compose ps -q minio)" -v "$PWD/backups:/backup" alpine:3.20 \
-  sh -c 'find /data -mindepth 1 -delete && tar xzf /backup/minio-STAMP.tar.gz -C /data'
-docker run --rm --volumes-from "$(docker compose ps -q compliance-minio)" -v "$PWD/backups:/backup" alpine:3.20 \
-  sh -c 'find /data -mindepth 1 -delete && tar xzf /backup/compliance-minio-STAMP.tar.gz -C /data'
-
-docker compose restart api collab minio compliance-minio
+./docker/restore.sh                    # lists the backups in ./backups
+./docker/restore.sh 20261107-030002    # restores that one, after asking
 ```
+
+It reads from `./backups`, or `$BACKUP_DIR` (for example the copies on another machine). It:
+
+- refuses a backup with any of its four files missing or empty;
+- asks you to type `restore` before changing anything (`--yes` skips this, for scripts);
+- stops the API and live-editing server first, so neither writes while the data is swapped;
+- restores each database into a new one and swaps it in only once that has worked, so a damaged backup leaves the current data as it was;
+- unpacks the file stores with MinIO stopped, then starts everything again. The API applies any newer database migrations on startup.
+
+The stack has to have been started at least once. To restore onto a new server, deploy as above, start it, then copy the backup files into `backups/` and run the script.
+
+Things the backups don't hold: the `.env` file (passwords for the databases and MinIO, and other secrets). The data restores without it, as nothing is encrypted with it, but you need it to rebuild the server: keep a copy somewhere safe.
+
+Rehearse a restore now and then on another machine. Note that images are saved in pages with the site's full address (for example `https://wiki.example.com/api/uploads/...`), so on a different address they're requested from the original site, and don't show unless you're logged in there.
+
+CI checks backups and restores on every change (`npm run test:restore`, which backs up a test stack, changes it, restores, and compares). It uses the demo admin account and replaces the stack's data, so never point it at a real stack.
 
 ## Useful commands
 

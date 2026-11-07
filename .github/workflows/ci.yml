@@ -78,6 +78,9 @@ jobs:
           fi
       - name: Browser tests
         run: npm run test:e2e
+      # Last, as restoring replaces the whole stack's data
+      - name: Backup and restore
+        run: npm run test:restore
       - name: Browser test report on failure
         if: failure()
         uses: actions/upload-artifact@v7
