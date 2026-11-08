@@ -1,6 +1,6 @@
 import { selectionSyncedReferenceId } from './syncedBlocks';
 import { parseBlockUrl } from '../utils/editorLinks';
-import { markdownToHtml, shouldHandleMarkdownPaste } from '../utils/markdownPaste';
+import { shouldHandleMarkdownPaste } from '../utils/markdownPaste';
 import { describeUndoStacks, logUndoDebug, undoDebugEnabled } from '../utils/editorDebug';
 import { INDENT_EXCLUDED_ANCESTORS, applyCodeBlockIndentation, collectIndentTargets, findIndentTarget, hasAncestorOfType } from './indentation';
 import { MAX_INDENT as MAX_TEXT_INDENT } from './indent';
@@ -82,13 +82,11 @@ export function createEditorProps({ lastTextInputAt, lastTextInputInfo, props, i
           return true;
         }
       }
-      if (shouldHandleMarkdownPaste(text, html, view.state)) {
-        const rendered = markdownToHtml(text);
-        if (rendered && getEditor()) {
-          event.preventDefault();
-          getEditor().chain().focus().insertContent(rendered).run();
-          return true;
-        }
+      // Pasted Markdown becomes blocks, read by Tiptap's Markdown extension (to-dos and tables included)
+      if (shouldHandleMarkdownPaste(text, html, view.state) && getEditor()?.markdown) {
+        event.preventDefault();
+        getEditor().chain().focus().insertContent(text, { contentType: 'markdown' }).run();
+        return true;
       }
       return false;
     },

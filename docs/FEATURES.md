@@ -29,7 +29,7 @@ What Wikid does today, and how much to rely on each part. Wikid is in early deve
 | Feature | Status | Notes |
 |---|---|---|
 | Paragraphs, headings, bulleted, numbered and to-do lists, indenting | Stable | |
-| Markdown shortcuts while typing, and pasting Markdown | Stable | |
+| Markdown shortcuts while typing, and pasting Markdown | Stable | Pasted Markdown is read by Tiptap's Markdown extension (`@tiptap/markdown`, an early release): to-dos and tables included. To-dos nested under a numbered item come out wrong, an upstream bug. |
 | Slash menu, block menu (turn into, colour, delete), dragging blocks, selected-text toolbar | Stable | |
 | Code blocks with syntax highlighting | Beta | |
 | Tables, callouts, columns, toggle headings, dividers, table of contents | Beta | |
