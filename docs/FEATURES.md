@@ -98,6 +98,7 @@ What Wikid does today, and how much to rely on each part. Wikid is in early deve
 |---|---|---|
 | Writing tools: AI Writer, improve/summarise/shorten/expand a selection, AI side panel | Beta | Needs `ANTHROPIC_API_KEY` on the server. The AI responses themselves aren't covered by automated tests. |
 | Turning AI off: hidden when not set up, an admin switch, and a personal setting | Stable | |
+| Page content as Markdown through the API, read and changed block by block | Beta | New. For tools such as the MCP server: blocks Markdown can't hold (columns, database views) are left as they are. Changes reach a page open in the editor straight away. |
 | MCP server (`mcp/`) so AI tools such as Claude Code can work in a workspace | Experimental | Lists workspaces, pages and database rows, and creates and renames pages. Page text comes back empty (it reads a table the editor no longer uses), and new pages can't be given content yet: being reworked, see Planned. Logs in with an email and password. |
 
 ## Planned

@@ -7,6 +7,7 @@ import { CollabSyncService } from './collab-sync.service';
 import { WikiService } from './wiki.service';
 import { PagesService } from './pages.service';
 import { PageHistoryService } from './page-history.service';
+import { PageContentService } from './page-content.service';
 import { DatabasesService } from './databases.service';
 import { DatabaseFormsService } from './database-forms.service';
 import { DatabaseViewsService } from './database-views.service';
@@ -27,6 +28,11 @@ function pickDefined(source: Record<string, any>, keys: string[]): Record<string
   return result;
 }
 
+const requireMarkdown = (value: unknown) => {
+  if (typeof value !== 'string') throw new BadRequestException('markdown is required');
+  return value;
+};
+
 @Controller()
 export class PagesController {
   constructor(
@@ -44,6 +50,7 @@ export class PagesController {
     private readonly htmlExportService: HtmlExportService,
     private readonly loginLimiter: LoginRateLimiter,
     private readonly history: PageHistoryService,
+    private readonly pageContent: PageContentService,
   ) {}
 
   @Get('pages')
@@ -130,6 +137,46 @@ export class PagesController {
     @CurrentUserName() userName?: string,
   ) {
     return this.pages.updatePageContent(id, content ?? null, { userId, userName });
+  }
+
+  // A page's content as Markdown, block by block, for tools working outside the editor (the MCP
+  // server). Blocks are changed one at a time, so what Markdown can't hold is left as it is.
+  @Get('pages/:id/markdown')
+  getPageMarkdown(@Param('id') id: string, @CurrentUserId() userId?: string, @CurrentUserName() userName?: string) {
+    return this.pageContent.getMarkdown(id, { userId, userName });
+  }
+
+  @Put('pages/:id/markdown')
+  replacePageMarkdown(@Param('id') id: string, @Body('markdown') markdown: unknown, @CurrentUserId() userId?: string, @CurrentUserName() userName?: string) {
+    return this.pageContent.replaceMarkdown(id, requireMarkdown(markdown), { userId, userName });
+  }
+
+  @Post('pages/:id/markdown/blocks')
+  insertPageMarkdown(
+    @Param('id') id: string,
+    @Body('markdown') markdown: unknown,
+    @Body('afterId') afterId?: string,
+    @Body('beforeId') beforeId?: string,
+    @CurrentUserId() userId?: string,
+    @CurrentUserName() userName?: string,
+  ) {
+    return this.pageContent.insertMarkdown(id, requireMarkdown(markdown), { afterId: afterId || undefined, beforeId: beforeId || undefined }, { userId, userName });
+  }
+
+  @Put('pages/:id/markdown/blocks/:blockId')
+  updatePageMarkdownBlock(
+    @Param('id') id: string,
+    @Param('blockId') blockId: string,
+    @Body('markdown') markdown: unknown,
+    @CurrentUserId() userId?: string,
+    @CurrentUserName() userName?: string,
+  ) {
+    return this.pageContent.updateBlockMarkdown(id, blockId, requireMarkdown(markdown), { userId, userName });
+  }
+
+  @Delete('pages/:id/markdown/blocks/:blockId')
+  deletePageMarkdownBlock(@Param('id') id: string, @Param('blockId') blockId: string, @CurrentUserId() userId?: string, @CurrentUserName() userName?: string) {
+    return this.pageContent.deleteBlock(id, blockId, { userId, userName });
   }
 
   @Get('pages/:id/versions')

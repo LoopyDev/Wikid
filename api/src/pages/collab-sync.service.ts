@@ -216,6 +216,23 @@ export class CollabSyncService {
     await this.pushCollab('/collab/push/db-field-delete', { documentName, fieldId }, { documentName, fieldId });
   }
 
+  /** Applies a change to a page's live document, through the collab server; false if it couldn't. */
+  async pushContentUpdate(documentName: string, update: Uint8Array, editorId?: string) {
+    if (!this.collabServerUrl || !this.collabApiSecret) return false;
+    try {
+      const res = await fetch(`${this.collabServerUrl}/collab/push/update`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${this.collabApiSecret}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ documentName, update: Buffer.from(update).toString('base64'), editorId }),
+      });
+      if (!res.ok) console.warn('Collab content push failed', { documentName, status: res.status });
+      return res.ok;
+    } catch (err) {
+      console.warn('Collab content push error', { documentName, error: err });
+      return false;
+    }
+  }
+
   private async pushCollab(path: string, payload: Record<string, unknown>, context: Record<string, unknown>) {
     if (!this.collabServerUrl || !this.collabApiSecret) return;
     try {

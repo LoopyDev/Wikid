@@ -366,6 +366,7 @@ const server = new Server({
       path !== '/collab/push/db-row-delete' &&
       path !== '/collab/push/db-field' &&
       path !== '/collab/push/db-field-delete' &&
+      path !== '/collab/push/update' &&
       path !== '/collab/flush' &&
       path !== '/collab/broadcast'
     ) {
@@ -445,9 +446,27 @@ const server = new Server({
       response.end(JSON.stringify({ ok: false, error: 'Invalid documentName' }));
       throw null;
     }
+    // A change to a page's content worked out by the API (from Markdown, say): applied to the page
+    // as it is now, open or not, so everyone with it open sees it
+    let update: Uint8Array | null = null;
+    if (path === '/collab/push/update') {
+      update = typeof body?.update === 'string' && body.update ? new Uint8Array(Buffer.from(body.update, 'base64')) : null;
+      if (!update) {
+        response.writeHead(400, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ ok: false, error: 'update is required' }));
+        throw null;
+      }
+    }
     const connection = await instance.openDirectConnection(documentName, { source: 'api' });
     try {
-      if (path === '/collab/push/db-field' || path === '/collab/push/db-field-delete') {
+      if (update) {
+        const change = update;
+        await connection.transact((document) => {
+          Y.applyUpdate(document, change);
+        });
+        // Credited in the page's history like a live edit
+        if (typeof body?.editorId === 'string') noteEditor(documentName, body.editorId);
+      } else if (path === '/collab/push/db-field' || path === '/collab/push/db-field-delete') {
         const field = body?.field;
         const fieldId = path === '/collab/push/db-field' ? (typeof field?.id === 'string' ? field.id.trim() : '') : typeof body?.fieldId === 'string' ? body.fieldId.trim() : '';
         if (!fieldId || (path === '/collab/push/db-field' && (typeof field?.name !== 'string' || typeof field?.type !== 'string'))) {

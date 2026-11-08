@@ -80,6 +80,19 @@ export const normalizeCollabDocState = async (state: Uint8Array): Promise<Collab
   };
 };
 
+/**
+ * The change that turns a live document's content into `content` (page content blocks), as a Yjs
+ * update to apply to it. Only what differs changes, so blocks left alone keep their place, and
+ * edits made meanwhile by others merge with it.
+ */
+export const contentUpdateForState = (state: Uint8Array, content: unknown[]): Uint8Array => {
+  const doc = new Y.Doc();
+  Y.applyUpdate(doc, new Uint8Array(state));
+  const before = Y.encodeStateVector(doc);
+  prosemirrorJSONToYXmlFragment(collabSchema, { type: 'doc', content }, doc.getXmlFragment(COLLAB_FRAGMENT));
+  return Y.encodeStateAsUpdate(doc, before);
+};
+
 export const editorDocFromYjsState = async (state: Uint8Array) => {
   const result = await normalizeCollabDocState(state);
   return result.normalized;

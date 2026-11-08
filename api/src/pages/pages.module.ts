@@ -8,6 +8,7 @@ import { DatabaseSetupService } from './database-setup.service';
 import { WikiService } from './wiki.service';
 import { PagesService } from './pages.service';
 import { PageHistoryService } from './page-history.service';
+import { PageContentService } from './page-content.service';
 import { DatabaseValuesService } from './database-values.service';
 import { DatabasesService } from './databases.service';
 import { DatabaseFormsService } from './database-forms.service';
@@ -31,6 +32,7 @@ import { LoginRateLimiter } from '../auth/login-rate-limiter';
     WikiService,
     PagesService,
     PageHistoryService,
+    PageContentService,
     DatabaseValuesService,
     DatabasesService,
     DatabaseFormsService,

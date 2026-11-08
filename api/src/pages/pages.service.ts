@@ -8,7 +8,7 @@ import { PageAccessService } from './page-access.service';
 import { DatabaseSetupService } from './database-setup.service';
 import { CollabSyncService } from './collab-sync.service';
 import { WikiService } from './wiki.service';
-import { PageVersionRecorder } from '../collab/page-version-recorder.service';
+import { PageContentService } from './page-content.service';
 import { POSITION_INCREMENT, isSystemAdmin, canEdit, normalizePageTitle } from './pages.shared';
 
 // Pages: listing, reading, editing, edit locks, visibility, moving, reordering, setup,
@@ -21,7 +21,7 @@ export class PagesService {
     private readonly databaseSetup: DatabaseSetupService,
     private readonly collabSync: CollabSyncService,
     private readonly wiki: WikiService,
-    private readonly versions: PageVersionRecorder,
+    private readonly pageContent: PageContentService,
   ) {}
 
   private locks = new Map<string, { userId: string; userName: string; expires: number }>();
@@ -134,13 +134,11 @@ export class PagesService {
     }
     // refresh lock to extend editing session
     this.claimLock(id, user?.userId, user?.userName);
+    // Into the live document too, if the page has one: written only to the stored copy, it was
+    // lost the next time the live document was saved
     const normalized = normalizeEditorContent(content);
-    const page = await this.prisma.page.update({
-      where: { id },
-      data: { content: normalized },
-    });
-    await this.versions.recordVersion(id, { title: page.title, content: normalized as Prisma.InputJsonValue, editorIds: user?.userId ? [user.userId] : [] });
-    return page;
+    await this.pageContent.replaceContent(id, normalized.content, user ?? {});
+    return this.prisma.page.findUniqueOrThrow({ where: { id } });
   }
 
   // Deletes pages for good, with their blocks, databases and live-editing documents.
