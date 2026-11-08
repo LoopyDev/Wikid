@@ -1,3 +1,5 @@
+import { mkdtemp, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -40,7 +42,7 @@ describe('MCP server', () => {
   it('offers its tools', async () => {
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual([
-      'add_database_row', 'create_page', 'delete_block', 'get_database', 'get_page', 'insert_blocks',
+      'add_database_row', 'add_image', 'create_page', 'delete_block', 'get_database', 'get_page', 'insert_blocks',
       'list_pages', 'list_workspaces', 'rename_page', 'replace_page', 'search', 'update_block', 'update_database_row',
     ]);
   });
@@ -63,6 +65,28 @@ describe('MCP server', () => {
     const after = (await alice.get(`/pages/${pageId}/markdown`)).body;
     expect(after.title).toBe('Trip');
     expect(after.markdown).toBe('# Packing\n\n> 💡 Leave by 8.\n\nBook the **train** and the hotel.');
+  });
+
+  it('uploads an image from a file, in place of an image placeholder, keeping what it said', async () => {
+    // A 1×1 PNG
+    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+    const file = path.join(await mkdtemp(path.join(tmpdir(), 'wikid-mcp-')), 'north wall.png');
+    await writeFile(file, png);
+    const created = await call('create_page', { workspaceId, title: 'Site visit', markdown: 'Intro\n\n[Image to add: The north wall]\n\nOutro' });
+    const pageId = pageIdIn(created.text);
+    const [, placeholder] = blockIds(created.text);
+
+    const added = await call('add_image', { pageId, file, replaceId: placeholder });
+    expect(added.isError).toBe(false);
+    const stored = (await alice.get(`/pages/${pageId}`)).body.content.content;
+    expect(stored.map((n: any) => n.type)).toEqual(['paragraph', 'image', 'paragraph']);
+    expect(stored[1].attrs).toMatchObject({ alt: 'The north wall', src: expect.stringMatching(new RegExp(`/uploads/${pageId}/.+\\.png$`)) });
+    // Served to someone who can see the page
+    const served = await alice.get(stored[1].attrs.src.replace(/^.*\/uploads\//, '/uploads/'));
+    expect(served.status).toBe(200);
+
+    expect((await call('add_image', { pageId, file: path.join(path.dirname(file), 'missing.png') })).text).toMatch(/no such file/);
+    expect((await call('add_image', { pageId, file, url: 'https://example.com/a.png' })).text).toBe('Give either file or url');
   });
 
   it('makes columns and toggles, and shows them as it reads the page', async () => {
