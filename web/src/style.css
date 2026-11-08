@@ -7653,8 +7653,9 @@ button {
   text-align: left;
 }
 
+/* One highlighted item: the pointer moves it (SlashCommandList.vue), so no :hover of its own, which
+   left the item under a resting pointer lit while the arrow keys moved on */
 .slash-item--active,
-.slash-item:hover,
 .slash-item:focus-visible {
   background: var(--sidebar-hover-bg);
   outline: none;

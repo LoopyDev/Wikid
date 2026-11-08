@@ -13,7 +13,7 @@ type User = { userId?: string; userName?: string };
 type Scope = 'workspace' | 'personal';
 
 /** A page and the pages under it, as copied to or from a template. */
-type Tree = { title: string; icon: string | null; content: ContentNode[]; children: Tree[] };
+type Tree = { title: string; icon: string | null; fullWidth: boolean; content: ContentNode[]; children: Tree[] };
 
 // Page templates. A template is a page marked as one: a workspace's live in that workspace, for its
 // members; someone's own live in their personal workspace, and are offered in every workspace.
@@ -109,7 +109,7 @@ export class TemplatesService {
     } else if (body.fromTemplateId) {
       tree = await this.readTemplate(body.fromTemplateId, user, cleanup);
     } else {
-      tree = { title: '', icon: null, content: [{ type: 'paragraph' }], children: [] };
+      tree = { title: '', icon: null, fullWidth: false, content: [{ type: 'paragraph' }], children: [] };
     }
     if (typeof body.title === 'string' && body.title.trim()) tree.title = body.title.trim();
     const root = await this.writeTree(tree, { workspaceId: target, parentId: null, isTemplate: true }, user);
@@ -125,7 +125,7 @@ export class TemplatesService {
     const tree = await this.readTemplate(templateId, user, emptyCleanup());
     if (body.pageId) {
       const { userId, userName } = this.requireUser(user);
-      const page = await this.pages.fillNewPage(body.pageId, { title: tree.title, icon: tree.icon, content: { type: 'doc', content: tree.content } }, { userId, userName });
+      const page = await this.pages.fillNewPage(body.pageId, { title: tree.title, icon: tree.icon, fullWidth: tree.fullWidth, content: { type: 'doc', content: tree.content } }, { userId, userName });
       for (const child of tree.children) {
         await this.writeTree(child, { workspaceId: page.workspaceId, parentId: page.id, isTemplate: false }, user);
       }
@@ -142,7 +142,7 @@ export class TemplatesService {
     if (templateId.startsWith(BUILTIN_PREFIX)) {
       const builtin = findBuiltinTemplate(templateId);
       if (!builtin) throw new NotFoundException('Template not found');
-      return { title: builtin.title, icon: builtin.icon, content: markdownToContent(builtin.markdown) as ContentNode[], children: [] };
+      return { title: builtin.title, icon: builtin.icon, fullWidth: false, content: markdownToContent(builtin.markdown) as ContentNode[], children: [] };
     }
     return this.readPageTree(templateId, user, true, cleanup);
   }
@@ -151,7 +151,7 @@ export class TemplatesService {
   // template holds documents)
   private async readPageTree(pageId: string, user: User, mustBeTemplate: boolean, cleanup: TemplateCleanup): Promise<Tree> {
     const { page } = await this.access.ensurePageReadAccess(pageId, user);
-    const record = await this.prisma.page.findUniqueOrThrow({ where: { id: pageId }, select: { title: true, icon: true, isTemplate: true, kind: true } });
+    const record = await this.prisma.page.findUniqueOrThrow({ where: { id: pageId }, select: { title: true, icon: true, fullWidth: true, isTemplate: true, kind: true } });
     if (mustBeTemplate && !record.isTemplate) throw new NotFoundException('Template not found');
     if (record.kind !== PageKind.DOC || page.kind !== PageKind.DOC) throw new BadRequestException('Only document pages can be templates');
     const content = templateContent(await this.pageContent.readContent(pageId, user), cleanup).content;
@@ -169,7 +169,7 @@ export class TemplatesService {
         if (!(err instanceof ForbiddenException)) throw err;
       }
     }
-    return { title: record.title, icon: record.icon, content, children: subtrees };
+    return { title: record.title, icon: record.icon, fullWidth: record.fullWidth, content, children: subtrees };
   }
 
   private async writeTree(tree: Tree, where: { workspaceId: string; parentId: string | null; isTemplate: boolean; visibility?: PageVisibility }, user: User): Promise<{ id: string; workspaceId: string }> {
@@ -179,6 +179,7 @@ export class TemplatesService {
       parentId: where.parentId ?? undefined,
       title: tree.title,
       icon: tree.icon,
+      fullWidth: tree.fullWidth,
       content: { type: 'doc', content: tree.content },
       isTemplate: where.isTemplate,
       visibility: where.visibility,

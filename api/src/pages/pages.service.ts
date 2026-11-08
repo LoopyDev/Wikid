@@ -161,7 +161,7 @@ export class PagesService {
     return tx.page.deleteMany({ where: { id: { in: ids } } });
   }
 
-  async updatePage(id: string, data: { title?: string; icon?: string }, user?: { userId?: string; userName?: string }) {
+  async updatePage(id: string, data: { title?: string; icon?: string; fullWidth?: boolean }, user?: { userId?: string; userName?: string }) {
     await this.access.requirePageAccess(id, user, { requireWrite: true });
     const updateData: Prisma.PageUpdateInput = {};
     if (typeof data.title === 'string') {
@@ -169,6 +169,9 @@ export class PagesService {
     }
     if (typeof data.icon === 'string') {
       updateData.icon = data.icon;
+    }
+    if (typeof data.fullWidth === 'boolean') {
+      updateData.fullWidth = data.fullWidth;
     }
     const updated = await this.prisma.page.update({
       where: { id },
@@ -353,6 +356,7 @@ export class PagesService {
     isTemplate?: boolean;
     icon?: string | null;
     content?: unknown;
+    fullWidth?: boolean;
   }) {
     if (!body.workspaceId) {
       throw new BadRequestException('workspaceId is required');
@@ -392,6 +396,7 @@ export class PagesService {
         content: normalizeEditorContent(body.content ?? null),
         icon: body.icon ?? null,
         isTemplate: body.isTemplate === true,
+        fullWidth: body.fullWidth === true,
         parentId,
         position,
         kind,
@@ -425,7 +430,7 @@ export class PagesService {
    * A new page that hasn't chosen its type yet, made a document page from a template at once:
    * its title, icon and content. Its subpages are made by the caller.
    */
-  async fillNewPage(id: string, data: { title: string; icon: string | null; content: unknown }, user?: { userId?: string; userName?: string }) {
+  async fillNewPage(id: string, data: { title: string; icon: string | null; content: unknown; fullWidth?: boolean }, user?: { userId?: string; userName?: string }) {
     const { page } = await this.access.requirePageAccess(id, user, { requireWrite: true });
     if (page.setupStatus !== PageSetupStatus.PENDING || page.isTemplate) {
       throw new ConflictException('Only a new page can be made from a template');
@@ -436,6 +441,7 @@ export class PagesService {
         title: data.title,
         icon: data.icon,
         content: normalizeEditorContent(data.content ?? null),
+        fullWidth: data.fullWidth === true,
         kind: PageKind.DOC,
         setupStatus: PageSetupStatus.COMPLETE,
       },
