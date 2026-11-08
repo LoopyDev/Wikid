@@ -32,6 +32,7 @@ import { usePageSwitchHold } from './composables/usePageSwitchHold';
 import { isInIconBrowser } from './utils/iconSearch';
 import { api, AUTH_EXPIRED_EVENT, PASSWORD_CHANGE_REQUIRED_EVENT } from './api/client';
 import { editorDocToMarkdown, editorDocToMarkdownAsync, fallbackDoc } from './utils/editorDoc';
+import { exportPagesMarkdownZip } from './utils/markdownExport';
 import { SYSTEM_ADMIN_ID } from './constants/system-admin';
 import { CHEVRON_RIGHT } from './constants/icons';
 
@@ -1165,113 +1166,6 @@ const buildBreadcrumb = (page, pageMap) => {
   return segments.filter(Boolean).join('/') || sanitizePathSegment(page.title, page.id);
 };
 
-const CRC32_TABLE = (() => {
-  const table = new Uint32Array(256);
-  for (let i = 0; i < 256; i += 1) {
-    let c = i;
-    for (let j = 0; j < 8; j += 1) {
-      c = (c & 1) ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
-    }
-    table[i] = c >>> 0;
-  }
-  return table;
-})();
-
-const crc32 = (bytes) => {
-  let crc = 0xffffffff;
-  for (let i = 0; i < bytes.length; i += 1) {
-    crc = CRC32_TABLE[(crc ^ bytes[i]) & 0xff] ^ (crc >>> 8);
-  }
-  return (crc ^ 0xffffffff) >>> 0;
-};
-
-const createZipBlob = (entries) => {
-  const encoder = new TextEncoder();
-  const headerChunks = [];
-  const centralChunks = [];
-  let offset = 0;
-
-  entries.forEach(({ path, data }) => {
-    const fileBytes = data instanceof Uint8Array ? data : encoder.encode(String(data));
-    const nameBytes = encoder.encode(path);
-    const checksum = crc32(fileBytes);
-    const entryOffset = offset;
-
-    const localHeader = new Uint8Array(30 + nameBytes.length);
-    const localView = new DataView(localHeader.buffer);
-    localView.setUint32(0, 0x04034b50, true);
-    localView.setUint16(4, 20, true);
-    localView.setUint16(6, 0, true);
-    localView.setUint16(8, 0, true);
-    localView.setUint16(10, 0, true);
-    localView.setUint16(12, 0, true);
-    localView.setUint32(14, checksum, true);
-    localView.setUint32(18, fileBytes.length, true);
-    localView.setUint32(22, fileBytes.length, true);
-    localView.setUint16(26, nameBytes.length, true);
-    localView.setUint16(28, 0, true);
-    localHeader.set(nameBytes, 30);
-
-    headerChunks.push(localHeader);
-    headerChunks.push(fileBytes);
-    offset += localHeader.length + fileBytes.length;
-
-    const centralHeader = new Uint8Array(46 + nameBytes.length);
-    const centralView = new DataView(centralHeader.buffer);
-    let ptr = 0;
-    centralView.setUint32(ptr, 0x02014b50, true);
-    ptr += 4;
-    centralView.setUint16(ptr, 20, true);
-    ptr += 2;
-    centralView.setUint16(ptr, 20, true);
-    ptr += 2;
-    centralView.setUint16(ptr, 0, true);
-    ptr += 2;
-    centralView.setUint16(ptr, 0, true);
-    ptr += 2;
-    centralView.setUint16(ptr, 0, true);
-    ptr += 2;
-    centralView.setUint16(ptr, 0, true);
-    ptr += 2;
-    centralView.setUint32(ptr, checksum, true);
-    ptr += 4;
-    centralView.setUint32(ptr, fileBytes.length, true);
-    ptr += 4;
-    centralView.setUint32(ptr, fileBytes.length, true);
-    ptr += 4;
-    centralView.setUint16(ptr, nameBytes.length, true);
-    ptr += 2;
-    centralView.setUint16(ptr, 0, true);
-    ptr += 2;
-    centralView.setUint16(ptr, 0, true);
-    ptr += 2;
-    centralView.setUint16(ptr, 0, true);
-    ptr += 2;
-    centralView.setUint16(ptr, 0, true);
-    ptr += 2;
-    centralView.setUint32(ptr, 0, true);
-    ptr += 4;
-    centralView.setUint32(ptr, entryOffset, true);
-    ptr += 4;
-    centralHeader.set(nameBytes, ptr);
-    centralChunks.push(centralHeader);
-  });
-
-  const centralSize = centralChunks.reduce((sum, chunk) => sum + chunk.length, 0);
-  const endOfCentral = new Uint8Array(22);
-  const endView = new DataView(endOfCentral.buffer);
-  endView.setUint32(0, 0x06054b50, true);
-  endView.setUint16(4, 0, true);
-  endView.setUint16(6, 0, true);
-  endView.setUint16(8, centralChunks.length, true);
-  endView.setUint16(10, centralChunks.length, true);
-  endView.setUint32(12, centralSize, true);
-  endView.setUint32(16, offset, true);
-  endView.setUint16(20, 0, true);
-
-  return new Blob([...headerChunks, ...centralChunks, endOfCentral], { type: 'application/zip' });
-};
-
 const exportWorkspaceMarkdown = async () => {
   if (!workspace.activeUser || !workspace.pages.length) {
     return;
@@ -1279,36 +1173,28 @@ const exportWorkspaceMarkdown = async () => {
   const pageMap = new Map(workspace.pages.map((page) => [page.id, page]));
   const userId = workspace.activeUser.id;
   const userName = workspace.activeUser.name;
-  const encoder = new TextEncoder();
-  const entryPromises = await Promise.all(
-    workspace.pages.map(async (page, index) => {
+  const fetched = await Promise.all(
+    workspace.pages.map(async (page) => {
       try {
         const pageData = await api.getPage(page.id, { userId, userName });
-        const doc = pageData?.content ?? fallbackDoc;
-        const markdown = await editorDocToMarkdownAsync(doc, (pageId) =>
-          api.getDatabase(pageId, { userId, userName }),
-        );
-        const filePath = `${buildBreadcrumb(page, pageMap)}.md`;
-        const data = encoder.encode(markdown || '');
-        return { index, entry: { path: filePath, data } };
+        return { path: buildBreadcrumb(page, pageMap), doc: pageData?.content ?? fallbackDoc };
       } catch (err) {
         console.error('Failed to fetch page for markdown export', err);
         return null;
       }
     })
   );
-  const entries = entryPromises
-    .filter(Boolean)
-    .sort((a, b) => a.index - b.index)
-    .map(({ entry }) => entry);
-  if (!entries.length) {
+  const pages = fetched.filter(Boolean);
+  if (!pages.length) {
     return;
   }
   const fileSafeName = (activeWorkspaceName.value || 'workspace')
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '') || 'workspace';
-  const blob = createZipBlob(entries);
+  const blob = await exportPagesMarkdownZip(pages, {
+    fetchDatabase: (pageId) => api.getDatabase(pageId, { userId, userName }),
+  });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;

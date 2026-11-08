@@ -11,9 +11,14 @@ const UPLOAD = /^(?:https?:\/\/[^/?#]+)?(?:\/api)?\/uploads\/([0-9a-f-]{36}\/[^/
 
 /** The address to load an upload from on this Wikid, or `src` as it is when it isn't an upload. */
 export function uploadSrc(src, apiBase = API_BASE) {
-  if (typeof src !== 'string') return src;
-  const match = src.trim().match(UPLOAD);
-  return match ? `${apiBase}/uploads/${match[1]}` : src;
+  const key = uploadKey(src);
+  return key ? `${apiBase}/uploads/${key}` : src;
+}
+
+/** The upload's key (page id / file name), or null when `src` isn't an upload. */
+export function uploadKey(src) {
+  if (typeof src !== 'string') return null;
+  return src.trim().match(UPLOAD)?.[1] ?? null;
 }
 
 /** The same, as a full address (with this site's name), for use outside Wikid: a Markdown file. */

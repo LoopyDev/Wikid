@@ -11,7 +11,7 @@ import { computed, nextTick, onMounted } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useWorkspaceStore } from '../stores/workspace';
 import { api } from '../api/client';
-import { editorDocToMarkdownAsync } from '../utils/editorDoc';
+import { exportPageMarkdown } from '../utils/markdownExport';
 import PageIcon from './PageIcon.vue';
 
 // Exports pages as HTML (a chosen part of the page tree), or the open page as PDF or Markdown.
@@ -176,16 +176,16 @@ const exportPdf = () => {
 };
 
 const exportMarkdown = async () => {
-  const title = workspace.currentPage?.title?.trim() || 'page';
   const user = activeUser.value;
-  const markdown = await editorDocToMarkdownAsync(workspace.doc, (pageId) =>
-    api.getDatabase(pageId, { userId: user?.id, userName: user?.name }),
-  );
-  const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' });
+  const { blob, filename } = await exportPageMarkdown({
+    doc: workspace.doc,
+    title: workspace.currentPage?.title?.trim() || 'page',
+    fetchDatabase: (pageId) => api.getDatabase(pageId, { userId: user?.id, userName: user?.name }),
+  });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
-  link.download = `${title}.md`;
+  link.download = filename;
   link.click();
   URL.revokeObjectURL(url);
 };
@@ -278,7 +278,7 @@ onMounted(() => {
       </template>
 
       <template v-if="exportFormat === 'markdown'">
-        <p class="muted">Export the current page as a Markdown file.</p>
+        <p class="muted">Export the current page as a Markdown file. If it has images, you get a zip with the images in it.</p>
         <div class="modal-actions">
           <button class="ghost-btn ghost-btn-background" type="button" @click="exportMarkdown">Download Markdown</button>
           <button class="ghost-btn" type="button" @click="close">Cancel</button>
