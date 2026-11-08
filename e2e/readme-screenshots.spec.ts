@@ -1,7 +1,9 @@
+import { execFileSync } from 'node:child_process';
 import { test, expect, signIn, placeCursor, USERS } from './fixtures';
 
 // Builds a small demo workspace and retakes the README screenshots in docs/images/.
-// Skipped normally; run it with: WIKID_SCREENSHOTS=1 npm run test:e2e -- readme-screenshots
+// Skipped normally; run it, against a Docker Compose stack, with:
+//   WIKID_SCREENSHOTS=1 npm run test:e2e -- readme-screenshots
 const p = (text: string) => ({ type: 'paragraph', content: [{ type: 'text', text }] });
 const h = (level: number, text: string) => ({ type: 'heading', attrs: { level }, content: [{ type: 'text', text }] });
 const todo = (text: string, checked = false) => ({ type: 'taskItem', attrs: { checked }, content: [p(text)] });
@@ -101,20 +103,31 @@ test('readme screenshots', async ({ browser }) => {
     await page.waitForTimeout(1200);
     await page.screenshot({ path: `docs/images/search-${theme}.png` });
 
-    // 4. Two people editing the same page: Bob's named cursor, from Alice's window.
+    // 4. Two people editing the same page: Bob's named cursor, from Alice's window. The page has
+    // an earlier version (from three hours ago), for the page history in 5.
+    const withId = (id: number, node: any) => ({ ...node, attrs: { ...node.attrs, id: `block-${id}` } });
+    const agenda = (...items: [number, string][]) =>
+      withId(3, { type: 'bulletList', content: items.map(([id, text]) => withId(id, { type: 'listItem', content: [withId(id + 1, p(text))] })) });
+    const task = (id: number, text: string) => withId(id, { ...todo(text), content: [withId(id + 1, p(text))] });
+    const meeting = (first: string, items: [number, string][]) => ({
+      type: 'doc',
+      content: [
+        withId(1, p(first)),
+        withId(2, h(2, 'Agenda')),
+        agenda(...items),
+        withId(20, h(2, 'Actions')),
+        withId(21, { type: 'taskList', content: [task(22, 'Call the freezer engineer'), task(24, 'Book inductions for next week')] }),
+      ],
+    });
     await api.put(`/api/pages/${meetingNotes}/content`, {
-      data: {
-        content: {
-          type: 'doc',
-          content: [
-            p('Weekly lab meeting, Monday 9:30.'),
-            h(2, 'Agenda'),
-            { type: 'bulletList', content: [bullet('Freezer -80 temperature alarms'), bullet('New starters: induction dates'), bullet('Fume hood 3 service')] },
-            h(2, 'Actions'),
-            { type: 'taskList', content: [todo('Call the freezer engineer'), todo('Book inductions for next week')] },
-          ],
-        },
-      },
+      data: { content: meeting('Weekly lab meeting.', [[4, 'Freezer -80 temperature alarms'], [6, 'New starters: induction dates'], [8, 'Lab tour for visitors']]) },
+    });
+    // Moved back three hours, so what follows makes a version of its own. Straight in the database,
+    // as nothing in Wikid changes a version's time: run this against a Docker Compose stack.
+    execFileSync('docker', ['compose', 'exec', '-T', 'db', 'psql', '-U', 'postgres', '-d', 'wikid-tiptap', '-qc',
+      `UPDATE "PageVersion" SET "createdAt" = "createdAt" - interval '3 hours', "updatedAt" = "updatedAt" - interval '3 hours' WHERE "pageId" = '${meetingNotes}'`]);
+    await api.put(`/api/pages/${meetingNotes}/content`, {
+      data: { content: meeting('Weekly lab meeting, Monday 9:30.', [[4, 'Freezer -80 temperature alarms'], [6, 'New starters: induction dates'], [10, 'Fume hood 3 service']]) },
     });
     await api.post(`/api/workspaces/${ws}/members`, { data: { email: USERS.bob.email, role: 'EDITOR' } });
     const bobContext = await browser.newContext({ viewport: { width: 1440, height: 900 } });
@@ -136,6 +149,16 @@ test('readme screenshots', async ({ browser }) => {
     await expect(page.locator('.collaboration-carets__label', { hasText: 'Bob' })).toBeVisible();
     await page.waitForTimeout(1000);
     await page.screenshot({ path: `docs/images/collaboration-${theme}.png` });
+
+    // 5. Page history: the version Alice and Bob just made, with what it changed.
+    await expect.poll(async () => (await (await api.get(`/api/pages/${meetingNotes}/versions`)).json())[0]?.editors?.length).toBe(2);
+    await page.locator('.topbar-menu-btn').click();
+    await page.locator('.topbar-menu__dropdown').getByRole('button', { name: 'Page history' }).click();
+    const history = page.locator('.page-history');
+    await expect(history.locator('.page-history__changes')).toContainText('1 removed');
+    await page.mouse.move(0, 0);
+    await page.waitForTimeout(800);
+    await history.screenshot({ path: `docs/images/page-history-${theme}.png` });
     await bobContext.close();
 
     await api.delete(`/api/workspaces/${ws}`);

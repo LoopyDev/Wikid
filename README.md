@@ -13,64 +13,68 @@ A self-hosted wiki and workspace with a block-based editor, structured databases
 
 How far along each feature is (stable, beta, experimental or planned) is in [docs/FEATURES.md](docs/FEATURES.md).
 
-**Pages and editor**
+### Pages and editor
+
 - Nested pages in multiple workspaces, with emoji/icon picker and public/private visibility
-- Page history: versions with who edited them, and restoring an earlier version
-- Search across page titles, page text and database rows (⌘K / Ctrl+K)
 - Tiptap-based block editor with `/` slash commands
 - Callouts, toggle headings, multi-column layouts, tables, code blocks, table of contents
 - Page links, link previews, resizable images, draw.io diagrams, Gaussian splat embeds
-- HTML, PDF and Markdown export
+- Search across page titles, page text and database rows (⌘K / Ctrl+K)
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/search-dark.png">
   <img alt="Search (Cmd/Ctrl+K) finding pages and database rows with the matched words highlighted" src="docs/images/search-light.png">
 </picture>
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/database-board-dark.png">
-  <img alt="An equipment database shown as a board, grouped by status" src="docs/images/database-board-light.png">
-</picture>
+### Collaboration and page history
 
-**Databases**
-- Inline databases with Text, Number, Date, Checkbox, Select, Multi-select, URL, and Relation fields
-- Table, board and gallery views, with saved filters and sorts
-- Forms that submit rows straight into a database
-- Asset tag columns, with a QR code of each row's tag to print as a label
-- Starter templates for inventory, maintenance, and assignments
-
-**Compliance**
-- A separate, append-only compliance database for regulated records
-- Versioned schemas and configurable workflows (Draft → Submitted → In Review → Closed/Sealed by default) with role and approval guards
-- Isolated attachment storage with hash verification on export
+- Real-time co-editing over Yjs and Hocuspocus, with everyone's named cursors and a live sidebar
+- Page history: each editing session is kept as a version, with who edited it
+- Each version shows what it added, changed and removed, and any version can be restored, live for everyone with the page open
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/collaboration-dark.png">
   <img alt="Meeting notes edited by two people at once: Bob's named cursor at the end of the task he's typing, seen from Alice's window" src="docs/images/collaboration-light.png">
 </picture>
 
-**Collaboration and AI**
-- Real-time co-editing over Yjs and Hocuspocus, periodically written back to Postgres, with a live sidebar
-- Optional Claude-powered writing tools (hidden unless `ANTHROPIC_API_KEY` is set; the admin and each user can turn them off): generate with `/AI`, improve/summarise/shorten/expand a selection, change tone, or chat about the current page in a side panel
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/page-history-dark.png">
+  <img alt="Page history: the newest version of the meeting notes, by Alice and Bob, with a changed line, a removed agenda item and an added one marked, beside the list of versions" src="docs/images/page-history-light.png">
+</picture>
+
+### Databases
+
+- Inline databases with Text, Number, Date, Checkbox, Select, Multi-select, URL, Person and Relation fields
+- Table, board, gallery and list views, with saved filters and sorts
+- Forms that submit rows straight into a database
+- Asset tag columns, with a QR code of each row's tag to print as a label
+- Starter templates for inventory, maintenance, and assignments
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/database-board-dark.png">
+  <img alt="An equipment database shown as a board, grouped by status" src="docs/images/database-board-light.png">
+</picture>
+
+### Compliance
+
+- A separate, append-only compliance database for regulated records
+- Versioned schemas and configurable workflows (Draft → Submitted → In Review → Closed/Sealed by default) with role and approval guards
+- Isolated attachment storage with hash verification on export
+
+### AI (optional)
+
+- Claude-powered writing tools, hidden unless `ANTHROPIC_API_KEY` is set (the admin and each user can turn them off): generate with `/AI`, improve/summarise/shorten/expand a selection, change tone, or chat about the current page in a side panel
 - An MCP server (`mcp/`) so AI tools can read and create workspace pages (set `WIKID_API_URL`, `WIKID_EMAIL`, and `WIKID_PASSWORD`)
 
-**Administration**
+### Export, backups and restore
+
+- Export a page tree or a workspace as HTML, a page as PDF, or pages as Markdown (with uploaded images in a zip)
+- A backup script for both databases and uploaded files, to run nightly, and a one-command restore (`docker/restore.sh`), both tested in CI
+
+### Administration
+
 - Login with email or username, self-service password change; people the admin set a password for choose their own on first login
 - Admin panels for users, workspaces, collaboration state, and settings
-
-## Stack
-
-| Part | Tech |
-| --- | --- |
-| API (`api/`) | NestJS, Prisma, PostgreSQL |
-| Frontend (`web/`) | Vue 3, Pinia, Vite, Tiptap v3 |
-| Collab server (`collab/`) | Hocuspocus, Yjs |
-| MCP server (`mcp/`) | Model Context Protocol SDK |
-| Storage | S3-compatible (MinIO for local dev) |
-
-The repo is an npm workspace: one `npm install` at the root installs every package.
-
-See [`docs/architecture/overview.md`](docs/architecture/overview.md) for how the pieces fit together.
 
 ## Quick start (Docker)
 
@@ -98,9 +102,27 @@ Only port 8088 is published. The databases and MinIO stay on Docker's internal n
 
 `docker compose down` stops the stack and keeps your data. `docker compose down -v` also deletes the data.
 
-To run it on a server with HTTPS, your own admin login and backups, see [`docs/deployment.md`](docs/deployment.md).
+## Running it on a server
 
-## Development setup
+[`docs/deployment.md`](docs/deployment.md) covers running Wikid on a server: HTTPS, your own admin login and secrets, nightly backups, and restoring one (onto the same server or a new one).
+
+## Development
+
+### Stack
+
+| Part | Tech |
+| --- | --- |
+| API (`api/`) | NestJS, Prisma, PostgreSQL |
+| Frontend (`web/`) | Vue 3, Pinia, Vite, Tiptap v3 |
+| Collab server (`collab/`) | Hocuspocus, Yjs |
+| MCP server (`mcp/`) | Model Context Protocol SDK |
+| Storage | S3-compatible (MinIO for local dev) |
+
+The repo is an npm workspace: one `npm install` at the root installs every package.
+
+See [`docs/architecture/overview.md`](docs/architecture/overview.md) for how the pieces fit together.
+
+### Setup
 
 Requirements: Node.js 22 or newer (26 recommended), Docker.
 
