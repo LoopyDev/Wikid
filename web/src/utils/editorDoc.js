@@ -138,6 +138,10 @@ const tiptapContentToBlocks = (content) => {
         const caption = safeString(node?.attrs?.alt || node?.attrs?.title || '').trim();
         return { type: 'image', data: { file: { url: src }, caption } };
       }
+      if (node?.type === 'gaussianSplat') {
+        const src = safeString(node?.attrs?.src || '').trim();
+        return src ? { type: 'splat', data: { file: { url: src } } } : null;
+      }
       if (node?.type === 'databaseView') {
         const pageId = safeString(node?.attrs?.pageId || '').trim();
         if (!pageId) return null;
@@ -236,6 +240,24 @@ export const renderDatabaseAsMarkdownTable = (db, fallbackTitle) => {
   return [`**${title}**`, header, separator, ...dataRows].join('\n');
 };
 
+// Where an image or splat points in Markdown. An export that puts uploads in its zip gives
+// fileLink, which returns the upload's path in the zip (or null to keep its address).
+// Otherwise it's this site's full address: Markdown is read outside Wikid.
+const renderFileBlock = (block, fileLink) => {
+  const src = block.data?.file?.url || block.data?.url || '';
+  const url = fileLink?.(src) || absoluteUploadSrc(src);
+  if (!url) return '';
+  // Markdown can't show a splat, so it's a link to the file
+  if (block.type === 'splat') return `[Gaussian splat](${url})`;
+  return `![${block.data.caption || 'image'}](${url})`;
+};
+
+/** The addresses of the images and splats a page shows, as saved in it. */
+export const fileSrcsInDoc = (raw) =>
+  tiptapContentToBlocks(normalizeEditorDoc(raw).content)
+    .filter((block) => block.type === 'image' || block.type === 'splat')
+    .map((block) => block.data.file.url);
+
 export const editorDocToMarkdown = (raw) => {
   const normalized = normalizeEditorDoc(raw);
   const blocks = tiptapContentToBlocks(normalized.content);
@@ -270,13 +292,7 @@ export const editorDocToMarkdown = (raw) => {
       if (style === 'stars') return '***';
       return '---';
     }
-    if (block.type === 'image') {
-      // With this site's full address: Markdown is read outside Wikid
-      const url = absoluteUploadSrc(block.data?.file?.url || block.data?.url || '');
-      const caption = block.data.caption || '';
-      if (!url) return '';
-      return `![${caption || 'image'}](${url})`;
-    }
+    if (block.type === 'image' || block.type === 'splat') return renderFileBlock(block);
     if (block.type === 'databaseView') {
       return `[Database: ${block.data.title || 'Untitled'}]`;
     }
@@ -291,9 +307,10 @@ export const editorDocToMarkdown = (raw) => {
  *
  * @param {*} raw - raw doc JSON
  * @param {(pageId: string) => Promise<{fields: any[], rows: any[]}>} fetchDatabase
+ * @param {{ fileLink?: (src: string) => string | null }} [options]
  * @returns {Promise<string>}
  */
-export const editorDocToMarkdownAsync = async (raw, fetchDatabase) => {
+export const editorDocToMarkdownAsync = async (raw, fetchDatabase, { fileLink } = {}) => {
   const normalized = normalizeEditorDoc(raw);
   const blocks = tiptapContentToBlocks(normalized.content);
 
@@ -337,13 +354,7 @@ export const editorDocToMarkdownAsync = async (raw, fetchDatabase) => {
     if (block.type === 'delimiter') {
       return block.data?.style === 'stars' ? '***' : '---';
     }
-    if (block.type === 'image') {
-      // With this site's full address: Markdown is read outside Wikid
-      const url = absoluteUploadSrc(block.data?.file?.url || block.data?.url || '');
-      const caption = block.data.caption || '';
-      if (!url) return '';
-      return `![${caption || 'image'}](${url})`;
-    }
+    if (block.type === 'image' || block.type === 'splat') return renderFileBlock(block, fileLink);
     if (block.type === 'databaseView') {
       const db = dbData[block.data.pageId];
       return db
