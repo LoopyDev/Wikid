@@ -76,7 +76,7 @@ What Wikid does today, and how much to rely on each part. Wikid is in early deve
 | Feature | Status | Notes |
 |---|---|---|
 | HTML export of a page tree or a whole workspace | Stable | |
-| Markdown export of a page or a whole workspace, with uploaded images in a zip | Beta | Images inside callouts and columns are left out for now. |
+| Markdown export of a page or a whole workspace, with uploaded images in a zip | Beta | Callouts and quotes become Markdown quotes; columns come one after another. |
 | PDF export | Beta | |
 
 ## Accounts and administration

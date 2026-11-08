@@ -94,3 +94,37 @@ describe('collectUploads', () => {
     expect(uploads.pathFor(upload(otherPageId, 'same.png'))).toBe(`images/${otherPageId}-same.png`);
   });
 });
+
+describe('blocks inside callouts, quotes and columns', () => {
+  const callout = (icon, ...content) => ({ type: 'callout', attrs: { icon }, content });
+  const columns = (...cols) => ({ type: 'columns', content: cols.map((content) => ({ type: 'column', content })) });
+
+  it('exports images in columns, one column after another, with the files in the zip', async () => {
+    const { blob, filename } = await exportPageMarkdown({
+      doc: doc(paragraph('Before and after'), columns([image(upload(pageId, 'before.png'), 'Before')], [image(upload(pageId, 'after.png'), 'After')])),
+      title: 'Bugs',
+      fetchFile,
+    });
+    expect(filename).toBe('Bugs.zip');
+    const files = await unzip(blob);
+    expect([...files.keys()]).toEqual(['Bugs.md', 'images/before.png', 'images/after.png']);
+    expect(text(files.get('Bugs.md'))).toBe('Before and after\n\n![Before](images/before.png)\n\n![After](images/after.png)');
+  });
+
+  it('writes a callout as a quote with its emoji, images and all', async () => {
+    const { blob } = await exportPageMarkdown({
+      doc: doc(callout('💡', paragraph('Remember this'), image(upload(pageId, 'tip.png')), paragraph('And this'))),
+      title: 'Tips',
+      fetchFile,
+    });
+    const files = await unzip(blob);
+    expect(text(files.get('Tips.md'))).toBe('> 💡 Remember this\n>\n> ![image](images/tip.png)\n>\n> And this');
+    expect(files.has('images/tip.png')).toBe(true);
+  });
+
+  it("leaves out a callout's Wikid icon, which has no text form, and writes a quote as a quote", async () => {
+    const quote = { type: 'blockquote', content: [paragraph('Said once')] };
+    const { blob } = await exportPageMarkdown({ doc: doc(callout('icon:house', paragraph('Home')), quote), title: 'Q', fetchFile });
+    expect(text(await blobBytes(blob))).toBe('> Home\n\n> Said once');
+  });
+});
