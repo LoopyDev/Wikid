@@ -53,4 +53,25 @@ Then ask Claude about your wiki ("what's on the onboarding page?", "add a page o
 | `get_database` | A database's columns and rows |
 | `add_database_row`, `update_database_row` | Rows, with cells by column name |
 
-Pages are changed **block by block**: Markdown has no columns, database views, colours or image sizes, so a page rewritten whole from Markdown would lose them. Blocks the tool doesn't touch stay exactly as they are, and a page that someone has open shows each change straight away. Changes go into the page's history under the user the server logs in as.
+### Columns and toggles
+
+Markdown has neither, so Wikid writes and reads them as sections (and `get_page` shows them this way):
+
+```markdown
+::: columns
+Left side, any Markdown.
+
+::: column
+Right side.
+:::
+
+::: toggle
+## A heading that opens
+
+What it opens to.
+:::
+```
+
+A quote starting with an emoji (`> 💡 …`) is a callout. Columns can't go inside a column, and a columns section can't yet be removed in one go: delete the blocks inside it, or rewrite the page with `replace_page`. A Markdown export to files keeps to standard Markdown: columns one after another.
+
+Pages are changed **block by block**: Markdown has no database views, colours or image sizes, so a page rewritten whole from Markdown would lose them. Blocks the tool doesn't touch stay exactly as they are, and a page that someone has open shows each change straight away. Changes go into the page's history under the user the server logs in as.

@@ -65,6 +65,24 @@ describe('MCP server', () => {
     expect(after.markdown).toBe('# Packing\n\n> 💡 Leave by 8.\n\nBook the **train** and the hotel.');
   });
 
+  it('makes columns and toggles, and shows them as it reads the page', async () => {
+    const markdown = '::: columns\n**Before**\n::: column\n**After**\n:::\n\n::: toggle\n## Details\n\nThe small print.\n:::';
+    const created = await call('create_page', { workspaceId, title: 'Compare', markdown });
+    const pageId = pageIdIn(created.text);
+    const stored = (await alice.get(`/pages/${pageId}`)).body.content.content;
+    expect(stored.map((n: any) => n.type)).toEqual(['columns', 'toggleHeading']);
+    expect(stored[0].content).toHaveLength(2);
+
+    const read = await call('get_page', { pageId });
+    expect(read.text).toMatch(/::: columns\n<!-- block-\d+ -->\n\*\*Before\*\*\n\n::: column\n<!-- block-\d+ -->\n\*\*After\*\*\n:::/);
+    expect((await alice.get(`/pages/${pageId}/markdown`)).body.markdown).toBe(markdown.replace('**Before**\n::: column', '**Before**\n\n::: column'));
+
+    // A mistake in a section comes back as a message
+    const broken = await call('insert_blocks', { pageId, markdown: '::: columns\nUnclosed' });
+    expect(broken.isError).toBe(true);
+    expect(broken.text).toMatch(/isn't closed/);
+  });
+
   it('lists pages and workspaces, and finds pages by their text', async () => {
     const created = await call('create_page', { workspaceId, title: 'Glossary', markdown: 'A zettelkasten is a box of notes.' });
     const pageId = pageIdIn(created.text);

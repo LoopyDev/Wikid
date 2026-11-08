@@ -175,7 +175,102 @@ function blocks(tokens: Token[]): ContentNode[] {
   return out;
 }
 
+// ---- Columns and toggles ----
+//
+// Markdown has neither, so Wikid reads (and, for tools, writes) them as fenced sections:
+//
+//   ::: columns            ::: toggle
+//   Left side              ## Heading
+//   ::: column             What it opens to
+//   Right side             :::
+//   :::
+//
+// "::: column" starts each column after the first. Lines inside code blocks are left alone.
+
+export class MarkdownSyntaxError extends Error {}
+
+const DIRECTIVE = /^:::\s*(columns|column|toggle)?\s*$/;
+const FENCE = /^\s{0,3}(`{3,}|~{3,})/;
+
+type Section = { kind: 'root' | 'columns' | 'toggle'; columns: string[][]; lines: string[] };
+
 /** Markdown as page content blocks (without block ids: the content is normalised before saving). */
 export function markdownToContent(markdown: string): ContentNode[] {
-  return blocks(marked.lexer(String(markdown ?? ''), { gfm: true }));
+  const lines = String(markdown ?? '').replace(/\r\n?/g, '\n').split('\n');
+  const stack: Section[] = [{ kind: 'root', columns: [], lines: [] }];
+  const current = () => stack[stack.length - 1];
+  // The lines of what's open now: a column's, or the section's own
+  const sink = () => {
+    const section = current();
+    return section.kind === 'columns' ? section.columns[section.columns.length - 1] : section.lines;
+  };
+  // Finished sections: each leaves a placeholder line where it sat, swapped back after parsing
+  const done: ContentNode[][] = [];
+  let fence: string | null = null;
+
+  for (const line of lines) {
+    const opened = line.match(FENCE);
+    if (fence) {
+      if (opened && opened[1][0] === fence[0] && opened[1].length >= fence.length && !line.trim().slice(opened[1].length).trim()) fence = null;
+      sink().push(line);
+      continue;
+    }
+    if (opened) {
+      fence = opened[1];
+      sink().push(line);
+      continue;
+    }
+    const directive = line.trim().match(DIRECTIVE);
+    if (!directive) {
+      sink().push(line);
+      continue;
+    }
+    const kind = directive[1];
+    if (kind === 'columns' || kind === 'toggle') {
+      if (kind === 'columns' && stack.some((s) => s.kind === 'columns')) throw new MarkdownSyntaxError('Columns can’t go inside columns');
+      stack.push({ kind, columns: kind === 'columns' ? [[]] : [], lines: [] });
+    } else if (kind === 'column') {
+      if (current().kind !== 'columns') throw new MarkdownSyntaxError('"::: column" belongs inside "::: columns"');
+      current().columns.push([]);
+    } else {
+      // ":::" closes the innermost section
+      if (stack.length === 1) throw new MarkdownSyntaxError('A ":::" with no "::: columns" or "::: toggle" to close');
+      const section = stack.pop()!;
+      done.push([build(section, done)]);
+      sink().push(placeholder(done.length - 1));
+    }
+  }
+  if (stack.length > 1) throw new MarkdownSyntaxError(`A "::: ${stack[stack.length - 1].kind}" that isn't closed with ":::"`);
+  return resolve(parse(stack[0].lines), done);
 }
+
+// Where a finished section goes, in the Markdown around it: a paragraph of its own
+const placeholder = (index: number) => `\n\u2063wikid-section-${index}\u2063\n`;
+const PLACEHOLDER = /^\u2063wikid-section-(\d+)\u2063$/;
+
+const parse = (lines: string[]) => blocks(marked.lexer(lines.join('\n'), { gfm: true }));
+
+function resolve(nodes: ContentNode[], done: ContentNode[][]): ContentNode[] {
+  return nodes.flatMap((node) => {
+    const text = node.type === 'paragraph' && node.content?.length === 1 ? node.content[0].text : undefined;
+    const match = text?.match(PLACEHOLDER);
+    if (match) return done[Number(match[1])];
+    return node.content ? [{ ...node, content: resolve(node.content, done) }] : [node];
+  });
+}
+
+// Sections close innermost first, so any inside this one are already in `done`
+function build(section: Section, done: ContentNode[][]): ContentNode {
+  if (section.kind === 'columns') {
+    return { type: 'columns', content: section.columns.map((lines) => ({ type: 'column', content: nonEmpty(resolve(parse(lines), done)) })) };
+  }
+  const content = resolve(parse(section.lines), done);
+  // A toggle opens with its heading; without one, its first line becomes it
+  if (content[0]?.type !== 'heading') {
+    const first = content.shift();
+    content.unshift({ type: 'heading', attrs: { level: 2 }, content: first?.type === 'paragraph' ? first.content : undefined });
+  }
+  return { type: 'toggleHeading', content };
+}
+
+const nonEmpty = (content: ContentNode[]) => (content.length ? content : [paragraph([])]);
