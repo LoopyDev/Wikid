@@ -10327,6 +10327,12 @@ button {
   mix-blend-mode: screen;
 }
 
+/* Screen only lightens, so on a light page it faded other people's cursors and names to white */
+:root[data-theme='light'] .ProseMirror .collaboration-carets__caret,
+:root[data-theme='light'] .ProseMirror .collaboration-carets__selection {
+  mix-blend-mode: normal;
+}
+
 @keyframes caret-blink {
   0% {
     opacity: 1;

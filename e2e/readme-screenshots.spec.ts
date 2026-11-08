@@ -1,4 +1,4 @@
-import { test, expect, signIn, USERS } from './fixtures';
+import { test, expect, signIn, placeCursor, USERS } from './fixtures';
 
 // Builds a small demo workspace and retakes the README screenshots in docs/images/.
 // Skipped normally; run it with: WIKID_SCREENSHOTS=1 npm run test:e2e -- readme-screenshots
@@ -18,6 +18,10 @@ test('readme screenshots', async ({ browser }) => {
     const page = await context.newPage();
     const api = context.request;
 
+    // A run that failed part-way leaves its workspace behind, and names are unique
+    for (const member of await (await api.get('/api/workspaces')).json()) {
+      if (member.workspace?.name === 'Northwind Lab') await api.delete(`/api/workspaces/${member.workspace.id}`);
+    }
     const ws = (await (await api.post('/api/workspaces', { data: { name: 'Northwind Lab' } })).json()).workspace.id;
     const mk = async ({ icon, ...data }: any) => {
       const id = (await (await api.post('/api/pages', { data: { workspaceId: ws, kind: 'DOC', setupStatus: 'COMPLETE', ...data } })).json()).id as string;
@@ -29,7 +33,7 @@ test('readme screenshots', async ({ browser }) => {
     const firstWeek = await mk({ title: 'Your first week', icon: '🗓️', parentId: onboarding });
     await mk({ title: 'IT setup', icon: '💻', parentId: onboarding });
     await mk({ title: 'Lab safety', icon: '🧪' });
-    await mk({ title: 'Meeting notes', icon: '📝' });
+    const meetingNotes = await mk({ title: 'Meeting notes', icon: '📝' });
     await api.put(`/api/pages/${welcome}/content`, { data: { content: { type: 'doc', content: [p('The team wiki for Northwind Lab.')] } } });
     await api.put(`/api/pages/${firstWeek}/content`, {
       data: {
@@ -96,6 +100,43 @@ test('readme screenshots', async ({ browser }) => {
     await page.getByRole('searchbox').fill('lab');
     await page.waitForTimeout(1200);
     await page.screenshot({ path: `docs/images/search-${theme}.png` });
+
+    // 4. Two people editing the same page: Bob's named cursor, from Alice's window.
+    await api.put(`/api/pages/${meetingNotes}/content`, {
+      data: {
+        content: {
+          type: 'doc',
+          content: [
+            p('Weekly lab meeting, Monday 9:30.'),
+            h(2, 'Agenda'),
+            { type: 'bulletList', content: [bullet('Freezer -80 temperature alarms'), bullet('New starters: induction dates'), bullet('Fume hood 3 service')] },
+            h(2, 'Actions'),
+            { type: 'taskList', content: [todo('Call the freezer engineer'), todo('Book inductions for next week')] },
+          ],
+        },
+      },
+    });
+    await api.post(`/api/workspaces/${ws}/members`, { data: { email: USERS.bob.email, role: 'EDITOR' } });
+    const bobContext = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    await signIn(bobContext, USERS.bob.email);
+    await bobContext.addInitScript((t) => localStorage.setItem('wikid:theme', t), theme);
+    const bob = await bobContext.newPage();
+    await page.goto(`/doc/${meetingNotes}`);
+    await expect(page.locator('.ProseMirror')).toContainText('Weekly lab meeting');
+    await bob.goto(`/doc/${meetingNotes}`);
+    await expect(bob.locator('.ProseMirror')).toContainText('Weekly lab meeting');
+    // Alice adds to the first line, Bob to the actions
+    await placeCursor(page, 0, 'end');
+    await page.keyboard.type(' Notes by Alice.', { delay: 40 });
+    await bob.locator('.ProseMirror p', { hasText: 'Book inductions for next week' }).click();
+    await bob.keyboard.press('End');
+    // As a person would: typing straight after the click, the editor hasn't caught up with it yet
+    await bob.waitForTimeout(300);
+    await bob.keyboard.type(', and send the dates round', { delay: 40 });
+    await expect(page.locator('.collaboration-carets__label', { hasText: 'Bob' })).toBeVisible();
+    await page.waitForTimeout(1000);
+    await page.screenshot({ path: `docs/images/collaboration-${theme}.png` });
+    await bobContext.close();
 
     await api.delete(`/api/workspaces/${ws}`);
     await context.close();

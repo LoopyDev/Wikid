@@ -22,6 +22,11 @@ How far along each feature is (stable, beta, experimental or planned) is in [doc
 - HTML, PDF and Markdown export
 
 <picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/search-dark.png">
+  <img alt="Search (Cmd/Ctrl+K) finding pages and database rows with the matched words highlighted" src="docs/images/search-light.png">
+</picture>
+
+<picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/database-board-dark.png">
   <img alt="An equipment database shown as a board, grouped by status" src="docs/images/database-board-light.png">
 </picture>
@@ -29,7 +34,8 @@ How far along each feature is (stable, beta, experimental or planned) is in [doc
 **Databases**
 - Inline databases with Text, Number, Date, Checkbox, Select, Multi-select, URL, and Relation fields
 - Table, board and gallery views, with saved filters and sorts
-- Forms that submit rows straight into a database, each with its own QR code
+- Forms that submit rows straight into a database
+- Asset tag columns, with a QR code of each row's tag to print as a label
 - Starter templates for inventory, maintenance, and assignments
 
 **Compliance**
@@ -38,8 +44,8 @@ How far along each feature is (stable, beta, experimental or planned) is in [doc
 - Isolated attachment storage with hash verification on export
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/search-dark.png">
-  <img alt="Search (Cmd/Ctrl+K) finding pages and database rows with the matched words highlighted" src="docs/images/search-light.png">
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/collaboration-dark.png">
+  <img alt="Meeting notes edited by two people at once: Bob's named cursor at the end of the task he's typing, seen from Alice's window" src="docs/images/collaboration-light.png">
 </picture>
 
 **Collaboration and AI**
