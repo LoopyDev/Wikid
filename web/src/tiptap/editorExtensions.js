@@ -41,6 +41,7 @@ import GaussianSplat from './gaussianSplat';
 import { AiSuggestionExtension } from './aiSuggestions';
 import { createBlockIdExtension, createBlockPositionExtension } from './blockIds';
 import { createBulletDepthPlugin } from './bulletDepth';
+import { ListJoin } from './listJoin';
 import { ColumnCleanupExtension, ColumnInputGuardExtension } from './columnGuards';
 import { createInputSelectionGuardExtension } from './inputSelectionGuard';
 import { createSyncedMirrorExtension } from './syncedBlocks';
@@ -161,6 +162,7 @@ export function createEditorExtensions({
         nested: true,
         HTMLAttributes: { class: 'tiptap-task-item' },
       }),
+      ListJoin,
       Link.configure({
         autolink: true,
         linkOnPaste: true,

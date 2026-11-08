@@ -40,6 +40,50 @@ test.describe('editor', () => {
     ]);
   });
 
+  test('removing the empty bullet between two others keeps them one list, so the second can be indented', async ({ alice: page, workspaceId }) => {
+    await openPage(page, await createPage(page, workspaceId));
+    await editor(page).click();
+    await page.keyboard.type('- One\nTwo\nThree', { delay: 20 });
+    // Empty the middle bullet, then backspace twice: out of the list, then the empty line goes
+    await editor(page).getByText('Two', { exact: true }).click();
+    await page.keyboard.press('End');
+    // Once the editor has the cursor at the end of "Two" (typing straight after a click can beat it)
+    await page.waitForFunction(() => {
+      const { selection } = (document.querySelector('.ProseMirror') as any).editor.state;
+      return selection.empty && selection.$from.parent.textContent === 'Two' && selection.$from.parentOffset === 3;
+    });
+    for (let i = 0; i < 5; i += 1) await page.keyboard.press('Backspace');
+    await expect.poll(() => outline(page)).toEqual(['bulletList', '  listItem', '    paragraph: One', '  listItem', '    paragraph: Three']);
+    await editor(page).getByText('Three', { exact: true }).click();
+    await page.keyboard.press('Home');
+    await page.waitForFunction(() => {
+      const { selection } = (document.querySelector('.ProseMirror') as any).editor.state;
+      return selection.$from.parent.textContent === 'Three' && selection.$from.parentOffset === 0;
+    });
+    await page.keyboard.press('Tab');
+    await expect.poll(() => outline(page)).toEqual(['bulletList', '  listItem', '    paragraph: One', '    bulletList', '      listItem', '        paragraph: Three']);
+  });
+
+  test('leaves two lists elsewhere on the page apart', async ({ alice: page, workspaceId }) => {
+    const id = await createPage(page, workspaceId);
+    const list = (text: string) => ({ type: 'bulletList', content: [{ type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text }] }] }] });
+    const content = { type: 'doc', content: [list('First list'), list('Second list'), { type: 'paragraph', content: [{ type: 'text', text: 'Below' }] }] };
+    expect((await page.request.put(`/api/pages/${id}/content`, { data: { content } })).status()).toBe(200);
+    await openPage(page, id);
+    await editor(page).getByText('Below').click();
+    await page.keyboard.press('End');
+    await page.waitForFunction(() => {
+      const { selection } = (document.querySelector('.ProseMirror') as any).editor.state;
+      return selection.$from.parent.textContent === 'Below' && selection.$from.parentOffset === 5;
+    });
+    await page.keyboard.type(' and more', { delay: 20 });
+    await expect.poll(() => outline(page)).toEqual([
+      'bulletList', '  listItem', '    paragraph: First list',
+      'bulletList', '  listItem', '    paragraph: Second list',
+      'paragraph: Below and more',
+    ]);
+  });
+
   test('indents a paragraph with Tab and outdents with Shift+Tab', async ({ alice: page, workspaceId }) => {
     const id = await createPage(page, workspaceId);
     await openPage(page, id);
