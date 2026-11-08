@@ -59,7 +59,7 @@ What Wikid does today, and how much to rely on each part. Wikid is in early deve
 | Each row opens as its own page | Stable | |
 | Relations between databases, with backlinks | Beta | A "Linked from" column shows a relation's other side (read-only; edit the link from the other database). |
 | Saved views with filters and sorts | Stable | |
-| Board and gallery views | Beta | |
+| Board, gallery and list views | Beta | |
 | Forms: builder, submissions straight into the database | Beta | |
 | Asset tag columns, with a QR code of each row's tag | Beta | The QR code holds the tag's text, not a link to the row. Not tested yet. |
 | Starter templates: inventory, maintenance, assignments | Beta | |
@@ -87,6 +87,7 @@ What Wikid does today, and how much to rely on each part. Wikid is in early deve
 | Admin: create, edit, reset the password of, and delete users | Stable | |
 | People the admin set a password for choose their own when they first log in | Stable | |
 | Change your own password | Stable | |
+| Failed logins limited, so passwords can't be guessed at speed | Stable | 5 per account from one address, 20 per account and 100 per address, over 15 minutes. |
 | Admin settings (turn AI features on or off for everyone) | Stable | |
 | Nightly backups, and restoring one with a single command (`docker/backup.sh`, `docker/restore.sh`) | Stable | Tested in CI on every change. See [deployment](deployment.md#restoring). |
 | Dark and light themes | Beta | |
@@ -97,19 +98,21 @@ What Wikid does today, and how much to rely on each part. Wikid is in early deve
 |---|---|---|
 | Writing tools: AI Writer, improve/summarise/shorten/expand a selection, AI side panel | Beta | Needs `ANTHROPIC_API_KEY` on the server. The AI responses themselves aren't covered by automated tests. |
 | Turning AI off: hidden when not set up, an admin switch, and a personal setting | Stable | |
-| MCP server (`mcp/`) so AI tools can read and create pages | Experimental | |
+| MCP server (`mcp/`) so AI tools such as Claude Code can work in a workspace | Experimental | Lists workspaces, pages and database rows, and creates and renames pages. Page text comes back empty (it reads a table the editor no longer uses), and new pages can't be given content yet: being reworked, see Planned. Logs in with an email and password. |
 
 ## Planned
 
 First, making what's here solid: more automated tests (especially for Beta features), checks that every API
-route only lets the right people in, rate limiting on login, and two-factor authentication. Then, roughly in this order:
+route only lets the right people in, and two-factor authentication. Then, roughly in this order:
 
-1. Import from Markdown
-2. Page templates
-3. Groups and teams for permissions
-4. Admin audit log (logins, permission changes, deletions, exports)
-5. Comments and @mentions, with notifications
-6. Read-only share links
-7. Single sign-on (OIDC: Google, Microsoft Entra, Okta, Keycloak, Authentik)
-8. Page owners and "last reviewed" dates
-9. Later: invite links, optional email (invites, password reset), and open sign-up behind an admin switch
+1. A reworked MCP server: read pages as Markdown, search, and create and edit pages and database rows (Markdown turned into page content on the server)
+2. Personal API tokens, so tools like the MCP server don't need your password
+3. Import from Markdown: files, or a zip of folders with images, previewed before importing
+4. Page templates
+5. Groups and teams for permissions
+6. Admin audit log (logins, permission changes, deletions, exports)
+7. Comments and @mentions, with notifications
+8. Read-only share links
+9. Single sign-on (OIDC: Google, Microsoft Entra, Okta, Keycloak, Authentik)
+10. Page owners and "last reviewed" dates
+11. Later: invite links, optional email (invites, password reset), and open sign-up behind an admin switch
