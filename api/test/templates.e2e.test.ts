@@ -137,6 +137,20 @@ describe('page templates', () => {
     expect((await templates(bob)).builtIn).toHaveLength(4);
   });
 
+  it('copies full width, a page\'s own setting, to the template and to pages made from it', async () => {
+    const source = await createPage(alice, workspaceId, { title: unique('Wide board') });
+    expect((await alice.patch(`/pages/${source.id}`, { fullWidth: true })).body.fullWidth).toBe(true);
+    const template = (await alice.post('/templates', { scope: 'workspace', workspaceId, fromPageId: source.id })).body;
+    expect((await alice.get(`/pages/${template.id}`)).body.fullWidth).toBe(true);
+    const made = (await alice.post(`/templates/${template.id}/use`, { workspaceId })).body;
+    expect((await alice.get(`/pages/${made.id}`)).body.fullWidth).toBe(true);
+    const fresh = (await alice.post('/pages', { workspaceId, title: 'Untitled page', setupStatus: 'PENDING' })).body;
+    await alice.post(`/templates/${template.id}/use`, { pageId: fresh.id });
+    expect((await alice.get(`/pages/${fresh.id}`)).body.fullWidth).toBe(true);
+    // A viewer can't change it
+    expect((await bob.patch(`/pages/${source.id}`, { fullWidth: false })).status).toBe(403);
+  });
+
   it("can't be made through the page endpoint, and a deleted one goes to the Bin", async () => {
     const page = (await alice.post('/pages', { workspaceId, title: 'Sneaky', isTemplate: true })).body;
     expect((await alice.get(`/pages/${page.id}`)).body.isTemplate).toBe(false);

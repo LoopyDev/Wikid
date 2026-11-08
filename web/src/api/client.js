@@ -175,6 +175,9 @@ export const api = {
       body: JSON.stringify({ icon }),
     });
   },
+  async updatePageFullWidth(pageId, fullWidth) {
+    return request(`/pages/${pageId}`, { method: 'PATCH', body: JSON.stringify({ fullWidth }) });
+  },
   async updatePageVisibility(pageId, visibility, { userId, userName } = {}) {
     return request(`/pages/${pageId}/visibility${buildQs({ userId, userName })}`, {
       method: 'PATCH',
