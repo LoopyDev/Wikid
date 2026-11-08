@@ -22,6 +22,39 @@ async function openItemMenu(page: Page, title: string) {
 }
 
 test.describe('sidebar', () => {
+  test('drags a page into the Private or Public section when that section is empty', async ({ alice: page, workspaceId }) => {
+    const title = unique('Movable');
+    const id = await createPage(page, workspaceId, { title });
+    await openPage(page, id);
+    const section = (name: string) => sidebar(page).locator(`.sidebar__section[data-section="${name}"]`);
+    const visibility = async () => (await (await page.request.get(`/api/pages/${id}`)).json()).visibility;
+    // The browser's drag events, sent ourselves: Playwright's dragTo doesn't fire them for the sidebar
+    const dragTo = async (name: string) => {
+      await sidebarItem(page, title).evaluate((row, name) => {
+        const data = new DataTransfer();
+        const heading = document.querySelector(`.sidebar__section[data-section="${name}"] .sidebar__section-title`)!;
+        const box = heading.getBoundingClientRect();
+        const at = { clientX: box.left + 20, clientY: box.top + box.height / 2, bubbles: true, cancelable: true, dataTransfer: data };
+        row.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: data }));
+        heading.dispatchEvent(new DragEvent('dragover', at));
+        heading.dispatchEvent(new DragEvent('drop', at));
+        row.dispatchEvent(new DragEvent('dragend', { bubbles: true, dataTransfer: data }));
+      }, name);
+    };
+
+    // A new workspace has no private pages: the section says so, and takes the drop
+    await expect(section('private').locator('.sidebar__section-empty')).toHaveText('No private pages');
+    await dragTo('private');
+    await expect.poll(visibility).toBe('PRIVATE');
+    await expect(section('private').locator('.sidebar__item', { hasText: title })).toBeVisible();
+    await expect(section('public').locator('.sidebar__section-empty')).toHaveText('No public pages');
+
+    // And back, now that Public is the empty one
+    await dragTo('public');
+    await expect.poll(visibility).toBe('PUBLIC');
+    await expect(section('public').locator('.sidebar__item', { hasText: title })).toBeVisible();
+  });
+
   test('creates a page, renames it and adds a page inside it', async ({ alice: page, workspaceId }) => {
     await openPage(page, await createPage(page, workspaceId));
     await sidebar(page).getByRole('button', { name: 'Public +' }).getByRole('button', { name: '+' }).click();

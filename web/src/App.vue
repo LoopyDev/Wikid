@@ -1878,6 +1878,49 @@ const handleBreadcrumbNavigate = (pageId) => {
   }
 };
 
+// Dropping a page on the Private or Public section itself (its heading, or the space under it)
+// moves it there, at the top level: pages are only drop targets for one another, so an empty
+// section had nothing to drop onto
+const sectionDropTarget = ref(null); // 'PRIVATE' or 'PUBLIC' while a page is dragged over it
+const overPageRow = (event) => !!event.target?.closest?.('.sidebar__item');
+const draggingPage = (event) => Array.from(event.dataTransfer?.types ?? []).includes('application/json');
+const handleSectionDragOver = (visibility, event) => {
+  if (!canEditWorkspace.value || !draggingPage(event)) return;
+  // A page row under the pointer takes the drop itself
+  if (overPageRow(event)) {
+    if (sectionDropTarget.value === visibility) sectionDropTarget.value = null;
+    return;
+  }
+  event.preventDefault();
+  event.dataTransfer.dropEffect = 'move';
+  sectionDropTarget.value = visibility;
+};
+const handleSectionDragLeave = (visibility, event) => {
+  if (event.currentTarget?.contains?.(event.relatedTarget)) return;
+  if (sectionDropTarget.value === visibility) sectionDropTarget.value = null;
+};
+const handleSectionDrop = async (visibility, event) => {
+  sectionDropTarget.value = null;
+  if (!canEditWorkspace.value || overPageRow(event)) return;
+  event.preventDefault();
+  let draggedId = null;
+  try {
+    draggedId = JSON.parse(event.dataTransfer.getData('application/json'))?.id ?? null;
+  } catch {
+    return;
+  }
+  const dragged = pages.value.find((p) => p.id === draggedId);
+  if (!dragged) return;
+  const current = dragged.visibility === 'PRIVATE' ? 'PRIVATE' : 'PUBLIC';
+  // Its subpages go with it; moved out from under a parent that stays, it goes to the top level
+  if (current !== visibility) await workspace.movePageVisibility(dragged, visibility);
+};
+if (typeof window !== 'undefined') {
+  window.addEventListener('dragend', () => {
+    sectionDropTarget.value = null;
+  });
+}
+
 const reorderPages = async ({ draggedId, targetId, targetParentId, dropMode = 'above' }) => {
   let dragged = pages.value.find((p) => p.id === draggedId);
   let target = pages.value.find((p) => p.id === targetId);
@@ -2060,7 +2103,15 @@ if (typeof window !== 'undefined') {
         <kbd aria-hidden="true">{{ searchShortcutLabel }}</kbd>
       </button>
 
-      <div class="sidebar__section" v-if="!loadingPages && activeWorkspaceId">
+      <div
+        class="sidebar__section"
+        :class="{ 'sidebar__section--drop-target': sectionDropTarget === 'PRIVATE' }"
+        :data-section="'private'"
+        v-if="!loadingPages && activeWorkspaceId"
+        @dragover="handleSectionDragOver('PRIVATE', $event)"
+        @dragleave="handleSectionDragLeave('PRIVATE', $event)"
+        @drop="handleSectionDrop('PRIVATE', $event)"
+      >
         <button class="sidebar__section-title collapsible" type="button" @click="workspace.privateOpen = !workspace.privateOpen">
           <span>Private</span>
           <span class="caret" :class="{ open: workspace.privateOpen }">
@@ -2073,6 +2124,9 @@ if (typeof window !== 'undefined') {
           </span>
         </button>
         <div v-show="workspace.privateOpen">
+          <p v-if="!privatePages.length" class="sidebar__section-empty">
+            {{ sectionDropTarget === 'PRIVATE' ? 'Drop here to make it private' : 'No private pages' }}
+          </p>
           <PageTree
             :pages="privatePages"
             :parent-id="null"
@@ -2101,7 +2155,15 @@ if (typeof window !== 'undefined') {
         </div>
       </div>
 
-      <div class="sidebar__section" v-if="!loadingPages && activeWorkspaceId">
+      <div
+        class="sidebar__section"
+        :class="{ 'sidebar__section--drop-target': sectionDropTarget === 'PUBLIC' }"
+        :data-section="'public'"
+        v-if="!loadingPages && activeWorkspaceId"
+        @dragover="handleSectionDragOver('PUBLIC', $event)"
+        @dragleave="handleSectionDragLeave('PUBLIC', $event)"
+        @drop="handleSectionDrop('PUBLIC', $event)"
+      >
         <button class="sidebar__section-title collapsible" type="button" @click="workspace.publicOpen = !workspace.publicOpen">
           <span>Public</span>
           <span class="caret" :class="{ open: workspace.publicOpen }">
@@ -2114,6 +2176,9 @@ if (typeof window !== 'undefined') {
           </span>
         </button>
         <div v-show="workspace.publicOpen">
+          <p v-if="!publicPages.length" class="sidebar__section-empty">
+            {{ sectionDropTarget === 'PUBLIC' ? 'Drop here to make it public' : 'No public pages' }}
+          </p>
           <PageTree
             :pages="publicPages"
             :parent-id="null"
