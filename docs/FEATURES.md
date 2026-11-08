@@ -59,7 +59,8 @@ What Wikid does today, and how much to rely on each part. Wikid is in early deve
 | Relations between databases, with backlinks | Beta | A "Linked from" column shows a relation's other side (read-only; edit the link from the other database). |
 | Saved views with filters and sorts | Stable | |
 | Board and gallery views | Beta | |
-| Forms: builder, submissions straight into the database, QR codes | Beta | The builder and submissions are tested; QR codes aren't. |
+| Forms: builder, submissions straight into the database | Beta | |
+| Asset tag columns, with a QR code of each row's tag | Beta | The QR code holds the tag's text, not a link to the row. Not tested yet. |
 | Starter templates: inventory, maintenance, assignments | Beta | |
 | Live editing of tables with others | Beta | |
 
