@@ -55,6 +55,17 @@ const emit = defineEmits(['select', 'close', 'style-select']);
 const EMOJI_RECENTS_KEY = 'wikid:recent-emojis';
 const emojiDataSource = emojiDataUrl;
 const recentEmojis = ref([]);
+// The picker's own row of most-used emoji, under the list: unlabelled, and topped up with its
+// defaults (😒 among them) until you've used enough. The Recent row above does that job, with a
+// heading. The picker is drawn in its own shadow root, so the style to hide it goes in there.
+const hideFavoritesRow = (picker) => {
+  const root = picker?.shadowRoot;
+  if (!root || root.querySelector('style[data-wikid]')) return;
+  const style = document.createElement('style');
+  style.dataset.wikid = '';
+  style.textContent = '.favorites { display: none; }';
+  root.appendChild(style);
+};
 const iconTabs = computed(() => {
   const tabs = [{ key: 'emoji', label: 'Emoji' }];
   if (props.allowIcons) {
@@ -226,6 +237,7 @@ watch(
     </div>
     <div v-if="showRecents && !recentEmojis.length" class="emoji-menu__empty">Pick an emoji to start a recent list.</div>
     <emoji-picker
+      :ref="hideFavoritesRow"
       class="emoji-picker"
       data-skin-tone-picker="true"
       :data-source="emojiDataSource"
