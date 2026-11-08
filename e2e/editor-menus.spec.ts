@@ -83,6 +83,33 @@ test.describe('editor menus', () => {
     expect(await outline(page)).toEqual(before);
   });
 
+  test('a to-do has one handle for the whole line, and the to-do list one of its own, as a bullet list does', async ({ alice: page, workspaceId }) => {
+    await openPage(page, await createPage(page, workspaceId));
+    await page.evaluate(() => {
+      const todo = (text: string, checked = false) => ({ type: 'taskItem', attrs: { checked }, content: [{ type: 'paragraph', content: [{ type: 'text', text }] }] });
+      (document.querySelector('.ProseMirror') as any).editor.commands.setContent({ type: 'doc', content: [
+        { type: 'taskList', content: [todo('A'), todo('B', true), todo('C')] },
+      ] });
+    });
+    const itemHandle = page.locator('.drag-handle--floating:not(.drag-handle--list) .drag-handle__btn--drag');
+    const listHandle = page.locator('.drag-handle--list .drag-handle__btn--drag');
+
+    // Beside B: the handle is B's line, at its top, and the list's handle shows next to it
+    const b = editor(page).locator('li').nth(1);
+    await b.hover();
+    await expect(itemHandle).toBeVisible();
+    const [line, handle] = [await b.boundingBox(), await itemHandle.boundingBox()];
+    expect(Math.abs(handle!.y + handle!.height / 2 - (line!.y + line!.height / 2))).toBeLessThan(line!.height / 2);
+    await itemHandle.hover();
+    await expect(listHandle).toBeVisible();
+
+    // Deleting from B's handle takes the whole to-do, checkbox and all, not just its text
+    await b.hover();
+    await itemHandle.click();
+    await menuItem(page, 'Delete').click();
+    await expect.poll(() => outline(page)).toEqual(['taskList', '  taskItem', '    paragraph: A', '  taskItem', '    paragraph: C']);
+  });
+
   test("Turn into on a list item takes just that item out of the list; on the list, it changes the list's kind", async ({ alice: page, workspaceId }) => {
     await openPage(page, await createPage(page, workspaceId));
     await page.evaluate(() => {

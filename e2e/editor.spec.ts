@@ -40,6 +40,20 @@ test.describe('editor', () => {
     ]);
   });
 
+  test('turns a single pasted to-do line into a to-do, but leaves a single bullet line as text', async ({ alice: page, workspaceId }) => {
+    const id = await createPage(page, workspaceId);
+    await openPage(page, id);
+    await editor(page).click();
+    await pastePlainText(page, '- [ ] Okay');
+    await expect.poll(() => outline(page)).toEqual(['taskList', '  taskItem', '    paragraph: Okay']);
+
+    const other = await createPage(page, workspaceId);
+    await openPage(page, other);
+    await editor(page).click();
+    await pastePlainText(page, '- just a dash');
+    await expect.poll(() => outline(page)).toEqual(['paragraph: - just a dash']);
+  });
+
   test('turns pasted markdown to-dos and tables into to-dos and tables', async ({ alice: page, workspaceId }) => {
     const id = await createPage(page, workspaceId);
     await openPage(page, id);

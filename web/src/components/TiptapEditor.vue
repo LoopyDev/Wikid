@@ -1130,7 +1130,7 @@ const handleCodeLangOutsideClick = (event) => {
   }
 };
 
-const { setHandleLocked, LIST_CONTAINER_TYPES, LIST_ITEM_TYPE, setListHandleTriggerHover, setListHandleSelfHover, resolveListItemFromPos, resolveListItemFromTarget, resolveListHandleTarget, applyListHandleSelection, updateBlockHandleFromEvent } = useBlockHandles({ handleState, handleVisible, handleLocked, handlePos, wrapperRef, listHandleState, listHandlePos, listHandleTriggerHover, listHandleSelfHover, LIST_HANDLE_OFFSET, LIST_HANDLE_WIDTH, LIST_HANDLE_HOVER_PADDING, handleDragHandleChange, getEditor: () => editor?.value });
+const { setHandleLocked, LIST_CONTAINER_TYPES, isListItem, setListHandleTriggerHover, setListHandleSelfHover, resolveListItemFromPos, resolveListItemFromTarget, resolveListHandleTarget, applyListHandleSelection, updateBlockHandleFromEvent } = useBlockHandles({ handleState, handleVisible, handleLocked, handlePos, wrapperRef, listHandleState, listHandlePos, listHandleTriggerHover, listHandleSelfHover, LIST_HANDLE_OFFSET, LIST_HANDLE_WIDTH, LIST_HANDLE_HOVER_PADDING, handleDragHandleChange, getEditor: () => editor?.value });
 
 const setMainframeScrollLocked = (locked) => {
   const frame = document.querySelector('.wikid-mainframe');
@@ -1331,7 +1331,7 @@ const handleBlockDragStart = (event, options = {}) => {
   const ignoreRangeSelection =
     typeof options.ignoreRangeSelection === 'boolean'
       ? options.ignoreRangeSelection
-      : targetNode.type?.name === LIST_ITEM_TYPE;
+      : isListItem(targetNode);
   const columnInfo = findColumnAncestor(state, targetPos);
   const onlyColumnBlock = columnInfo ? getColumnOnlyBlock(columnInfo.node, columnInfo.pos) : null;
   const shouldCleanupColumn = !!(onlyColumnBlock && onlyColumnBlock.pos === targetPos);

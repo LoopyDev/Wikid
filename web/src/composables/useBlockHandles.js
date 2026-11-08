@@ -13,8 +13,11 @@ export function useBlockHandles({ handleState, handleVisible, handleLocked, hand
     view.dispatch(tr);
   };
 
-  const LIST_CONTAINER_TYPES = new Set(['bulletList', 'orderedList']);
-  const LIST_ITEM_TYPE = 'listItem';
+  // To-dos work like bullets: a handle for each to-do (the whole line, checkbox and all), and one
+  // for the whole list, never one for the text inside a to-do
+  const LIST_CONTAINER_TYPES = new Set(['bulletList', 'orderedList', 'taskList']);
+  const LIST_ITEM_TYPES = new Set(['listItem', 'taskItem']);
+  const isListItem = (node) => LIST_ITEM_TYPES.has(node?.type?.name);
 
   const clearListHandle = () => {
     listHandleState.value = { node: null, pos: -1, element: null };
@@ -53,7 +56,7 @@ export function useBlockHandles({ handleState, handleVisible, handleLocked, hand
     const $pos = state.doc.resolve(pos);
     for (let depth = $pos.depth; depth > 0; depth -= 1) {
       const node = $pos.node(depth);
-      if (node?.type?.name === LIST_ITEM_TYPE) {
+      if (isListItem(node)) {
         const itemPos = $pos.before(depth);
         const element = view.nodeDOM(itemPos);
         if (element instanceof HTMLElement) {
@@ -173,7 +176,7 @@ export function useBlockHandles({ handleState, handleVisible, handleLocked, hand
   };
 
   const updateListHandleFromHit = (hit, wrapperRect) => {
-    if (!hit?.node || hit.node.type?.name !== LIST_ITEM_TYPE) {
+    if (!hit?.node || !isListItem(hit.node)) {
       clearListHandle();
       return;
     }
@@ -226,7 +229,7 @@ export function useBlockHandles({ handleState, handleVisible, handleLocked, hand
       if (fromListPos) return fromListPos;
     }
     const handlePos = handleState.value?.pos;
-    if (handleState.value?.node?.type?.name === LIST_ITEM_TYPE && typeof handlePos === 'number' && handlePos >= 0) {
+    if (isListItem(handleState.value?.node) && typeof handlePos === 'number' && handlePos >= 0) {
       return resolveListContainerFromPos(handlePos);
     }
     return null;
@@ -419,7 +422,7 @@ export function useBlockHandles({ handleState, handleVisible, handleLocked, hand
     const wrapperEl = wrapperRef.value;
     const wrapperRect = wrapperEl?.getBoundingClientRect?.();
     const topOffset = wrapperRect ? rect.top - wrapperRect.top : rect.top;
-    const listContainer = hit.node?.type?.name === LIST_ITEM_TYPE ? resolveOutermostListContainerFromPos(hit.pos) : null;
+    const listContainer = isListItem(hit.node) ? resolveOutermostListContainerFromPos(hit.pos) : null;
     const leftRect = listContainer?.element?.getBoundingClientRect?.() || rect;
     const leftOffset = wrapperRect ? leftRect.left - wrapperRect.left : leftRect.left;
     const styles = getComputedStyle(hit.element);
@@ -437,7 +440,7 @@ export function useBlockHandles({ handleState, handleVisible, handleLocked, hand
       left: leftOffset,
     };
     updateListHandleFromHit(hit, wrapperRect);
-    if (hit.node?.type?.name === LIST_ITEM_TYPE) {
+    if (isListItem(hit.node)) {
       setListHandleTriggerHover(isListHandleHoverGutter(event, wrapperRect));
     } else {
       setListHandleTriggerHover(false);
@@ -449,5 +452,5 @@ export function useBlockHandles({ handleState, handleVisible, handleLocked, hand
 
   onBeforeUnmount(() => clearTimeout(listHandleHoverTimer));
 
-  return { setHandleLocked, LIST_CONTAINER_TYPES, LIST_ITEM_TYPE, setListHandleTriggerHover, setListHandleSelfHover, resolveListItemFromPos, resolveListItemFromTarget, resolveListHandleTarget, applyListHandleSelection, updateBlockHandleFromEvent };
+  return { setHandleLocked, LIST_CONTAINER_TYPES, isListItem, setListHandleTriggerHover, setListHandleSelfHover, resolveListItemFromPos, resolveListItemFromTarget, resolveListHandleTarget, applyListHandleSelection, updateBlockHandleFromEvent };
 }
