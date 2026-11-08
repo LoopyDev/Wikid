@@ -45,6 +45,24 @@ test.describe('editor menus', () => {
     await waitForSaved(page);
   });
 
+  test('the slash menu highlights one item: the pointer moves it, and the arrow keys move on from there', async ({ alice: page, workspaceId }) => {
+    await openPage(page, await createPage(page, workspaceId));
+    await editor(page).click();
+    await page.keyboard.type('/');
+    const items = page.locator('.slash-menu .slash-item');
+    const lit = async () =>
+      items.evaluateAll((els) => els.map((el, i) => (getComputedStyle(el).backgroundColor !== 'rgba(0, 0, 0, 0)' ? i : -1)).filter((i) => i >= 0));
+    await expect.poll(lit).toEqual([0]);
+    // The pointer resting on the first item, as when the menu opens under it
+    await items.nth(0).hover();
+    await page.keyboard.press('ArrowDown');
+    await expect.poll(lit).toEqual([1]);
+    await items.nth(2).hover();
+    await expect.poll(lit).toEqual([2]);
+    await page.keyboard.press('ArrowDown');
+    await expect.poll(lit).toEqual([3]);
+  });
+
   test('the block menu turns a block into a heading and deletes it', async ({ alice: page, workspaceId }) => {
     await openPage(page, await createPage(page, workspaceId));
     await typeParagraphs(page, ['First', 'Second']);

@@ -23,6 +23,8 @@ const selectItem = (index) => {
   props.command(item);
 };
 
+// One item is highlighted, chosen by the arrow keys or by moving the pointer onto it. Moving, not
+// entering: the menu often opens under a resting pointer, and scrolls under it as the keys move on.
 const handleKeyDown = (event) => {
   if (event.key === 'ArrowUp') {
     event.preventDefault();
@@ -86,6 +88,7 @@ defineExpose({
         class="slash-item"
         :class="{ 'slash-item--active': index === selectedIndex }"
         type="button"
+        @mousemove="selectedIndex = index"
         @click="selectItem(index)"
       >
         <span class="slash-item__icon">{{ item.icon }}</span>
