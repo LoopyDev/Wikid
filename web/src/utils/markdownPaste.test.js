@@ -11,6 +11,14 @@ describe('looksLikeMarkdown', () => {
     expect(looksLikeMarkdown('Intro\nsee [docs](https://example.com)')).toBe(true);
   });
 
+  it('takes a single to-do line as Markdown, but not a single bullet', () => {
+    expect(looksLikeMarkdown('- [ ] Okay')).toBe(true);
+    expect(looksLikeMarkdown('- [x] Done')).toBe(true);
+    expect(looksLikeMarkdown('* [X] Done')).toBe(true);
+    expect(looksLikeMarkdown('- a single bullet')).toBe(false);
+    expect(looksLikeMarkdown('- [link] text')).toBe(false);
+  });
+
   it('ignores ordinary text', () => {
     expect(looksLikeMarkdown('Just a sentence.')).toBe(false);
     expect(looksLikeMarkdown('- a single bullet')).toBe(false);

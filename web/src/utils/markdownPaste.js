@@ -11,6 +11,8 @@ export const looksLikeMarkdown = (text) => {
     if (!line) continue;
     if (/^```/.test(line)) hits += 3;
     else if (/^#{1,6}\s*\S/.test(line)) hits += 2;
+    // A to-do ("- [ ] …") is Markdown even on its own: nobody types "[ ]" by chance
+    else if (/^[-*+]\s+\[[ xX]\]\s+\S/.test(line)) hits += 2;
     else if (/^>\s+/.test(line)) hits += 1;
     else if (/^[-*+]\s+\S/.test(line)) hits += 1;
     else if (/^\d+[.)]\s*\S/.test(line)) hits += 1;
