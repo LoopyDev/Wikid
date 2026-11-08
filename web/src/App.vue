@@ -20,6 +20,7 @@ import SecondaryPane from './components/SecondaryPane.vue';
 import SettingsPopup from './components/SettingsPopup.vue';
 import ComplianceSetupModal from './components/ComplianceSetupModal.vue';
 import ExportModal from './components/ExportModal.vue';
+import PageHistoryModal from './components/PageHistoryModal.vue';
 import CreateWorkspaceModal from './components/CreateWorkspaceModal.vue';
 import MoveToWorkspaceModal from './components/MoveToWorkspaceModal.vue';
 import LoginPage from './components/LoginPage.vue';
@@ -1112,6 +1113,17 @@ const handleTitleEnter = (event) => {
   if (editorRef?.insertParagraphAtTop) {
     editorRef.insertParagraphAtTop();
   }
+};
+
+// Page history, for the open page
+const historyPageId = ref(null);
+const openPageHistory = () => {
+  historyPageId.value = workspace.currentPage?.id || null;
+};
+const restorePageVersion = (content) => {
+  // Only onto the page the history was for, if it's still the one open
+  if (workspace.currentPage?.id !== historyPageId.value) return;
+  tiptapEditorRef.value?.replaceContent?.(content);
 };
 
 const openExportModal = (format) => {
@@ -2223,7 +2235,9 @@ if (typeof window !== 'undefined') {
           :show-ai-toggle="!splitPageId && isDocLayout && workspace.aiEnabled"
           :ai-panel-open="showAiPanel"
           :show-workspace-name="!splitPageId && !(breadcrumbs.length && breadcrumbs[0]?.title === '…')"
+          :show-history="!splitPageId && isDocLayout && !isSetupPage"
           @export="openExportModal"
+          @history="openPageHistory"
           @toggle-full-width="setFullWidthPreference"
           @toggle-sidebar="showSidebar"
           @preview-sidebar="handleSidebarPreview"
@@ -2604,6 +2618,13 @@ if (typeof window !== 'undefined') {
         @close="moveWorkspacePage = null"
       />
 
+      <PageHistoryModal
+        v-if="historyPageId"
+        :page-id="historyPageId"
+        :can-restore="canEditPage"
+        @restore="restorePageVersion"
+        @close="historyPageId = null"
+      />
       <ExportModal
         v-if="exportRequest"
         :format="exportRequest.format"

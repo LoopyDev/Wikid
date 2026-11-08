@@ -1,12 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import type { CollabState } from './collab-doc.util';
-import { extractPageIdFromDocName } from '../utils/collab-doc-name.util';
+import { normalizeCollabDocState, type CollabState } from './collab-doc.util';
+import { extractPageIdFromDocName, parseDocName } from '../utils/collab-doc-name.util';
+import { PageVersionRecorder } from './page-version-recorder.service';
 import { deleteDatabasesWithContents } from '../utils/delete-databases.util';
 
 @Injectable()
 export class CollabService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, private readonly versions: PageVersionRecorder) {}
 
   async fetchState(documentName: string) {
     return this.prisma.collabDoc.findUnique({
@@ -21,6 +22,18 @@ export class CollabService {
       create: { documentName, state },
       update: { state },
     });
+  }
+
+  // A saved page goes into its history (databases have none yet)
+  async recordPageVersion(documentName: string, state: CollabState, editorIds: string[]) {
+    const parsed = parseDocName(documentName);
+    if (!parsed?.pageId || parsed.kind !== 'DOC') return;
+    try {
+      const { normalized, title } = await normalizeCollabDocState(state);
+      await this.versions.recordVersion(parsed.pageId, { title, content: normalized as any, editorIds });
+    } catch (err) {
+      console.warn('Page history: could not read a saved page', { documentName, error: (err as Error)?.message || err });
+    }
   }
 
   async requestMaterialize(documentName: string) {

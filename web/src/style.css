@@ -8024,6 +8024,137 @@ button {
   max-width: 480px;
   width: 100%;
 }
+
+/* Page history: a version shown as it was, beside the list of versions */
+.modal-backdrop.page-history-backdrop {
+  background: rgba(8, 10, 14, 0.45);
+}
+.page-history {
+  width: min(1100px, 100%);
+  height: min(820px, 100%);
+  padding: 16px 18px;
+}
+.page-history__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.page-history__header h3 {
+  margin: 0;
+}
+.page-history__close {
+  font-size: 1.3rem;
+  line-height: 1;
+  padding: 2px 8px;
+}
+.page-history__body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 260px;
+  gap: 14px;
+}
+.page-history__preview {
+  min-height: 0;
+  overflow-y: auto;
+  border: 1px solid var(--surface-border);
+  border-radius: 10px;
+  padding: 16px 24px;
+  background: var(--content-bg);
+}
+.page-history__doc--loading {
+  opacity: 0.5;
+}
+.page-history__title {
+  margin: 0 0 12px;
+  font-size: 1.8rem;
+}
+.page-history__list {
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.page-history__item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  text-align: left;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  cursor: pointer;
+}
+.page-history__item:hover {
+  background: var(--sidebar-hover-bg);
+}
+.page-history__item--selected,
+.page-history__item--selected:hover {
+  background: var(--sidebar-active-bg);
+}
+.page-history__when {
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.page-history__current {
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--surface-muted);
+  color: var(--text-muted);
+}
+.page-history__who,
+.page-history__note {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+.page-history__actions {
+  align-items: center;
+}
+.page-history__actions .muted {
+  margin-right: auto;
+}
+@media (max-width: 720px) {
+  .modal-backdrop.page-history-backdrop {
+    padding: 0;
+  }
+  .page-history {
+    height: 100%;
+    border-radius: 0;
+  }
+  .page-history__actions {
+    flex-wrap: wrap;
+  }
+  .page-history__actions .muted {
+    flex-basis: 100%;
+  }
+  .page-history__body {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  .page-history__list {
+    order: -1;
+    flex-direction: row;
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+  .page-history__item {
+    flex: 0 0 auto;
+    /* Narrower than the screen, so the next version shows there's more to scroll to */
+    max-width: 70%;
+  }
+  .page-history__preview {
+    padding: 12px 14px;
+  }
+}
 .export-html-modal__tree {
   max-height: 300px;
   overflow-y: auto;

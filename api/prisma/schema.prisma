@@ -72,6 +72,7 @@ model Page {
   // Title and document text for search; kept up to date by Postgres (see the add_search migration).
   searchVector      Unsupported("tsvector")?
   blocks            Block[]
+  versions          PageVersion[]
   database          Database?
   databaseRows      DatabaseRow[]
   author            User?                    @relation("PageAuthor", fields: [authorId], references: [id])
@@ -83,6 +84,24 @@ model Page {
   @@index([workspaceId])
   @@index([parentId])
   @@index([wikiHomeId])
+}
+
+// A page as it was after an editing session: saves a few minutes apart, or up to half an hour of
+// steady editing, update one version (see page-history.service.ts)
+model PageVersion {
+  id             String   @id @default(uuid()) @db.Uuid
+  pageId         String   @db.Uuid
+  title          String   @default("")
+  content        Json
+  // Everyone who changed the page in this version; no foreign key, so a deleted user's versions stay
+  editorIds      String[] @db.Uuid
+  // Set on the version a restore made: the version it brought back
+  restoredFromId String?  @db.Uuid
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  page           Page     @relation(fields: [pageId], references: [id], onDelete: Cascade)
+
+  @@index([pageId, createdAt])
 }
 
 model Database {

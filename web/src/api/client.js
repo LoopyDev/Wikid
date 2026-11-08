@@ -213,6 +213,16 @@ export const api = {
       body: JSON.stringify(payload),
     });
   },
+  // Page history: versions newest first (without their content), one version, restoring one
+  async listPageVersions(pageId) {
+    return request(`/pages/${pageId}/versions`);
+  },
+  async getPageVersion(pageId, versionId) {
+    return request(`/pages/${pageId}/versions/${versionId}`);
+  },
+  async restorePageVersion(pageId, versionId) {
+    return request(`/pages/${pageId}/versions/${versionId}/restore`, { method: 'POST', body: '{}' });
+  },
   async getDatabase(pageId, { userId, userName } = {}) {
     return request(`/pages/${pageId}/database${buildQs({ userId, userName })}`);
   },

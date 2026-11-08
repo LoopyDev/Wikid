@@ -15,6 +15,7 @@ How far along each feature is (stable, beta, experimental or planned) is in [doc
 
 **Pages and editor**
 - Nested pages in multiple workspaces, with emoji/icon picker and public/private visibility
+- Page history: versions with who edited them, and restoring an earlier version
 - Search across page titles, page text and database rows (⌘K / Ctrl+K)
 - Tiptap-based block editor with `/` slash commands
 - Callouts, toggle headings, multi-column layouts, tables, code blocks, table of contents

@@ -1517,7 +1517,17 @@ const blurEditor = () => {
   editor.value?.commands.blur();
 };
 
+// Puts a whole page in place of what's there (restoring a version). With live editing it's an
+// edit like any other, so everyone with the page open sees it, and it can be undone.
+const replaceContent = (doc) => {
+  const ed = editor.value;
+  if (!ed || ed.isDestroyed) return false;
+  ed.commands.setContent(editorDocToTiptap(doc), { emitUpdate: true });
+  return true;
+};
+
 defineExpose({
+  replaceContent,
   collabDoc,
   collabProvider,
   collabReady,
