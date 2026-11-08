@@ -138,6 +138,18 @@ const tiptapContentToBlocks = (content) => {
         const caption = safeString(node?.attrs?.alt || node?.attrs?.title || '').trim();
         return { type: 'image', data: { file: { url: src }, caption } };
       }
+      // A callout or quote holds blocks of its own: a quote in Markdown, with a callout's emoji
+      if (node?.type === 'callout' || node?.type === 'blockquote') {
+        const blocks = tiptapContentToBlocks(node.content);
+        if (!blocks.length) return null;
+        const icon = node.type === 'callout' ? safeString(node?.attrs?.icon || '').trim() : '';
+        // A Wikid icon (icon:…) has no text form
+        return { type: 'quote', data: { icon: icon.startsWith('icon:') ? '' : icon, blocks } };
+      }
+      // Markdown has no columns: one after another
+      if (node?.type === 'columns') {
+        return (Array.isArray(node.content) ? node.content : []).flatMap((column) => tiptapContentToBlocks(column?.content));
+      }
       if (node?.type === 'gaussianSplat') {
         const src = safeString(node?.attrs?.src || '').trim();
         return src ? { type: 'splat', data: { file: { url: src } } } : null;
@@ -252,54 +264,68 @@ const renderFileBlock = (block, fileLink) => {
   return `![${block.data.caption || 'image'}](${url})`;
 };
 
+// Every block, those inside callouts and quotes too
+const allBlocks = (blocks) => blocks.flatMap((block) => (block.type === 'quote' ? [block, ...allBlocks(block.data.blocks)] : [block]));
+
 /** The addresses of the images and splats a page shows, as saved in it. */
 export const fileSrcsInDoc = (raw) =>
-  tiptapContentToBlocks(normalizeEditorDoc(raw).content)
+  allBlocks(tiptapContentToBlocks(normalizeEditorDoc(raw).content))
     .filter((block) => block.type === 'image' || block.type === 'splat')
     .map((block) => block.data.file.url);
 
-export const editorDocToMarkdown = (raw) => {
-  const normalized = normalizeEditorDoc(raw);
-  const blocks = tiptapContentToBlocks(normalized.content);
-  const lines = blocks.map((block) => {
-    if (block.type === 'header') {
-      const level = Math.min(Math.max(block.data.level || 2, 1), 6);
-      const hashes = '#'.repeat(level);
-      return `${hashes} ${normalizeSpaces(block.data.text)}`;
-    }
-    if (block.type === 'checklist') {
-      return block.data.items.map((item) => renderChecklistItem({ ...item, text: normalizeSpaces(item.text) })).join('\n');
-    }
-    if (block.type === 'linkTool') {
-      const url = block.data.link || '';
-      const title = block.data?.meta?.title || url;
-      const desc = block.data?.meta?.description;
-      const linkLine = url ? `[${title}](${url})` : title || '';
-      if (linkLine && desc) return `${linkLine}\n\n${desc}`;
-      return linkLine;
-    }
-    if (block.type === 'codeBlock') {
-      const body = typeof block.data.text === 'string' ? block.data.text : `${block.data.text || ''}`;
-      const lang = safeString(block.data.language || '').trim();
-      const fence = lang ? `\`\`\`${lang}` : '```';
-      return [fence, body.replace(/\u00a0/g, ' '), '```'].join('\n');
-    }
-    if (block.type === 'list') {
-      return block.data.markdown;
-    }
-    if (block.type === 'delimiter') {
-      const style = block.data?.style || 'line';
-      if (style === 'stars') return '***';
-      return '---';
-    }
-    if (block.type === 'image' || block.type === 'splat') return renderFileBlock(block);
-    if (block.type === 'databaseView') {
-      return `[Database: ${block.data.title || 'Untitled'}]`;
-    }
-    return normalizeSpaces(block.data.text || '');
-  });
-  return lines.filter(Boolean).join('\n\n').trim();
+// One block as Markdown. `fileLink` is where an upload goes in an export's zip; `databases` holds
+// the rows of database views, by page id, to show as tables.
+const renderBlock = (block, options) => {
+  const { fileLink, databases } = options;
+  if (block.type === 'header') {
+    const level = Math.min(Math.max(block.data.level || 2, 1), 6);
+    return `${'#'.repeat(level)} ${normalizeSpaces(block.data.text)}`;
+  }
+  if (block.type === 'checklist') {
+    return block.data.items.map((item) => renderChecklistItem({ ...item, text: normalizeSpaces(item.text) })).join('\n');
+  }
+  if (block.type === 'linkTool') {
+    const url = block.data.link || '';
+    const title = block.data?.meta?.title || url;
+    const desc = block.data?.meta?.description;
+    const linkLine = url ? `[${title}](${url})` : title || '';
+    if (linkLine && desc) return `${linkLine}\n\n${desc}`;
+    return linkLine;
+  }
+  if (block.type === 'codeBlock') {
+    const body = typeof block.data.text === 'string' ? block.data.text : `${block.data.text || ''}`;
+    const lang = safeString(block.data.language || '').trim();
+    const fence = lang ? `\`\`\`${lang}` : '```';
+    return [fence, body.replace(/\u00a0/g, ' '), '```'].join('\n');
+  }
+  if (block.type === 'list') return block.data.markdown;
+  if (block.type === 'delimiter') {
+    return block.data?.style === 'stars' ? '***' : '---';
+  }
+  if (block.type === 'image' || block.type === 'splat') return renderFileBlock(block, fileLink);
+  if (block.type === 'databaseView') {
+    const db = databases?.[block.data.pageId];
+    return db ? renderDatabaseAsMarkdownTable(db, block.data.title) : `[Database: ${block.data.title || 'Untitled'}]`;
+  }
+  if (block.type === 'quote') {
+    const inner = renderBlocks(block.data.blocks, options);
+    const text = block.data.icon ? `${block.data.icon} ${inner}` : inner;
+    return text
+      .split('\n')
+      .map((line) => (line ? `> ${line}` : '>'))
+      .join('\n');
+  }
+  return normalizeSpaces(block.data.text || '');
 };
+
+const renderBlocks = (blocks, options = {}) =>
+  blocks
+    .map((block) => renderBlock(block, options))
+    .filter(Boolean)
+    .join('\n\n')
+    .trim();
+
+export const editorDocToMarkdown = (raw) => renderBlocks(tiptapContentToBlocks(normalizeEditorDoc(raw).content));
 
 /**
  * Like editorDocToMarkdown but fetches database rows for any inline database views,
@@ -311,60 +337,21 @@ export const editorDocToMarkdown = (raw) => {
  * @returns {Promise<string>}
  */
 export const editorDocToMarkdownAsync = async (raw, fetchDatabase, { fileLink } = {}) => {
-  const normalized = normalizeEditorDoc(raw);
-  const blocks = tiptapContentToBlocks(normalized.content);
-
-  const dbViews = blocks.filter((b) => b.type === 'databaseView');
-  const dbData = {};
+  const blocks = tiptapContentToBlocks(normalizeEditorDoc(raw).content);
+  const databases = {};
+  const dbViews = allBlocks(blocks).filter((b) => b.type === 'databaseView');
   if (fetchDatabase && dbViews.length) {
     await Promise.all(
       dbViews.map(async (b) => {
         try {
-          dbData[b.data.pageId] = await fetchDatabase(b.data.pageId);
+          databases[b.data.pageId] = await fetchDatabase(b.data.pageId);
         } catch {
-          // leave undefined; falls back to stub below
+          // leave undefined; falls back to stub
         }
       }),
     );
   }
-
-  const lines = blocks.map((block) => {
-    if (block.type === 'header') {
-      const level = Math.min(Math.max(block.data.level || 2, 1), 6);
-      return `${'#'.repeat(level)} ${normalizeSpaces(block.data.text)}`;
-    }
-    if (block.type === 'checklist') {
-      return block.data.items.map((item) => renderChecklistItem({ ...item, text: normalizeSpaces(item.text) })).join('\n');
-    }
-    if (block.type === 'linkTool') {
-      const url = block.data.link || '';
-      const title = block.data?.meta?.title || url;
-      const desc = block.data?.meta?.description;
-      const linkLine = url ? `[${title}](${url})` : title || '';
-      if (linkLine && desc) return `${linkLine}\n\n${desc}`;
-      return linkLine;
-    }
-    if (block.type === 'codeBlock') {
-      const body = typeof block.data.text === 'string' ? block.data.text : `${block.data.text || ''}`;
-      const lang = safeString(block.data.language || '').trim();
-      const fence = lang ? `\`\`\`${lang}` : '```';
-      return [fence, body.replace(/\u00a0/g, ' '), '```'].join('\n');
-    }
-    if (block.type === 'list') return block.data.markdown;
-    if (block.type === 'delimiter') {
-      return block.data?.style === 'stars' ? '***' : '---';
-    }
-    if (block.type === 'image' || block.type === 'splat') return renderFileBlock(block, fileLink);
-    if (block.type === 'databaseView') {
-      const db = dbData[block.data.pageId];
-      return db
-        ? renderDatabaseAsMarkdownTable(db, block.data.title)
-        : `[Database: ${block.data.title || 'Untitled'}]`;
-    }
-    return normalizeSpaces(block.data.text || '');
-  });
-
-  return lines.filter(Boolean).join('\n\n').trim();
+  return renderBlocks(blocks, { fileLink, databases });
 };
 
 export const editorDocToTiptap = (raw) => {
