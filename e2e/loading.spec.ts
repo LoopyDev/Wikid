@@ -126,17 +126,14 @@ test.describe('loading', () => {
         const blank: string[] = [];
         (window as any).__blank = blank;
         const started = performance.now();
-        // A page slow enough for placeholder lines fades its content in after them, on purpose
-        let sawPlaceholders = false;
         const tick = () => {
-          if ((document.querySelector('.page-hold') as HTMLElement | null)?.dataset.stage === 'skeleton') sawPlaceholders = true;
           if (!document.querySelector('.page-hold')) {
             const live = document.querySelector('.ProseMirror:not(.page-hold *)')?.textContent || '';
             const body = document.querySelector('.page-body-slot > .page-body');
             // Fading the new content in from nothing as the copy went left a blank moment too
             const faint = body && Number(getComputedStyle(body).opacity) < 0.9;
             if (!live.trim()) blank.push(`${Math.round(performance.now() - started)}ms: ${live ? 'other text' : 'empty'}`);
-            else if (faint && !sawPlaceholders) blank.push(`${Math.round(performance.now() - started)}ms: faint`);
+            else if (faint) blank.push(`${Math.round(performance.now() - started)}ms: faint`);
             else if (live !== text && performance.now() - started > 5) blank.push(`${Math.round(performance.now() - started)}ms: "${live}"`);
           }
           if (performance.now() - started < 1200) requestAnimationFrame(tick);
