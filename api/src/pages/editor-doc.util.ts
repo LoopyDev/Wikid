@@ -27,6 +27,8 @@ export const BLOCK_ID_TYPES = [
   'table',
   'callout',
   'tableOfContents',
+  'gaussianSplat',
+  'imagePlaceholder',
 ];
 
 const fallbackContent = [

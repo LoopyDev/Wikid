@@ -197,6 +197,13 @@ describe('changing blocks', () => {
     expect(() => updateBlock(page() as any, 'h', '::: columns\nA')).toThrow(/isn't closed/);
   });
 
+  it('shows an image placeholder as the image it asks for, which can be deleted but not rewritten', () => {
+    const content = [{ type: 'imagePlaceholder', attrs: { id: 'ph' }, content: [text('A photo of the site')] }];
+    expect(markdownUnits(content as any)[0]).toMatchObject({ id: 'ph', markdown: '[Image to add: A photo of the site]', embed: true });
+    expect(() => updateBlock(content as any, 'ph', 'text')).toThrow(BlockOperationError);
+    expect(deleteBlock(content as any, 'ph')).toEqual([{ type: 'paragraph' }]);
+  });
+
   it("won't rewrite a database view, or a list item on its own", () => {
     expect(() => updateBlock(page() as any, 'db', 'text')).toThrow(BlockOperationError);
     const list = [{ type: 'bulletList', attrs: { id: 'l' }, content: [{ type: 'listItem', attrs: { id: 'li' }, content: [p('lp', text('a'))] }] }];

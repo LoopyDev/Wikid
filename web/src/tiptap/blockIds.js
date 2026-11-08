@@ -5,7 +5,7 @@ import { ORIGIN_META_KEY, SYNCED_FROM_ATTR } from './editorShared';
 
 // Stable block ids (used by block links, synced blocks and the table of contents) and block highlighting.
 
-export const BLOCK_ID_TYPES = ['paragraph', 'heading', 'toggleHeading', 'codeBlock', 'blockquote', 'bulletList', 'orderedList', 'listItem', 'taskList', 'taskItem', 'horizontalRule', 'tableOfContents', 'callout', 'image', 'pageLink', 'databaseView', 'databaseForm', 'table', 'gaussianSplat'];
+export const BLOCK_ID_TYPES = ['paragraph', 'heading', 'toggleHeading', 'codeBlock', 'blockquote', 'bulletList', 'orderedList', 'listItem', 'taskList', 'taskItem', 'horizontalRule', 'tableOfContents', 'callout', 'image', 'pageLink', 'databaseView', 'databaseForm', 'table', 'gaussianSplat', 'imagePlaceholder'];
 
 export const blockHighlightKey = new PluginKey('block-highlight');
 

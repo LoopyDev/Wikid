@@ -892,6 +892,8 @@ ${hasSplats ? JS_SPLAT_INIT : ''}
         return `<th>${children()}</th>`;
       case 'tableCell':
         return `<td>${children()}</td>`;
+      case 'imagePlaceholder':
+        return `<div class="image-placeholder"><span aria-hidden="true">🖼</span> ${children() || 'An image to add'}</div>`;
       case 'callout': {
         const icon = attrs.icon || '';
         const tone = attrs.tone || '';
@@ -1156,6 +1158,8 @@ a:hover{color:var(--accent-hover);text-decoration:underline}
 .task-item>p{display:inline}
 .task-item input[type=checkbox]{margin:0 8px 0 0;position:relative;top:1px}
 
+/* Image placeholder: an image still to add */
+.image-placeholder{margin:8px 0;padding:16px;border:1.5px dashed var(--border);border-radius:10px;color:var(--text-muted)}
 /* Callout */
 .callout{display:flex;gap:12px;padding:12px 16px;border-radius:12px;border:1px solid var(--border);
   background:var(--bg-surface);margin:0.75em 0}

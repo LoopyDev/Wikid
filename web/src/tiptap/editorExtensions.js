@@ -33,6 +33,7 @@ import ResizableImage from './resizableImage';
 import { ImageUploads } from './imageUploads';
 import HorizontalRule from './horizontalRule';
 import Callout from './callout';
+import ImagePlaceholder from './imagePlaceholder';
 import TableOfContents from './tableOfContents';
 import ToggleHeading from './toggleHeading';
 import Columns from './columns';
@@ -164,6 +165,7 @@ export function createEditorExtensions({
         HTMLAttributes: { class: 'tiptap-task-item' },
       }),
       ListJoin,
+      ImagePlaceholder,
       // Reads Markdown into the page (pasting it) with each extension's own Markdown rules
       Markdown,
       Link.configure({
