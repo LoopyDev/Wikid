@@ -7,8 +7,8 @@ import { AiPageTools, AiPageToolsDb } from './ai-page-tools';
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-const MODEL = 'claude-sonnet-4-6';
-const HAIKU_MODEL = 'claude-haiku-4-5-20251001';
+const MODEL = 'claude-sonnet-5-5';
+const HAIKU_MODEL = 'claude-haiku-5-5';
 
 const SYSTEM_PROMPT = `You are a helpful writing assistant integrated into Wikid, a collaborative wiki application.
 Help users write, improve, and manage their content. Be concise and direct.
