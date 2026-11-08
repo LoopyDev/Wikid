@@ -180,7 +180,27 @@ const parseCounter = (id: unknown) => {
 
 const ensureBlockIds = (nodes: any[]): any[] => {
   const seen = new Set<string>();
-  let nextId = 1;
+  // New ids count on from the highest already used, so a new block can't take the id of another
+  const used = new Set<string>();
+  let highest = 0;
+  const collect = (node: any) => {
+    if (!node || typeof node !== 'object') return;
+    const num = BLOCK_ID_TYPES.includes(node.type) ? parseCounter(node.attrs?.id) : null;
+    if (num !== null) {
+      used.add(node.attrs.id);
+      highest = Math.max(highest, num);
+    }
+    if (Array.isArray(node.content)) node.content.forEach(collect);
+  };
+  nodes.forEach(collect);
+  let nextId = highest + 1;
+  const takeNextId = () => {
+    while (used.has(`block-${nextId}`)) nextId += 1;
+    const id = `block-${nextId}`;
+    nextId += 1;
+    used.add(id);
+    return id;
+  };
 
   const assign = (node: any): any => {
     if (!node || typeof node !== 'object') return node;
@@ -197,8 +217,7 @@ const ensureBlockIds = (nodes: any[]): any[] => {
         seen.add(currentId);
       }
       if (needsId) {
-        const newId = `block-${nextId}`;
-        nextId += 1;
+        const newId = takeNextId();
         seen.add(newId);
         attrs.id = newId;
       }

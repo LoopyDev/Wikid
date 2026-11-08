@@ -62,6 +62,45 @@ test.describe('page history', () => {
     await expect(preview(alice)).toContainText('Original plan, changed by Alice and Bob');
   });
 
+  test('shows what a version added, changed and removed', async ({ alice: page, workspaceId }) => {
+    const id = await createPage(page, workspaceId, { title: 'Checklist' });
+    const put = async (content: unknown[]) =>
+      expect((await page.request.put(`/api/pages/${id}/content`, { data: { content: { type: 'doc', content } } })).status()).toBe(200);
+    await put([p('Keep this'), p('Edit me'), p('Delete me')]);
+    const [first] = await versions(page, id);
+    const firstContent = (await (await page.request.get(`/api/pages/${id}/versions/${first.id}`)).json()).content;
+    const [keep, edit, del] = firstContent.content.map((node: any) => node.attrs.id);
+    // Restoring it as it is starts a new version for the edit below
+    await page.request.post(`/api/pages/${id}/versions/${first.id}/restore`);
+    const withId = (block: string, text: string) => ({ ...p(text), attrs: { id: block } });
+    // An id of its own: given none, the new line would take the next free number, the removed line's
+    await put([withId(keep, 'Keep this'), withId(edit, 'Edited'), withId('block-9', 'Added')]);
+
+    await openPage(page, id);
+    await openHistory(page);
+    const changes = historyDialog(page).locator('.page-history__changes');
+    await expect(changes).toContainText('1 added');
+    await expect(changes).toContainText('1 changed');
+    await expect(changes).toContainText('1 removed');
+    const block = (blockId: string) => preview(page).locator(`[data-block-id="${blockId}"]`);
+    // The removed line is shown where it was, struck through
+    await expect(preview(page).locator('.ProseMirror > *')).toHaveText(['Keep this', 'Edited', 'Delete me', 'Added']);
+    await expect(block(del)).toHaveCSS('text-decoration-line', 'line-through');
+    const marked = (blockId: string) => block(blockId).evaluate((el) => getComputedStyle(el).boxShadow !== 'none');
+    expect(await marked(edit)).toBe(true);
+    expect(await marked('block-9')).toBe(true);
+    expect(await marked(keep)).toBe(false);
+
+    // Off: the version as it is
+    await historyDialog(page).getByLabel('Show changes').uncheck();
+    await expect(preview(page).locator('.ProseMirror > *')).toHaveText(['Keep this', 'Edited', 'Added']);
+    expect(await marked(edit)).toBe(false);
+
+    // The first version has nothing to compare with
+    await versionButtons(page).nth(1).click();
+    await expect(historyDialog(page)).toContainText('The first version');
+  });
+
   test('a viewer can look through the history but not restore', async ({ alice, bob, workspaceId }) => {
     const id = await createPage(alice, workspaceId);
     expect((await alice.request.put(`/api/pages/${id}/content`, { data: { content: { type: 'doc', content: [p('Read only')] } } })).status()).toBe(200);

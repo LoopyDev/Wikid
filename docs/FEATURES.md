@@ -18,7 +18,7 @@ What Wikid does today, and how much to rely on each part. Wikid is in early deve
 | Workspaces with Owner, Editor and Viewer roles | Stable | |
 | Private and public pages | Stable | Private pages are visible to their author only. |
 | Bin: restore, or delete for good | Stable | |
-| Page history: versions with who edited them, restoring a version | Beta | New. A version is an editing session (saves less than 5 minutes apart, up to 30 minutes). Kept from the first edit after updating. Database pages have no history yet. |
+| Page history: versions with who edited them, what each changed, restoring a version | Beta | New. A version is an editing session (saves less than 5 minutes apart, up to 30 minutes). Changes are marked block by block (added, changed, removed), not word by word. Kept from the first edit after updating. Database pages have no history yet. |
 | Live sidebar: pages others create, rename, move or delete appear without reloading | Stable | |
 | Search (⌘K / Ctrl+K) across page titles, page text and database rows | Beta | New. Only shows what you can see. Text edited live becomes searchable within a few minutes. Word matching assumes English. |
 | Wikis: a page as a wiki home with a database of its pages | Beta | |

@@ -1,7 +1,8 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue';
 import { api } from '../api/client';
 import TiptapEditor from './TiptapEditor.vue';
+import { changesStyle, compareVersions, outermost } from '../utils/versionChanges';
 
 // A page's history: its versions newest first, each one shown as it was, and restoring one.
 // A version is an editing session (saves a few minutes apart), credited to everyone who edited.
@@ -15,9 +16,11 @@ const versions = ref([]);
 const loading = ref(true);
 const error = ref('');
 const selectedId = ref(null);
-const selected = ref(null); // the selected version, with its content
+const selected = shallowRef(null); // the selected version, with its content
 const loadingVersion = ref(false);
 const restoring = ref(false);
+const previous = shallowRef(null); // the version before the selected one, to show what changed
+const showChanges = ref(true);
 
 const versionsById = computed(() => new Map(versions.value.map((version) => [version.id, version])));
 const isNewest = computed(() => !!selectedId.value && versions.value[0]?.id === selectedId.value);
@@ -43,21 +46,57 @@ const restoredFrom = (version) => {
   return source ? `Restored the version from ${formatWhen(source.updatedAt)}` : 'Restored an earlier version';
 };
 
+// Versions already loaded, with their content
+const loaded = new Map();
+const loadVersion = async (versionId) => {
+  if (!loaded.has(versionId)) loaded.set(versionId, api.getPageVersion(props.pageId, versionId));
+  try {
+    return await loaded.get(versionId);
+  } catch (err) {
+    loaded.delete(versionId);
+    throw err;
+  }
+};
+
 let request = 0;
 const select = async (versionId) => {
   if (selectedId.value === versionId) return;
   selectedId.value = versionId;
   loadingVersion.value = true;
   const mine = ++request;
+  const index = versions.value.findIndex((version) => version.id === versionId);
+  const previousId = versions.value[index + 1]?.id ?? null;
   try {
-    const version = await api.getPageVersion(props.pageId, versionId);
-    if (mine === request) selected.value = version;
+    const [version, before] = await Promise.all([loadVersion(versionId), previousId ? loadVersion(previousId) : null]);
+    if (mine === request) {
+      selected.value = version;
+      previous.value = before;
+    }
   } catch (err) {
     if (mine === request) error.value = err?.message || "Couldn't load that version.";
   } finally {
     if (mine === request) loadingVersion.value = false;
   }
 };
+
+// What the selected version changed, from the one before it (the first version has none)
+const changes = computed(() => {
+  if (!selected.value || !previous.value || selected.value.id !== selectedId.value) return null;
+  const result = compareVersions(previous.value.content, selected.value.content);
+  // A block inside an added or removed one is marked and counted with it, as one change
+  return { ...result, added: outermost(result.added, result.doc), removed: outermost(result.removed, result.doc) };
+});
+const changeCounts = computed(() => {
+  const c = changes.value;
+  return c ? { added: c.added.size, changed: c.changed.size, removed: c.removed.size } : null;
+});
+const titleChange = computed(() => {
+  if (!changes.value || previous.value.title === selected.value.title) return '';
+  return previous.value.title ? `Renamed from “${previous.value.title}”` : 'Named';
+});
+const highlighting = computed(() => showChanges.value && !!changes.value);
+const shownDoc = computed(() => (highlighting.value ? changes.value.doc : selected.value?.content));
+const highlightCss = computed(() => (highlighting.value ? changesStyle('.page-history__doc', changes.value) : ''));
 
 const restore = async () => {
   if (!selectedId.value || restoring.value) return;
@@ -108,9 +147,25 @@ const noOp = () => {};
             No versions yet. Versions are kept from now on, each time the page is edited.
           </p>
           <template v-else-if="selected && selected.id === selectedId">
+            <div class="page-history__changes">
+              <template v-if="changeCounts">
+                <label class="page-history__toggle">
+                  <input v-model="showChanges" type="checkbox" />
+                  Show changes
+                </label>
+                <span class="page-history__legend" :class="{ 'page-history__legend--off': !showChanges }">
+                  <span class="page-history__key page-history__key--added">{{ changeCounts.added }} added</span>
+                  <span class="page-history__key page-history__key--changed">{{ changeCounts.changed }} changed</span>
+                  <span class="page-history__key page-history__key--removed">{{ changeCounts.removed }} removed</span>
+                </span>
+              </template>
+              <span v-else class="muted">The first version: nothing before it to compare with.</span>
+            </div>
             <div class="page-history__doc" :class="{ 'page-history__doc--loading': loadingVersion }">
-              <h1 class="page-history__title">{{ selected.title || 'Untitled' }}</h1>
-              <TiptapEditor :key="selected.id" :doc="selected.content" :readonly="true" :request-delete-confirmation="noOp" />
+              <component :is="'style'" v-if="highlightCss">{{ highlightCss }}</component>
+              <h1 class="page-history__title" :class="{ 'page-history__title--changed': highlighting && titleChange }">{{ selected.title || 'Untitled' }}</h1>
+              <p v-if="highlighting && titleChange" class="page-history__renamed">{{ titleChange }}</p>
+              <TiptapEditor :key="`${selected.id}:${highlighting}`" :doc="shownDoc" :readonly="true" :request-delete-confirmation="noOp" />
             </div>
           </template>
         </section>
