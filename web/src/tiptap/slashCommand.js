@@ -1,5 +1,5 @@
 import { Extension } from '@tiptap/core';
-import Suggestion from '@tiptap/suggestion';
+import Suggestion, { SuggestionPluginKey } from '@tiptap/suggestion';
 import { VueRenderer } from '@tiptap/vue-3';
 import tippy from 'tippy.js';
 import SlashCommandList from './SlashCommandList.vue';
@@ -37,34 +37,52 @@ export default Extension.create({
           let component;
           let popup;
 
-          return {
-            onStart: (props) => {
-              extension.options.onOpen?.();
-              component = new VueRenderer(SlashCommandList, {
-                editor: props.editor,
-                props,
-              });
+          const close = () => {
+            extension.options.onClose?.();
+            if (popup?.[0] && !popup[0].state?.isDestroyed) {
+              popup[0].destroy();
+            }
+            component?.destroy();
+            component = null;
+            popup = null;
+          };
+          const stillTyping = (editor) => !editor.isDestroyed && !!SuggestionPluginKey.getState(editor.state)?.active;
 
-              popup = tippy('body', {
-                getReferenceClientRect: props.clientRect,
-                appendTo: () => document.body,
-                content: component.element,
-                showOnCreate: true,
-                interactive: true,
-                trigger: 'manual',
-                placement: 'bottom-start',
-                animation: 'shift-away-subtle',
-                theme: 'light-border',
-                popperOptions: {
-                  modifiers: [
-                    // Keep the menu anchored below the cursor instead of
-                    // flipping above it; height is capped by the list itself.
-                    { name: 'flip', enabled: false },
-                  ],
-                },
-              });
-            },
+          const start = (props) => {
+            extension.options.onOpen?.();
+            component = new VueRenderer(SlashCommandList, {
+              editor: props.editor,
+              props,
+            });
+
+            popup = tippy('body', {
+              getReferenceClientRect: props.clientRect,
+              appendTo: () => document.body,
+              content: component.element,
+              showOnCreate: true,
+              interactive: true,
+              trigger: 'manual',
+              placement: 'bottom-start',
+              animation: 'shift-away-subtle',
+              theme: 'light-border',
+              popperOptions: {
+                modifiers: [
+                  // Keep the menu anchored below the cursor instead of
+                  // flipping above it; height is capped by the list itself.
+                  { name: 'flip', enabled: false },
+                ],
+              },
+            });
+          };
+
+          return {
+            onStart: start,
             onUpdate(props) {
+              // No menu, though one's being typed (see onExit): open it
+              if (!component) {
+                start(props);
+                return;
+              }
               component.updateProps(props);
               if (popup?.[0]?.setProps) {
                 popup[0].setProps({
@@ -78,15 +96,21 @@ export default Extension.create({
                 extension.options.onClose?.();
                 return true;
               }
-              return component.ref?.onKeyDown(props) ?? false;
+              return component?.ref?.onKeyDown(props) ?? false;
             },
-            onExit() {
-              extension.options.onClose?.();
-              if (popup?.[0] && !popup[0].state?.isDestroyed) {
-                popup[0].destroy();
+            // The suggestion's view is rebuilt when the editor's plugins change (as when a new page's
+            // live editor takes over and sets up), and that exits the menu though "/" is still being
+            // typed; the new view then only sends updates. So an exit while it's still active waits a
+            // moment, and closes only if the editor's gone or the "/" is.
+            onExit(props) {
+              const editor = props?.editor;
+              if (editor && stillTyping(editor)) {
+                setTimeout(() => {
+                  if (!stillTyping(editor)) close();
+                }, 0);
+                return;
               }
-              component?.destroy();
-              popup = null;
+              close();
             },
           };
         },
