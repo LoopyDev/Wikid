@@ -64,7 +64,7 @@ How far along each feature is (stable, beta, experimental or planned) is in [doc
 ### AI (optional)
 
 - Claude-powered writing tools, hidden unless `ANTHROPIC_API_KEY` is set (the admin and each user can turn them off): generate with `/AI`, improve/summarise/shorten/expand a selection, change tone, or chat about the current page in a side panel
-- An experimental MCP server (`mcp/`) for AI tools such as Claude Code; being reworked to read and write pages as Markdown (see [docs/FEATURES.md](docs/FEATURES.md))
+- An MCP server (`mcp/`) so AI tools such as Claude Code can search, read and write your pages and databases; see [mcp/README.md](mcp/README.md)
 
 ### Export, backups and restore
 
