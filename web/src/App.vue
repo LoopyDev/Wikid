@@ -162,7 +162,6 @@ const editorCollab = computed(() => {
 const pageSurfaceRef = ref(null);
 const {
   stage: pageHoldStage,
-  revealing: pageRevealing,
   holdEl: pageHoldRef,
   start: startPageHold,
   release: releasePageHold,
@@ -2408,7 +2407,7 @@ if (typeof window !== 'undefined') {
             </div>
             <div
               class="page-body-slot"
-              :class="{ 'page-body-slot--holding': pageHoldStage, 'page-body-slot--revealing': pageRevealing }"
+              :class="{ 'page-body-slot--holding': pageHoldStage }"
             >
             <div v-if="error" class="alert">{{ error }}</div>
             <div v-else-if="loadingDoc" class="muted">Loading page...</div>

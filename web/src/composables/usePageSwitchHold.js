@@ -7,7 +7,6 @@ export const FADE_AFTER_MS = 150;
 export const SKELETON_AFTER_MS = 500;
 // Never hold on for longer than this, ready or not
 const GIVE_UP_MS = 6000;
-const REVEAL_MS = 160;
 
 // Parts of the editor that only make sense live: menus, handles and other people's cursors
 const LIVE_ONLY = '.drag-handle, .bubble-menu, .emoji-menu, .collaboration-carets__caret, .collaboration-carets__selection, .ProseMirror-gapcursor';
@@ -53,9 +52,6 @@ export function stillCopy(body) {
 export function usePageSwitchHold({ describe } = {}) {
   // null when not holding, otherwise 'hold' (the copy as it was), 'fade' or 'skeleton'
   const stage = ref(null);
-  // Briefly true as the new page's content fades in, after placeholder lines. From the copy it
-  // swaps straight in: fading it in from nothing left a blank moment between the two.
-  const revealing = ref(false);
   // Where the copy goes, inside the new page
   const holdEl = ref(null);
   let copy = null;
@@ -96,14 +92,10 @@ export function usePageSwitchHold({ describe } = {}) {
     if (debugEnabled()) {
       for (const ms of AFTER_RELEASE_MS) setTimeout(() => debug(`after release +${ms}ms`), ms);
     }
-    const fromPlaceholders = stage.value === 'skeleton';
+    // The content swaps straight in, from the copy or from placeholder lines alike: fading it in
+    // from nothing left a blank moment, the lines gone and the content not there yet
     stage.value = null;
     copy = null;
-    if (!fromPlaceholders) return;
-    revealing.value = true;
-    later(() => {
-      revealing.value = false;
-    }, REVEAL_MS);
   };
 
   /** Starts holding on to `body` (the page body being left, if any). */
@@ -111,7 +103,6 @@ export function usePageSwitchHold({ describe } = {}) {
     const already = !!stage.value;
     if (!already) debugStart = performance.now();
     clearTimers();
-    revealing.value = false;
     // Moving on again while still holding keeps what's on screen, rather than copying a page
     // that never appeared
     if (!stage.value) {
@@ -139,5 +130,5 @@ export function usePageSwitchHold({ describe } = {}) {
 
   onBeforeUnmount(clearTimers);
 
-  return { stage, revealing, holdEl, start, release, debug };
+  return { stage, holdEl, start, release, debug };
 }

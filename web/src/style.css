@@ -1076,9 +1076,6 @@ button {
 .page-body-slot--holding > :not(.page-hold) {
   opacity: 0;
 }
-.page-body-slot--revealing > :not(.page-hold) {
-  animation: page-reveal 160ms ease-out;
-}
 @keyframes page-reveal {
   from {
     opacity: 0;
@@ -1145,8 +1142,7 @@ button {
 }
 @media (prefers-reduced-motion: reduce) {
   .page-hold__copy,
-  .page-hold__skeleton,
-  .page-body-slot--revealing > :not(.page-hold) {
+  .page-hold__skeleton {
     transition: none;
     animation: none;
   }

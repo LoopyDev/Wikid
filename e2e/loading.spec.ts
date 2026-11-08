@@ -166,11 +166,19 @@ test.describe('loading', () => {
 
     await page.evaluate(() => {
       const stages: string[] = [];
+      const faint: number[] = [];
       (window as any).__stages = stages;
+      (window as any).__faintAfter = faint;
       const tick = () => {
         const stage = (document.querySelector('.page-hold') as HTMLElement | null)?.dataset.stage || 'none';
         if (stages[stages.length - 1] !== stage) stages.push(stage);
-        if (stages.length < 6) requestAnimationFrame(tick);
+        // Once the placeholder lines go, the content shows at once (a fade-in from nothing left a
+        // blank moment)
+        const body = document.querySelector('.page-body-slot > .page-body');
+        if (stages.includes('skeleton') && stage === 'none' && body && Number(getComputedStyle(body).opacity) < 0.9) {
+          faint.push(Number(getComputedStyle(body).opacity));
+        }
+        if (stages.length < 6 && faint.length < 50) requestAnimationFrame(tick);
       };
       requestAnimationFrame(tick);
     });
@@ -186,6 +194,7 @@ test.describe('loading', () => {
     await expect(page.locator('.page-hold')).toHaveCount(0);
     // The last stage is noted on the next frame after the page shows
     await expect.poll(() => page.evaluate(() => (window as any).__stages)).toEqual(['none', 'hold', 'fade', 'skeleton', 'none']);
+    expect(await page.evaluate(() => (window as any).__faintAfter)).toEqual([]);
   });
 
   test("a slow page's placeholder lines line up with its text, full width or not", async ({ alice: page, workspaceId }) => {
