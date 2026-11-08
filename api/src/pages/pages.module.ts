@@ -7,6 +7,7 @@ import { CollabSyncService } from './collab-sync.service';
 import { DatabaseSetupService } from './database-setup.service';
 import { WikiService } from './wiki.service';
 import { PagesService } from './pages.service';
+import { PageHistoryService } from './page-history.service';
 import { DatabaseValuesService } from './database-values.service';
 import { DatabasesService } from './databases.service';
 import { DatabaseFormsService } from './database-forms.service';
@@ -29,6 +30,7 @@ import { LoginRateLimiter } from '../auth/login-rate-limiter';
     DatabaseSetupService,
     WikiService,
     PagesService,
+    PageHistoryService,
     DatabaseValuesService,
     DatabasesService,
     DatabaseFormsService,

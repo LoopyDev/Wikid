@@ -139,17 +139,32 @@ const fetchDocState = async (documentName: string | undefined | null) => {
   }
 };
 
+// Who has changed each document since it was last saved, for its page history
+const unsavedEditors = new Map<string, Set<string>>();
+const noteEditor = (documentName: string, userId: string | undefined) => {
+  if (!userId) return;
+  const editors = unsavedEditors.get(documentName) ?? new Set<string>();
+  editors.add(userId);
+  unsavedEditors.set(documentName, editors);
+};
+
 const storeDocState = async (documentName: string | undefined | null, state: Buffer) => {
   if (!documentName) return;
+  const editors = [...(unsavedEditors.get(documentName) ?? [])];
+  unsavedEditors.delete(documentName);
+  // Not saved: they're still to be credited with the next save
+  const keepEditors = () => editors.forEach((id) => noteEditor(documentName, id));
   try {
     const res = await collabApiFetch('/collab/docs', {
       method: 'PUT',
-      body: JSON.stringify({ documentName, state: Buffer.from(state).toString('base64') }),
+      body: JSON.stringify({ documentName, state: Buffer.from(state).toString('base64'), editors }),
     });
     if (!res.ok) {
+      keepEditors();
       console.warn('Collab store failed', { documentName, status: res.status });
     }
   } catch (err) {
+    keepEditors();
     console.warn('Collab store error', { documentName, error: err });
   }
 };
@@ -494,6 +509,10 @@ const server = new Server({
     const ctx = context as AuthContext | undefined;
     // Auth already verified in onAuthenticate; just log for observability.
     console.log('collab connected', { connectionId: socketId, documentName, userId: ctx?.userId, allowed: ctx?.workspaceIds });
+  },
+  async onChange({ documentName, context }) {
+    // Direct connections (the API's pushes and flushes) have no user
+    noteEditor(documentName, (context as AuthContext | undefined)?.userId);
   },
   async onDisconnect({ socketId, documentName, clientsCount }) {
     console.log('collab disconnected', socketId);

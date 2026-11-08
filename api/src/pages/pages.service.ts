@@ -8,6 +8,7 @@ import { PageAccessService } from './page-access.service';
 import { DatabaseSetupService } from './database-setup.service';
 import { CollabSyncService } from './collab-sync.service';
 import { WikiService } from './wiki.service';
+import { PageVersionRecorder } from '../collab/page-version-recorder.service';
 import { POSITION_INCREMENT, isSystemAdmin, canEdit, normalizePageTitle } from './pages.shared';
 
 // Pages: listing, reading, editing, edit locks, visibility, moving, reordering, setup,
@@ -20,6 +21,7 @@ export class PagesService {
     private readonly databaseSetup: DatabaseSetupService,
     private readonly collabSync: CollabSyncService,
     private readonly wiki: WikiService,
+    private readonly versions: PageVersionRecorder,
   ) {}
 
   private locks = new Map<string, { userId: string; userName: string; expires: number }>();
@@ -133,10 +135,12 @@ export class PagesService {
     // refresh lock to extend editing session
     this.claimLock(id, user?.userId, user?.userName);
     const normalized = normalizeEditorContent(content);
-    return this.prisma.page.update({
+    const page = await this.prisma.page.update({
       where: { id },
       data: { content: normalized },
     });
+    await this.versions.recordVersion(id, { title: page.title, content: normalized as Prisma.InputJsonValue, editorIds: user?.userId ? [user.userId] : [] });
+    return page;
   }
 
   // Deletes pages for good, with their blocks, databases and live-editing documents.

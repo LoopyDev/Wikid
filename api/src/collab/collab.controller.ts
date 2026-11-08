@@ -38,7 +38,12 @@ export class CollabController {
 
   @Public()
   @Put('docs')
-  async putDoc(@Body('documentName') documentName: string, @Body('state') state: string, @Headers('authorization') authHeader?: string) {
+  async putDoc(
+    @Body('documentName') documentName: string,
+    @Body('state') state: string,
+    @Body('editors') editors?: unknown,
+    @Headers('authorization') authHeader?: string
+  ) {
     this.assertSecret(authHeader);
     if (!documentName || typeof documentName !== 'string') {
       throw new BadRequestException('documentName is required');
@@ -46,7 +51,11 @@ export class CollabController {
     if (!state || typeof state !== 'string') {
       throw new BadRequestException('state is required');
     }
-    await this.collabService.storeState(documentName, new Uint8Array(Buffer.from(state, 'base64')));
+    const bytes = new Uint8Array(Buffer.from(state, 'base64'));
+    await this.collabService.storeState(documentName, bytes);
+    // Who changed it since the last save, as the collab server saw them
+    const editorIds = Array.isArray(editors) ? editors.filter((id): id is string => typeof id === 'string') : [];
+    await this.collabService.recordPageVersion(documentName, bytes, editorIds);
     return { ok: true };
   }
 

@@ -6,6 +6,7 @@ import { PageAccessService } from './page-access.service';
 import { CollabSyncService } from './collab-sync.service';
 import { WikiService } from './wiki.service';
 import { PagesService } from './pages.service';
+import { PageHistoryService } from './page-history.service';
 import { DatabasesService } from './databases.service';
 import { DatabaseFormsService } from './database-forms.service';
 import { DatabaseViewsService } from './database-views.service';
@@ -42,6 +43,7 @@ export class PagesController {
     private readonly pdfService: PdfService,
     private readonly htmlExportService: HtmlExportService,
     private readonly loginLimiter: LoginRateLimiter,
+    private readonly history: PageHistoryService,
   ) {}
 
   @Get('pages')
@@ -128,6 +130,31 @@ export class PagesController {
     @CurrentUserName() userName?: string,
   ) {
     return this.pages.updatePageContent(id, content ?? null, { userId, userName });
+  }
+
+  @Get('pages/:id/versions')
+  listPageVersions(@Param('id') id: string, @CurrentUserId() userId?: string, @CurrentUserName() userName?: string) {
+    return this.history.listVersions(id, { userId, userName });
+  }
+
+  @Get('pages/:id/versions/:versionId')
+  getPageVersion(
+    @Param('id') id: string,
+    @Param('versionId') versionId: string,
+    @CurrentUserId() userId?: string,
+    @CurrentUserName() userName?: string,
+  ) {
+    return this.history.getVersion(id, versionId, { userId, userName });
+  }
+
+  @Post('pages/:id/versions/:versionId/restore')
+  restorePageVersion(
+    @Param('id') id: string,
+    @Param('versionId') versionId: string,
+    @CurrentUserId() userId?: string,
+    @CurrentUserName() userName?: string,
+  ) {
+    return this.history.restoreVersion(id, versionId, { userId, userName });
   }
 
   @Patch('pages/reorder')
