@@ -87,7 +87,14 @@ export class PageContentService {
   }
 
   private view(page: DocPage, content: ContentNode[]) {
-    return { id: page.id, title: page.title, markdown: contentToMarkdown(content), blocks: markdownUnits(content) };
+    return {
+      id: page.id,
+      title: page.title,
+      markdown: contentToMarkdown(content),
+      // The same, each block preceded by a comment with its id, for a tool to change it by id
+      annotated: contentToMarkdown(content, { sections: true, markers: true }),
+      blocks: markdownUnits(content),
+    };
   }
 
   /** Content written by the API as page JSON (PUT /pages/:id/content). */

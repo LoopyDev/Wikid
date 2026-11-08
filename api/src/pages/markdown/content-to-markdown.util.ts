@@ -1,4 +1,4 @@
-import { markdownToContent, type ContentNode } from './markdown-to-content.util';
+import { MarkdownSyntaxError, markdownToContent, type ContentNode } from './markdown-to-content.util';
 
 // Page content as Markdown, and the page as Markdown units with their block ids, so a tool can
 // change one block and leave the rest (columns, database views) as they are. Pure: no Prisma, so
@@ -61,6 +61,13 @@ const escapeStart = (text: string) => text.replace(/^(#{1,6}\s|[-+]\s|\d+[.)]\s|
 
 // ---- Blocks ----
 
+export type RenderOptions = {
+  /** Columns and toggles as "::: columns" / "::: toggle" sections (Wikid's own syntax), not flattened */
+  sections?: boolean;
+  /** Each block preceded by a comment with its id and notes, for a tool to change it by id */
+  markers?: boolean;
+};
+
 const indentLines = (text: string, prefix: string) =>
   text
     .split('\n')
@@ -73,14 +80,14 @@ const quoteLines = (text: string) =>
     .map((line) => (line ? `> ${line}` : '>'))
     .join('\n');
 
-function renderListItems(node: ContentNode): string {
+function renderListItems(node: ContentNode, options: RenderOptions): string {
   const ordered = node.type === 'orderedList';
   return (node.content ?? [])
     .map((item, index) => {
       const marker = node.type === 'taskList' ? `- [${item.attrs?.checked ? 'x' : ' '}] ` : ordered ? `${index + 1}. ` : '- ';
       const [first, ...rest] = item.content ?? [];
-      const head = first?.type === 'paragraph' ? renderInline(first.content) : renderBlock(first);
-      const tail = rest.map((child) => indentLines(renderBlock(child), ' '.repeat(marker.length))).join('\n');
+      const head = first?.type === 'paragraph' ? renderInline(first.content) : renderBlock(first, options);
+      const tail = rest.map((child) => indentLines(renderBlock(child, { ...options, markers: false }), ' '.repeat(marker.length))).join('\n');
       return tail ? `${marker}${head}\n${tail}` : `${marker}${head}`;
     })
     .join('\n');
@@ -121,7 +128,7 @@ export function embedLabel(node: ContentNode): string {
   }
 }
 
-export function renderBlock(node: ContentNode | undefined): string {
+export function renderBlock(node: ContentNode | undefined, options: RenderOptions = {}): string {
   if (!node) return '';
   switch (node.type) {
     case 'paragraph':
@@ -133,23 +140,26 @@ export function renderBlock(node: ContentNode | undefined): string {
     case 'bulletList':
     case 'orderedList':
     case 'taskList':
-      return renderListItems(node);
+      return renderListItems(node, options);
     case 'codeBlock': {
       const code = (node.content ?? []).map((t) => t.text ?? '').join('');
       const fence = code.includes('```') ? '````' : '```';
       return `${fence}${node.attrs?.language || ''}\n${code}\n${fence}`;
     }
     case 'blockquote':
-      return quoteLines(renderBlocks(node.content));
+      return quoteLines(renderBlocks(node.content, { ...options, markers: false }));
     case 'callout': {
       const icon = typeof node.attrs?.icon === 'string' && node.attrs.icon && !node.attrs.icon.startsWith('icon:') ? node.attrs.icon : '';
-      const inner = renderBlocks(node.content);
-      return quoteLines(icon ? `${icon} ${inner}` : inner);
+      const inner = renderBlocks(node.content, options);
+      return quoteLines(icon && !options.markers ? `${icon} ${inner}` : icon ? `${icon}\n\n${inner}` : inner);
     }
     case 'toggleHeading':
+      return options.sections ? `::: toggle\n${renderBlocks(node.content, options)}\n:::` : renderBlocks(node.content, options);
     case 'columns':
+      if (!options.sections) return renderBlocks(node.content, options);
+      return `::: columns\n${(node.content ?? []).map((column) => renderBlocks(column.content, options)).join('\n\n::: column\n')}\n:::`;
     case 'column':
-      return renderBlocks(node.content);
+      return renderBlocks(node.content, options);
     case 'horizontalRule':
       return '---';
     case 'image': {
@@ -168,14 +178,27 @@ export function renderBlock(node: ContentNode | undefined): string {
   }
 }
 
-const renderBlocks = (nodes: ContentNode[] | undefined) =>
-  (nodes ?? [])
-    .map(renderBlock)
+// A block that holds blocks: its own Markdown is its contents', each with their own marker
+const isContainer = (node: ContentNode) => CONTAINERS.has(node.type);
+
+function marker(node: ContentNode) {
+  const embed = EMBEDS.has(node.type);
+  const notes = embed ? ['no Markdown form: can be deleted, not rewritten'] : markdownKeeps([node]) ? [] : ['rewriting it loses formatting Markdown can’t hold'];
+  return `<!-- ${[blockId(node) ?? 'no id', ...notes].join(' · ')} -->`;
+}
+
+function renderBlocks(nodes: ContentNode[] | undefined, options: RenderOptions = {}): string {
+  return (nodes ?? [])
+    .map((node) => {
+      const text = renderBlock(node, options);
+      return options.markers && !isContainer(node) ? `${marker(node)}\n${text}` : text;
+    })
     .filter((text) => text !== '')
     .join('\n\n');
+}
 
-/** The whole page as Markdown. */
-export const contentToMarkdown = (content: ContentNode[]) => renderBlocks(content);
+/** The whole page as Markdown (with columns and toggles as sections, unless told otherwise). */
+export const contentToMarkdown = (content: ContentNode[], options: RenderOptions = { sections: true }) => renderBlocks(content, options);
 
 // ---- Would Markdown keep it? ----
 
@@ -205,10 +228,17 @@ function comparable(node: ContentNode): unknown {
   };
 }
 
+const hasEmbed = (node: ContentNode): boolean => (node.content ?? []).some((child) => EMBEDS.has(child.type) || hasEmbed(child));
+
 /** Whether writing these blocks as Markdown and reading them back gives the same blocks. */
 export function markdownKeeps(nodes: ContentNode[]): boolean {
-  if (nodes.some((node) => EMBEDS.has(node.type) || CONTAINERS.has(node.type) && node.type !== 'callout')) return false;
-  const back = markdownToContent(renderBlocks(nodes));
+  if (nodes.some((node) => EMBEDS.has(node.type) || hasEmbed(node))) return false;
+  let back: ContentNode[];
+  try {
+    back = markdownToContent(renderBlocks(nodes, { sections: true }));
+  } catch {
+    return false;
+  }
   return JSON.stringify(back.map(comparable)) === JSON.stringify(nodes.map(comparable));
 }
 
@@ -284,12 +314,27 @@ function locateUnit(content: ContentNode[], id: string): Location {
 
 const copy = (content: ContentNode[]) => JSON.parse(JSON.stringify(content)) as ContentNode[];
 
+/** Markdown as blocks to put inside `parent` (null for the page itself). */
+function blocksFor(markdown: string, parent: ContentNode | null): ContentNode[] {
+  let blocks: ContentNode[];
+  try {
+    blocks = markdownToContent(markdown);
+  } catch (err) {
+    if (err instanceof MarkdownSyntaxError) throw new BlockOperationError(err.message);
+    throw err;
+  }
+  if (parent?.type === 'column' && blocks.some((block) => block.type === 'columns')) {
+    throw new BlockOperationError('Columns can’t go inside a column');
+  }
+  return blocks;
+}
+
 /** Replaces a block with the blocks of some Markdown (one or several). */
 export function updateBlock(content: ContentNode[], id: string, markdown: string): ContentNode[] {
   const next = copy(content);
-  const { siblings, index } = locateUnit(next, id);
+  const { siblings, index, parent } = locateUnit(next, id);
   if (EMBEDS.has(siblings[index].type)) throw new BlockOperationError(`Block ${id} is ${embedLabel(siblings[index])}, which has no Markdown form: delete it, or leave it`);
-  const blocks = markdownToContent(markdown);
+  const blocks = blocksFor(markdown, parent);
   // The block it replaces keeps its id, so links to it still work
   if (blocks[0]) blocks[0].attrs = { ...blocks[0].attrs, id };
   siblings.splice(index, 1, ...blocks);
@@ -300,18 +345,18 @@ export function updateBlock(content: ContentNode[], id: string, markdown: string
 /** Puts the blocks of some Markdown after or before a block, or at the end of the page. */
 export function insertBlocks(content: ContentNode[], markdown: string, where: { afterId?: string; beforeId?: string } = {}): ContentNode[] {
   const next = copy(content);
-  const blocks = markdownToContent(markdown);
-  if (!blocks.length) return next;
   const id = where.afterId ?? where.beforeId;
-  if (!id) {
+  const target = id ? locateUnit(next, id) : null;
+  const blocks = blocksFor(markdown, target?.parent ?? null);
+  if (!blocks.length) return next;
+  if (!target) {
     // At the end, over a last empty paragraph if there is one
     const last = next[next.length - 1];
     if (last?.type === 'paragraph' && !last.content?.length) next.pop();
     next.push(...blocks);
     return next;
   }
-  const { siblings, index } = locateUnit(next, id);
-  siblings.splice(where.afterId ? index + 1 : index, 0, ...blocks);
+  target.siblings.splice(where.afterId ? target.index + 1 : target.index, 0, ...blocks);
   return next;
 }
 
@@ -333,6 +378,6 @@ export function replaceAll(content: ContentNode[], markdown: string): ContentNod
       'This page has blocks Markdown can’t hold (columns, database views, colours, image sizes and the like): rewriting it whole would lose them. Change it block by block instead.',
     );
   }
-  const blocks = markdownToContent(markdown);
+  const blocks = blocksFor(markdown, null);
   return blocks.length ? blocks : [{ type: 'paragraph' }];
 }

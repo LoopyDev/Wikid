@@ -5,7 +5,8 @@ import { z } from 'zod';
 
 // Wikid's MCP server: lets an AI tool (Claude Code, say) search, read and write pages and database
 // rows, as the user it logs in as. Pages are read and changed as Markdown, block by block, so what
-// Markdown can't hold (columns, database views) is left as it is. See README.md here.
+// Markdown can't hold (database views, colours) is left as it is; columns and toggles are written as
+// "::: columns" and "::: toggle" sections. See README.md here.
 
 const API_BASE = (process.env.WIKID_API_URL || 'http://localhost:3000').replace(/\/+$/, '');
 const EMAIL = process.env.WIKID_EMAIL || '';
@@ -69,20 +70,21 @@ function tool(name, description, schema, run) {
 
 // ---- Pages as text ----
 
-/** A page as Markdown, each block marked with its id and where it is, to change one at a time. */
+// Columns and toggles, which Markdown has no way to write, as Wikid reads and writes them
+const SECTIONS =
+  'Columns: "::: columns", the first column\'s Markdown, "::: column" before each further column, then ":::". ' +
+  'A toggle (a heading that opens to show more): "::: toggle", a heading, what it opens to, then ":::". ' +
+  'A quote starting with an emoji ("> 💡 …") is a callout.';
+
+/** A page as Markdown, each block marked with its id, to change one at a time. */
 function formatPage(page) {
-  const lines = [
+  return [
     `# ${page.title || 'Untitled page'}`,
     '',
-    `Page ${page.id}. Each block below is marked with its id: rewrite one with update_block, add blocks with insert_blocks, remove one with delete_block.`,
+    `Page ${page.id}. Each block is preceded by a comment with its id: rewrite one with update_block, add blocks with insert_blocks, remove one with delete_block. ${SECTIONS}`,
     '',
-  ];
-  for (const block of page.blocks) {
-    const where = [block.column ? `in column ${block.column}` : null, block.parentId ? `inside ${block.parentId}` : null].filter(Boolean);
-    const notes = block.embed ? ["no Markdown form: can be deleted, not rewritten"] : block.exact ? [] : ['rewriting it loses formatting Markdown can’t hold'];
-    lines.push(`<!-- ${[block.id ?? 'no id', ...where, ...notes].join(' · ')} -->`, block.markdown || '(empty)', '');
-  }
-  return lines.join('\n').trimEnd();
+    page.annotated || '(empty page)',
+  ].join('\n');
 }
 
 const getPage = (pageId) => api(`/pages/${pageId}/markdown`);
@@ -177,7 +179,7 @@ tool('get_page', 'Read a page as Markdown, each block marked with its id. For a 
 
 tool(
   'create_page',
-  'Create a page, with content written as Markdown. Headings, lists, to-dos, code, tables, quotes and images are kept; a quote starting with an emoji ("> 💡 …") becomes a callout.',
+  `Create a page, with content written as Markdown: headings, lists, to-dos, code, tables, quotes and images. ${SECTIONS}`,
   {
     workspaceId: z.string().describe('Workspace id'),
     title: z.string().describe('Page title'),
@@ -193,7 +195,7 @@ tool(
 
 tool(
   'insert_blocks',
-  'Add blocks, written as Markdown, to a page: after or before a block (by id), or at the end.',
+  `Add blocks, written as Markdown, to a page: after or before a block (by id), or at the end. Next to a block in a column, they go in that column. ${SECTIONS}`,
   {
     pageId: z.string().describe('Page id'),
     markdown: z.string().describe('The blocks to add, as Markdown'),
@@ -206,7 +208,7 @@ tool(
 
 tool(
   'update_block',
-  'Rewrite one block of a page (by id) from Markdown; it can become several blocks. A list or table is rewritten whole. Blocks with no Markdown form (database views and the like) can’t be rewritten.',
+  `Rewrite one block of a page (by id) from Markdown; it can become several blocks. A list or table is rewritten whole. Blocks with no Markdown form (database views and the like) can’t be rewritten. ${SECTIONS}`,
   { pageId: z.string().describe('Page id'), blockId: z.string().describe('Block id, from get_page'), markdown: z.string().describe('The block’s new content, as Markdown') },
   async ({ pageId, blockId, markdown }) =>
     formatPage(await api(`/pages/${pageId}/markdown/blocks/${encodeURIComponent(blockId)}`, { method: 'PUT', body: { markdown } })),
@@ -218,7 +220,7 @@ tool('delete_block', 'Delete one block of a page (by id).', { pageId: z.string()
 
 tool(
   'replace_page',
-  'Rewrite a whole page from Markdown. Refused when the page has blocks Markdown can’t hold (columns, database views, colours, image sizes): change it block by block then.',
+  `Rewrite a whole page from Markdown. Refused when the page has things Markdown can’t hold (database views, colours, image sizes, column widths): change it block by block then. ${SECTIONS}`,
   { pageId: z.string().describe('Page id'), markdown: z.string().describe('The whole page, as Markdown') },
   async ({ pageId, markdown }) => formatPage(await api(`/pages/${pageId}/markdown`, { method: 'PUT', body: { markdown } })),
 );

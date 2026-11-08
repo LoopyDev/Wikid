@@ -45,4 +45,15 @@ test.describe('content from outside the editor', () => {
     await openPage(page, id);
     await expect.poll(() => blockTexts(page)).toEqual(['Saved through the API']);
   });
+
+  test('columns written as Markdown show as columns in the editor', async ({ alice: page, workspaceId }) => {
+    const id = await createPage(page, workspaceId);
+    const markdown = 'Intro\n\n::: columns\nLeft side\n\n::: column\nRight side\n:::';
+    expect((await page.request.put(`/api/pages/${id}/markdown`, { data: { markdown } })).status()).toBe(200);
+    await openPage(page, id);
+    const columns = editor(page).locator('[data-type="columns"] [data-type="column"]');
+    await expect(columns).toHaveCount(2);
+    await expect(columns.nth(0)).toHaveText('Left side');
+    await expect(columns.nth(1)).toHaveText('Right side');
+  });
 });

@@ -98,8 +98,8 @@ What Wikid does today, and how much to rely on each part. Wikid is in early deve
 |---|---|---|
 | Writing tools: AI Writer, improve/summarise/shorten/expand a selection, AI side panel | Beta | Needs `ANTHROPIC_API_KEY` on the server. The AI responses themselves aren't covered by automated tests. |
 | Turning AI off: hidden when not set up, an admin switch, and a personal setting | Stable | |
-| Page content as Markdown through the API, read and changed block by block | Beta | New. For tools such as the MCP server: blocks Markdown can't hold (columns, database views) are left as they are. Changes reach a page open in the editor straight away. |
-| MCP server (`mcp/`) so AI tools such as Claude Code can work in a workspace | Beta | Search; read pages as Markdown and change them block by block; create and rename pages; read and change database rows. Tested by running it against a live stack. Runs locally and logs in with a password for now (stored in the AI tool's settings). See [mcp/README.md](../mcp/README.md). |
+| Page content as Markdown through the API, read and changed block by block | Beta | New. For tools such as the MCP server: columns and toggle headings as `::: columns` / `::: toggle` sections, and blocks Markdown can't hold (database views, colours) left as they are. Changes reach a page open in the editor straight away. |
+| MCP server (`mcp/`) so AI tools such as Claude Code can work in a workspace | Beta | Search; read pages as Markdown and change them block by block, columns and toggle headings included (as `::: columns` and `::: toggle` sections); create and rename pages; read and change database rows. Tested by running it against a live stack. Runs locally and logs in with a password for now (stored in the AI tool's settings). See [mcp/README.md](../mcp/README.md). |
 
 ## Planned
 

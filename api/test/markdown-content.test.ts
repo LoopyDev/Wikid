@@ -92,10 +92,55 @@ describe('page content as Markdown', () => {
   it("knows what Markdown can't hold", () => {
     expect(markdownKeeps([{ type: 'image', attrs: { src: 'cat.png', width: 320 } }])).toBe(false);
     expect(markdownKeeps([p(null, { type: 'text', text: 'red', marks: [{ type: 'textStyle', attrs: { color: 'red' } }] })] as any)).toBe(false);
-    expect(markdownKeeps([{ type: 'columns', content: [{ type: 'column', content: [p(null, text('a'))] }] }] as any)).toBe(false);
+    // Columns and toggles are kept, as sections; a column dragged to a width of its own isn't
+    expect(markdownKeeps([{ type: 'columns', content: [{ type: 'column', content: [p(null, text('a'))] }, { type: 'column', content: [p(null, text('b'))] }] }] as any)).toBe(true);
+    expect(markdownKeeps([{ type: 'columns', content: [{ type: 'column', attrs: { width: 30 }, content: [p(null, text('a'))] }] }] as any)).toBe(false);
     expect(markdownKeeps([{ type: 'databaseView', attrs: { pageId: 'x', title: 'Stock' } }])).toBe(false);
     // Settings left at nothing don't count
     expect(markdownKeeps([{ type: 'paragraph', attrs: { id: 'b1', indent: 0, syncedFrom: null }, content: [text('plain')] }])).toBe(true);
+  });
+});
+
+describe('columns and toggles', () => {
+  const columns = (...cols: any[][]) => ({ type: 'columns', content: cols.map((content) => ({ type: 'column', content })) });
+
+  it('reads "::: columns" sections, a "::: column" before each after the first', () => {
+    expect(markdownToContent('Intro\n\n::: columns\nLeft **side**\n\n![Cat](cat.png)\n::: column\n- one\n- two\n:::\n\nAfter')).toEqual([
+      p(null, text('Intro')),
+      columns(
+        [p(null, text('Left '), text('side', 'bold')), { type: 'image', attrs: { src: 'cat.png', alt: 'Cat', title: null } }],
+        [{ type: 'bulletList', content: [{ type: 'listItem', content: [p(null, text('one'))] }, { type: 'listItem', content: [p(null, text('two'))] }] }],
+      ),
+      p(null, text('After')),
+    ]);
+  });
+
+  it('reads "::: toggle" sections, with columns inside', () => {
+    expect(markdownToContent('::: toggle\n## Details\n\n::: columns\nA\n::: column\nB\n:::\n:::')).toEqual([
+      { type: 'toggleHeading', content: [{ type: 'heading', attrs: { level: 2 }, content: [text('Details')] }, columns([p(null, text('A'))], [p(null, text('B'))])] },
+    ]);
+  });
+
+  it('leaves ":::" lines in code alone, and says what is wrong with a section', () => {
+    expect(markdownToContent('```\n::: columns\n```')[0]).toEqual({ type: 'codeBlock', attrs: { language: null }, content: [text('::: columns')] });
+    expect(() => markdownToContent('::: columns\nA')).toThrow(/isn't closed/);
+    expect(() => markdownToContent('::: column\nA\n:::')).toThrow(/belongs inside/);
+    expect(() => markdownToContent('::: columns\n::: columns\n:::\n:::')).toThrow(/inside columns/);
+    expect(() => markdownToContent('A\n:::')).toThrow(/no "::: columns"/);
+  });
+
+  it('writes them back as sections, so they round-trip', () => {
+    const markdown = '::: columns\nLeft\n\n::: column\nRight\n:::\n\n::: toggle\n## More\n\nHidden text\n:::';
+    expect(contentToMarkdown(markdownToContent(markdown) as any[])).toBe(markdown);
+    // Flattened, as in an export to other apps
+    expect(contentToMarkdown(markdownToContent(markdown) as any[], {})).toBe('Left\n\nRight\n\n## More\n\nHidden text');
+  });
+
+  it('marks each block with its id for tools, inside columns too', () => {
+    const content = [{ type: 'heading', attrs: { id: 'h', level: 1 }, content: [text('T')] }, { type: 'columns', content: [{ type: 'column', content: [p('l', text('L'))] }, { type: 'column', content: [{ type: 'databaseView', attrs: { id: 'db', title: 'Stock' } }] }] }];
+    expect(contentToMarkdown(content as any, { sections: true, markers: true })).toBe(
+      '<!-- h -->\n# T\n\n::: columns\n<!-- l -->\nL\n\n::: column\n<!-- db · no Markdown form: can be deleted, not rewritten -->\n[Database view: Stock]\n:::',
+    );
   });
 });
 
@@ -145,6 +190,13 @@ describe('changing blocks', () => {
     expect((deleteBlock(page() as any, 'db') as any[]).length).toBe(3);
   });
 
+  it('adds columns to the page, but not inside a column', () => {
+    const next = insertBlocks(page() as any, '::: columns\nA\n::: column\nB\n:::') as any[];
+    expect(next.at(-1).type).toBe('columns');
+    expect(() => insertBlocks(page() as any, '::: columns\nA\n:::', { afterId: 'left' })).toThrow(/inside a column/);
+    expect(() => updateBlock(page() as any, 'h', '::: columns\nA')).toThrow(/isn't closed/);
+  });
+
   it("won't rewrite a database view, or a list item on its own", () => {
     expect(() => updateBlock(page() as any, 'db', 'text')).toThrow(BlockOperationError);
     const list = [{ type: 'bulletList', attrs: { id: 'l' }, content: [{ type: 'listItem', attrs: { id: 'li' }, content: [p('lp', text('a'))] }] }];
@@ -153,6 +205,7 @@ describe('changing blocks', () => {
   });
 
   it('replaces a whole page only when Markdown would lose nothing', () => {
+    // The image's set width and the database view would be lost
     expect(() => replaceAll(page() as any, '# New')).toThrow(/block by block/);
     expect(replaceAll([p('b1', text('Plain'))] as any, '# New')).toEqual([{ type: 'heading', attrs: { level: 1 }, content: [text('New')] }]);
     expect(replaceAll([{ type: 'paragraph' }], 'Hello')).toEqual([p(null, text('Hello'))]);
