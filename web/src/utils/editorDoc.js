@@ -150,6 +150,11 @@ const tiptapContentToBlocks = (content) => {
       if (node?.type === 'columns') {
         return (Array.isArray(node.content) ? node.content : []).flatMap((column) => tiptapContentToBlocks(column?.content));
       }
+      // An image still to add: what it asks for, so the export says an image goes here
+      if (node?.type === 'imagePlaceholder') {
+        const text = normalizeSpaces(extractText(node)).trim();
+        return { type: 'paragraph', data: { text: `[Image to add${text ? `: ${text}` : ''}]` } };
+      }
       if (node?.type === 'gaussianSplat') {
         const src = safeString(node?.attrs?.src || '').trim();
         return src ? { type: 'splat', data: { file: { url: src } } } : null;

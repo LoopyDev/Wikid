@@ -8052,6 +8052,39 @@ button {
   width: 100%;
 }
 
+/* An image placeholder: which image goes here, and an Upload button that puts it in */
+.image-placeholder {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 8px 0;
+  padding: 18px 16px;
+  border: 1.5px dashed color-mix(in srgb, var(--text-muted) 55%, transparent);
+  border-radius: 10px;
+  color: var(--text-muted);
+  background: var(--surface-muted);
+}
+.image-placeholder__icon {
+  font-size: 1.4rem;
+  flex: none;
+}
+.image-placeholder__text {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  color: var(--text-primary);
+}
+.image-placeholder--empty .image-placeholder__text::before {
+  content: 'Say which image goes here, e.g. “A photo of the finished site”';
+  color: var(--text-muted);
+  pointer-events: none;
+  float: left;
+  height: 0;
+}
+.image-placeholder__upload {
+  flex: none;
+}
+
 /* Page history: a version shown as it was, beside the list of versions */
 .modal-backdrop.page-history-backdrop {
   background: rgba(8, 10, 14, 0.45);

@@ -294,16 +294,19 @@ const uploadImageFile = async (file, onProgress) => {
 // Image files, each uploaded and put in at `pos` as it finishes, showing its progress there till
 // then. `pos` follows any edits (anyone's) made meanwhile. With paragraphAfter, a paragraph follows
 // each, to carry on typing in.
+// Resolves to how many of the images went in
 const insertImageFiles = async (files, pos, { paragraphAfter = false } = {}) => {
   const ed = editor?.value;
-  if (!ed || !files.length || !canUploadImages()) return;
-  await Promise.all(files.map(async (file) => {
+  if (!ed || !files.length || !canUploadImages()) return 0;
+  const inserted = await Promise.all(files.map(async (file) => {
     const size = await readImageSize(file);
     const { result: src, pos: at } = await withUploadPlaceholder(ed, pos, file, size, (onProgress) => uploadImageFile(file, onProgress));
-    if (!src || at == null || ed.isDestroyed) return;
+    if (!src || at == null || ed.isDestroyed) return false;
     const image = { type: 'image', attrs: { src, ...imageSizeAttrs(size) } };
     ed.chain().focus().insertContentAt(at, paragraphAfter ? [image, { type: 'paragraph' }] : image).run();
+    return true;
   }));
+  return inserted.filter(Boolean).length;
 };
 
 const insertImageFromUpload = async (editor, range) => {
@@ -652,9 +655,11 @@ editor = useEditor({
     lastTextInputInfo,
     dragBlock: (event, options) => handleBlockDragStart(event, options),
   }),
-  // Taking over from the editor a new page was started in: its content goes in, and the cursor at
-  // its end, as soon as this one's on the page, so nothing typed in between goes astray
   onMount({ editor: ed }) {
+    // An image placeholder's Upload button uploads through the editor, as a pasted image does
+    if (ed.storage.imagePlaceholder && !props.readonly) ed.storage.imagePlaceholder.upload = (files, pos) => insertImageFiles(files, pos);
+    // Taking over from the editor a new page was started in: its content goes in, and the cursor at
+    // its end, as soon as this one's on the page, so nothing typed in between goes astray
     if (!props.seedCollabOnMount || !isCollabEnabled.value) return;
     logSetup('mount-seed', { docName: currentDocName.value });
     captureInitialAutoBlock(ed.state.doc);

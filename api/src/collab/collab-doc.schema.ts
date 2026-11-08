@@ -166,6 +166,13 @@ export const collabSchema = new Schema({
         ...blockAttrs,
       },
     },
+    imagePlaceholder: {
+      group: 'block',
+      content: 'text*',
+      marks: '',
+      defining: true,
+      attrs: { ...blockAttrs },
+    },
     gaussianSplat: {
       group: 'block',
       atom: true,

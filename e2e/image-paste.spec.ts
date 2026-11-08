@@ -211,3 +211,31 @@ test.describe('image addresses', () => {
     expect((await images(page))[0].src).toBe(src);
   });
 });
+
+test.describe('image placeholders', () => {
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+
+  test('says which image goes here, and uploading one puts it in its place', async ({ alice: page, workspaceId }) => {
+    await openPage(page, await createPage(page, workspaceId));
+    await editor(page).click();
+    await page.keyboard.type('/placeholder', { delay: 20 });
+    await page.locator('.slash-menu .slash-item', { hasText: 'Image placeholder' }).click();
+    await page.waitForFunction(() => (document.querySelector('.ProseMirror') as any).editor.isFocused);
+    await page.keyboard.type('A photo of the site', { delay: 20 });
+    // Enter carries on below, not in a second placeholder
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('After', { delay: 20 });
+    const box = editor(page).locator('.image-placeholder');
+    await expect(box).toContainText('A photo of the site');
+    await expect.poll(async () => (await page.evaluate(() => (document.querySelector('.ProseMirror') as any).editor.getJSON())).content.map((n: any) => n.type)).toEqual(['imagePlaceholder', 'paragraph']);
+
+    const chooser = page.waitForEvent('filechooser');
+    await box.getByRole('button', { name: 'Upload' }).click();
+    await (await chooser).setFiles({ name: 'site.png', mimeType: 'image/png', buffer: png });
+    // The image takes its place
+    await expect.poll(async () => (await images(page)).length).toBe(1);
+    await expect(box).toHaveCount(0);
+    await expect.poll(async () => (await page.evaluate(() => (document.querySelector('.ProseMirror') as any).editor.getJSON())).content.map((n: any) => n.type)).toEqual(['image', 'paragraph']);
+  });
+});
+

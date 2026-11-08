@@ -149,6 +149,15 @@ export function createSlashItems({ insertToggleHeading, insertColumns, insertIma
       },
     },
     {
+      title: 'Image placeholder',
+      icon: 'img',
+      hint: 'Says which image goes here, to upload later',
+      search: ['image placeholder', 'placeholder', 'image', 'photo', 'later'],
+      command: ({ editor, range }) => {
+        editor.chain().focus().deleteRange(range).insertContent({ type: 'imagePlaceholder' }).run();
+      },
+    },
+    {
       title: 'Page link',
       icon: 'pg',
       hint: 'Link another page',
