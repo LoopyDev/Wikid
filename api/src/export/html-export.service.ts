@@ -349,7 +349,7 @@ export class HtmlExportService {
     });
 
     const allPages = await this.prisma.page.findMany({
-      where: { workspaceId: root.workspaceId, isDeleted: false },
+      where: { workspaceId: root.workspaceId, isDeleted: false, isTemplate: false },
       select: { id: true, title: true, icon: true, content: true, parentId: true, kind: true },
       orderBy: [{ position: 'asc' }, { createdAt: 'asc' }],
     });
@@ -388,7 +388,7 @@ export class HtmlExportService {
     });
 
     const allPages = await this.prisma.page.findMany({
-      where: { workspaceId, isDeleted: false },
+      where: { workspaceId, isDeleted: false, isTemplate: false },
       select: { id: true, title: true, icon: true, content: true, parentId: true, kind: true },
       orderBy: [{ position: 'asc' }, { createdAt: 'asc' }],
     });

@@ -7,7 +7,7 @@ import { MarkdownSyntaxError, markdownToContent, type ContentNode } from './mark
 // Blocks that hold blocks: their contents are units of their own
 const CONTAINERS = new Set(['callout', 'toggleHeading', 'columns', 'column']);
 // Blocks with no Markdown form: shown as a labelled placeholder, and can't be rewritten
-const EMBEDS = new Set(['databaseView', 'databaseForm', 'pageLink', 'tableOfContents', 'drawio', 'gaussianSplat', 'imagePlaceholder']);
+const EMBEDS = new Set(['databaseView', 'databaseForm', 'pageLink', 'tableOfContents', 'drawio', 'gaussianSplat']);
 
 const blockId = (node: ContentNode | undefined) => (typeof node?.attrs?.id === 'string' && node.attrs.id ? (node.attrs.id as string) : null);
 
@@ -123,10 +123,7 @@ export function embedLabel(node: ContentNode): string {
       return '[draw.io diagram]';
     case 'gaussianSplat':
       return `[Gaussian splat${attrs.src ? `: ${attrs.src}` : ''}]`;
-    case 'imagePlaceholder': {
-      const text = (node.content ?? []).map((t) => t.text ?? '').join('');
-      return `[Image to add${text ? `: ${text}` : ''}]`;
-    }
+
     default:
       return `[${node.type}]`;
   }
@@ -164,6 +161,11 @@ export function renderBlock(node: ContentNode | undefined, options: RenderOption
       return `::: columns\n${(node.content ?? []).map((column) => renderBlocks(column.content, options)).join('\n\n::: column\n')}\n:::`;
     case 'column':
       return renderBlocks(node.content, options);
+    case 'imagePlaceholder': {
+      // Read back as a placeholder; its text can't hold "]", which would end it
+      const text = (node.content ?? []).map((t) => t.text ?? '').join('').replace(/[\]\n]/g, ' ').trim();
+      return `[Image to add${text ? `: ${text}` : ''}]`;
+    }
     case 'horizontalRule':
       return '---';
     case 'image': {

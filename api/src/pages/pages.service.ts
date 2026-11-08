@@ -95,6 +95,8 @@ export class PagesService {
         workspaceId: workspace.id,
         ...(includeDeleted || onlyBin ? {} : { isDeleted: false }),
         ...(onlyBin ? { isDeleted: true } : {}),
+        // Templates have their own list; a deleted one is in the Bin with the rest
+        ...(onlyBin ? {} : { isTemplate: false }),
         ...visibilityFilter,
       },
       orderBy: [{ position: 'asc' }, { createdAt: 'asc' }],
@@ -346,6 +348,10 @@ export class PagesService {
       workflow?: Prisma.InputJsonValue;
       template?: string;
     };
+    // Set by page templates: the page made whole at once, so it never shows half-made
+    isTemplate?: boolean;
+    icon?: string | null;
+    content?: unknown;
   }) {
     if (!body.workspaceId) {
       throw new BadRequestException('workspaceId is required');
@@ -380,7 +386,9 @@ export class PagesService {
       data: {
         workspaceId: workspace.id,
         title: body.title || '',
-        content: normalizeEditorContent(null),
+        content: normalizeEditorContent(body.content ?? null),
+        icon: body.icon ?? null,
+        isTemplate: body.isTemplate === true,
         parentId,
         position,
         kind,
@@ -650,7 +658,7 @@ export class PagesService {
     }
 
     const siblings = await this.prisma.page.findMany({
-      where: { parentId: parentId ?? null, workspaceId, isDeleted: false },
+      where: { parentId: parentId ?? null, workspaceId, isDeleted: false, isTemplate: false },
       orderBy: { position: 'asc' },
       select: { id: true, position: true, workspaceId: true },
     });

@@ -197,11 +197,16 @@ describe('changing blocks', () => {
     expect(() => updateBlock(page() as any, 'h', '::: columns\nA')).toThrow(/isn't closed/);
   });
 
-  it('shows an image placeholder as the image it asks for, which can be deleted but not rewritten', () => {
+  it('writes and reads an image placeholder as "[Image to add: …]"', () => {
     const content = [{ type: 'imagePlaceholder', attrs: { id: 'ph' }, content: [text('A photo of the site')] }];
-    expect(markdownUnits(content as any)[0]).toMatchObject({ id: 'ph', markdown: '[Image to add: A photo of the site]', embed: true });
-    expect(() => updateBlock(content as any, 'ph', 'text')).toThrow(BlockOperationError);
-    expect(deleteBlock(content as any, 'ph')).toEqual([{ type: 'paragraph' }]);
+    expect(markdownUnits(content as any)[0]).toMatchObject({ id: 'ph', markdown: '[Image to add: A photo of the site]', embed: false, exact: true });
+    expect(markdownToContent('[Image to add: A photo of the site]\n\n[Image to add]')).toEqual([
+      { type: 'imagePlaceholder', content: [text('A photo of the site')] },
+      { type: 'imagePlaceholder' },
+    ]);
+    // A paragraph that only says it stays a paragraph
+    const said = [p('s', text('[Image to add: not really]'))];
+    expect(markdownToContent(contentToMarkdown(said as any))).toEqual([p(null, text('[Image to add: not really]'))]);
   });
 
   it("won't rewrite a database view, or a list item on its own", () => {

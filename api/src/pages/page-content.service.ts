@@ -104,6 +104,12 @@ export class PageContentService {
     return this.write(page, content, state, user);
   }
 
+  /** A page's content as it is now (its live document's, if it has one), for copying it. */
+  async readContent(pageId: string, user: User) {
+    const page = await this.docPage(pageId, user, false);
+    return (await this.current(page)).content;
+  }
+
   async getMarkdown(pageId: string, user: User) {
     const page = await this.docPage(pageId, user, false);
     const { content } = await this.current(page);
