@@ -1,5 +1,5 @@
 import { ref } from 'vue';
-import { yDocToProsemirrorJSON } from '@tiptap/y-tiptap';
+import { prosemirrorToYXmlFragment, yDocToProsemirrorJSON } from '@tiptap/y-tiptap';
 import { BLOCK_ID_TYPES, isEmptyParagraphNode, parseBlockIdCounter } from '../tiptap/blockIds';
 import { blockDebugEnabled, logBlockDebug, logSetup, summarizeBlockStats } from '../utils/editorDebug';
 import { editorDocToTiptap } from '../utils/editorDoc';
@@ -81,6 +81,25 @@ export function useCollabSeeding({ props, isCollabEnabled, collabDoc, collabFiel
     }
     return { doc: propDoc, source: 'doc', hasSeedDoc, hasPropDoc };
   };
+  // The content goes into the live document itself, which the collaboration plugin then draws into
+  // the editor. Put only into the editor, it could be lost: the plugin draws the live document over
+  // the editor whenever the editor's plugins change (a menu registering its own as it mounts), and
+  // one doing so just as a page was filled left the page empty, then saved it so.
+  const writeToCollabDoc = (instance, doc) => {
+    const fragment = collabDoc.value?.getXmlFragment(collabField);
+    if (!fragment) return false;
+    try {
+      const node = instance.schema.nodeFromJSON(doc);
+      node.check();
+      prosemirrorToYXmlFragment(node, fragment);
+      return true;
+    } catch (err) {
+      // Content this editor can't hold as it is: the editor's own setContent tidies it
+      logSetup('seed-into-collab-failed', { docName: currentDocName.value, error: err?.message });
+      return false;
+    }
+  };
+
   const seedCollabDocFromProps = (target = getEditor(), options = {}) => {
     const instance = target || getEditor();
     if (!instance) return;
@@ -115,7 +134,7 @@ export function useCollabSeeding({ props, isCollabEnabled, collabDoc, collabFiel
     });
 
     if (shouldApply) {
-      instance.commands.setContent(initialDoc, false);
+      if (!writeToCollabDoc(instance, initialDoc)) instance.commands.setContent(initialDoc, false);
       markCollabInitialized(seed.source === 'seedDoc' ? 'seed-doc' : 'seed-props');
     } else if (hasRemote) {
       markCollabInitialized('remote-content');
