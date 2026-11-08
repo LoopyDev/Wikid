@@ -354,22 +354,43 @@ const collabAwarenessSource = ref(null);
 const emojiMenuRef = ref(null);
 const emojiTriggerRef = ref(null);
 const isDarkTheme = ref(true);
-const isFullWidthPage = ref(false);
+// Full width is the page's own setting, the same for everyone (templates copy it). It used to be
+// kept in each browser: a page set that way here moves onto the page the first time someone who can
+// edit it opens it. Viewers can't change the page, so theirs stays in their browser.
 const fullWidthStoragePrefix = 'wikid:page-full-width:';
-const loadFullWidthPreference = (pageId) => {
-  if (!pageId || typeof localStorage === 'undefined') {
-    isFullWidthPage.value = false;
-    return;
+const localFullWidth = ref(null); // this browser's own setting for the open page, if it has one
+const readLocalFullWidth = (pageId) => {
+  try {
+    const stored = pageId ? localStorage.getItem(`${fullWidthStoragePrefix}${pageId}`) : null;
+    return stored === null ? null : stored === 'true';
+  } catch {
+    return null;
   }
-  const stored = localStorage.getItem(`${fullWidthStoragePrefix}${pageId}`);
-  isFullWidthPage.value = stored === 'true';
 };
+const forgetLocalFullWidth = (pageId) => {
+  try {
+    localStorage.removeItem(`${fullWidthStoragePrefix}${pageId}`);
+  } catch {
+    // Storage blocked: nothing kept to forget
+  }
+};
+const isFullWidthPage = computed(() =>
+  !canEditPage.value && localFullWidth.value !== null ? localFullWidth.value : !!workspace.currentPage?.fullWidth
+);
 const setFullWidthPreference = (nextValue) => {
   const next = !!nextValue;
-  isFullWidthPage.value = next;
   const pageId = activePageId.value;
-  if (!pageId || typeof localStorage === 'undefined') return;
-  localStorage.setItem(`${fullWidthStoragePrefix}${pageId}`, String(next));
+  if (!pageId) return;
+  if (canEditPage.value) {
+    workspace.setPageFullWidth(pageId, next);
+    return;
+  }
+  localFullWidth.value = next;
+  try {
+    localStorage.setItem(`${fullWidthStoragePrefix}${pageId}`, String(next));
+  } catch {
+    // Storage blocked: just for now, then
+  }
 };
 const themeModeLabel = computed(() => (isDarkTheme.value ? 'Switch to light mode' : 'Switch to dark mode'));
 const showLinksFooter = ref(false);
@@ -876,9 +897,15 @@ watch(
 );
 
 watch(
-  () => activePageId.value,
-  (pageId) => {
-    loadFullWidthPreference(pageId);
+  () => [activePageId.value, workspace.currentPage?.id, canEditPage.value],
+  ([pageId]) => {
+    localFullWidth.value = readLocalFullWidth(pageId);
+    const page = workspace.currentPage;
+    if (localFullWidth.value === null || page?.id !== pageId || !canEditPage.value) return;
+    // Set full width in this browser before it was the page's setting: move it onto the page
+    if (localFullWidth.value && !page.fullWidth) workspace.setPageFullWidth(pageId, true);
+    forgetLocalFullWidth(pageId);
+    localFullWidth.value = null;
   },
   { immediate: true }
 );

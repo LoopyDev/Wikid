@@ -221,12 +221,14 @@ export class PagesController {
     @Param('id') id: string,
     @Body('title') title: string,
     @Body('icon') icon?: string,
+    @Body('fullWidth') fullWidth?: boolean,
     @CurrentUserId() userId?: string,
     @CurrentUserName() userName?: string,
   ) {
     const nextTitle = typeof title === 'string' ? title : undefined;
     const nextIcon = typeof icon === 'string' ? icon : undefined;
-    return this.pages.updatePage(id, { title: nextTitle, icon: nextIcon }, { userId, userName });
+    const nextFullWidth = typeof fullWidth === 'boolean' ? fullWidth : undefined;
+    return this.pages.updatePage(id, { title: nextTitle, icon: nextIcon, fullWidth: nextFullWidth }, { userId, userName });
   }
 
   @Patch('pages/:id/workspace')

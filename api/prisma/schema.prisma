@@ -73,6 +73,8 @@ model Page {
   isHidden          Boolean                  @default(false)
   // A page template, not a page: kept out of the page tree and search, and copied to make pages
   isTemplate        Boolean                  @default(false)
+  // Shown full width, for everyone
+  fullWidth         Boolean                  @default(false)
   // Title and document text for search; kept up to date by Postgres (see the add_search migration).
   searchVector      Unsupported("tsvector")?
   blocks            Block[]

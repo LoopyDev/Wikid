@@ -744,6 +744,19 @@ export const useWorkspaceStore = defineStore('workspace', {
         this.error = err?.message || 'Failed to set icon';
       }
     },
+    // Full width: the page's own setting, for everyone. Shown at once, put back if it can't be saved.
+    async setPageFullWidth(pageId, fullWidth) {
+      if (!this.hasApi || !pageId || !this.canEditActiveWorkspace) return;
+      const before = this.pages.find((p) => p.id === pageId)?.fullWidth ?? false;
+      this.updatePageInLists(pageId, (p) => ({ ...p, fullWidth }));
+      try {
+        await api.updatePageFullWidth(pageId, fullWidth);
+      } catch (err) {
+        console.warn('Set full width failed', err);
+        this.updatePageInLists(pageId, (p) => ({ ...p, fullWidth: before }));
+        this.error = err?.message || 'Failed to change the page width';
+      }
+    },
     scheduleTitleSave() {
       const allowCollabSave =
         this.currentPage?.setupStatus === 'PENDING' || this.currentPage?.kind === 'DATABASE';
