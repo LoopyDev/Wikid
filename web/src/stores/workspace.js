@@ -886,6 +886,18 @@ export const useWorkspaceStore = defineStore('workspace', {
       }
       return this.templates;
     },
+    async setTemplateHidden(templateId, hidden) {
+      if (!this.activeWorkspaceId || !this.hasApi) return false;
+      try {
+        await api.setTemplateHidden(templateId, this.activeWorkspaceId, hidden);
+        await this.loadTemplates();
+        return true;
+      } catch (err) {
+        console.warn('Hide template failed', err);
+        this.error = err?.message || 'Failed to change the template';
+        return false;
+      }
+    },
     /** Opens a page by id, going to its workspace first if it's in another (someone's own template). */
     async openPageById(pageId, workspaceId) {
       if (workspaceId && workspaceId !== this.activeWorkspaceId) await this.selectWorkspaceById(workspaceId);

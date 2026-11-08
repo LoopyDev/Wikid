@@ -1,9 +1,10 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { PageKind, PageVisibility } from '@prisma/client';
+import { PageKind, PageVisibility, WorkspaceRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { PageAccessService } from '../pages/page-access.service';
 import { PageContentService } from '../pages/page-content.service';
 import { PagesService } from '../pages/pages.service';
+import { isSystemAdmin } from '../pages/pages.shared';
 import { markdownToContent } from '../pages/markdown/markdown-to-content.util';
 import { BUILTIN_PREFIX, BUILTIN_TEMPLATES, findBuiltinTemplate } from './builtin-templates';
 import { describeCleanup, emptyCleanup, templateContent, type ContentNode, type TemplateCleanup } from './template-content.util';
@@ -53,14 +54,44 @@ export class TemplatesService {
       _count: { _all: true },
     });
     const subpages = new Map(counts.map((c) => [c.parentId, c._count._all]));
+    const hidden = new Set((await this.prisma.workspace.findUnique({ where: { id: workspaceId }, select: { hiddenTemplates: true } }))?.hiddenTemplates ?? []);
+    const builtIn = (isHidden: boolean) =>
+      BUILTIN_TEMPLATES.filter((t) => hidden.has(t.id) === isHidden).map(({ id, title, icon, description }) => ({ id, title, icon, description, scope: 'builtIn', subpageCount: 0 }));
     const shape = (scope: Scope) => (r: (typeof roots)[number]) => ({ id: r.id, title: r.title || 'Untitled template', icon: r.icon, scope, subpageCount: subpages.get(r.id) ?? 0, updatedAt: r.updatedAt });
     return {
       // Where someone's own templates live: opening one goes there
       personalWorkspaceId: personalId,
       workspace: workspaceId === personalId ? [] : roots.filter((r) => r.workspaceId === workspaceId).map(shape('workspace')),
       personal: roots.filter((r) => r.workspaceId === personalId).map(shape('personal')),
-      builtIn: BUILTIN_TEMPLATES.map(({ id, title, icon, description }) => ({ id, title, icon, description, scope: 'builtIn', subpageCount: 0 })),
+      builtIn: builtIn(false),
+      // Hidden here by its owner: not offered, but anyone can still copy one to their own
+      hiddenBuiltIn: builtIn(true),
+      // Whether this person can hide and show built-in templates here
+      canManage: await this.isOwner(workspaceId, user),
     };
+  }
+
+  private async isOwner(workspaceId: string, user: User) {
+    const { userId } = this.requireUser(user);
+    if (isSystemAdmin(userId)) return true;
+    const membership = await this.prisma.userWorkspace.findFirst({ where: { userId, workspaceId }, select: { role: true } });
+    return membership?.role === WorkspaceRole.OWNER;
+  }
+
+  /** Hides a built-in template in a workspace, or shows it again: its owner's choice, for everyone there. */
+  async setHidden(templateId: string, body: { workspaceId?: string }, hidden: boolean, user: User) {
+    if (!body.workspaceId) throw new BadRequestException('workspaceId is required');
+    if (!findBuiltinTemplate(templateId)) throw new NotFoundException('Only built-in templates can be hidden');
+    await this.access.ensureWorkspaceReadAccess(body.workspaceId, user);
+    if (!(await this.isOwner(body.workspaceId, user))) throw new ForbiddenException("Only the workspace's owner can hide built-in templates");
+    const workspace = await this.prisma.workspace.findUniqueOrThrow({ where: { id: body.workspaceId }, select: { hiddenTemplates: true } });
+    const next = new Set(workspace.hiddenTemplates);
+    if (hidden) next.add(templateId);
+    else next.delete(templateId);
+    // In the order they're listed
+    const hiddenTemplates = BUILTIN_TEMPLATES.map((t) => t.id).filter((id) => next.has(id));
+    await this.prisma.workspace.update({ where: { id: body.workspaceId }, data: { hiddenTemplates } });
+    return { hiddenTemplates };
   }
 
   /**

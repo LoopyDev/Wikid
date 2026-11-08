@@ -29,6 +29,8 @@ model Workspace {
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
   personalOwnerId String?         @unique @db.Uuid
+  // Built-in page templates its owner has hidden here ("builtin:meeting-notes")
+  hiddenTemplates String[]        @default([])
   databases       Database[]
   pages           Page[]
   memberships     UserWorkspace[]

@@ -5,7 +5,8 @@ import PageIcon from './PageIcon.vue';
 
 // The templates offered in the workspace: its own (shared with its members), the person's own (in
 // every workspace) and the built-in ones. Make a page from one, open one to change it, copy one to
-// your own, or start a new one.
+// your own or the workspace's, or start a new one. The workspace's owner can hide built-in ones
+// there, for everyone; anyone can still copy a hidden one to their own.
 const emit = defineEmits(['close']);
 const workspace = useWorkspaceStore();
 
@@ -14,6 +15,11 @@ const notice = ref('');
 const templates = computed(() => workspace.templates);
 const inPersonalWorkspace = computed(() => !!templates.value && templates.value.personalWorkspaceId === workspace.activeWorkspaceId);
 const canEdit = computed(() => workspace.canEditActiveWorkspace);
+const canManage = computed(() => !!templates.value?.canManage);
+const hiddenBuiltIn = computed(() => templates.value?.hiddenBuiltIn || []);
+const showHidden = ref(false);
+// Copying to the workspace's templates: someone who can edit it, outside their personal workspace
+const canCopyToWorkspace = computed(() => canEdit.value && !inPersonalWorkspace.value);
 
 const sections = computed(() => {
   const t = templates.value;
@@ -27,7 +33,13 @@ const sections = computed(() => {
       canAdd: canEdit.value,
     },
     { key: 'personal', title: 'Yours', hint: 'Only you see these, in every workspace.', items: t.personal, canAdd: true },
-    { key: 'builtIn', title: 'Built-in', hint: '', items: t.builtIn, canAdd: false },
+    {
+      key: 'builtIn',
+      title: 'Built-in',
+      hint: canManage.value && !inPersonalWorkspace.value ? "Hide the ones this workspace doesn't need." : '',
+      items: t.builtIn,
+      canAdd: false,
+    },
   ].filter(Boolean);
 });
 
@@ -65,6 +77,21 @@ const copyToMine = (template) =>
   run(async () => {
     const created = await workspace.createTemplate({ scope: 'personal', fromTemplateId: template.id });
     notice.value = created ? `Copied "${template.title}" to your templates.` : workspace.error || "Couldn't copy it.";
+  });
+
+const copyToWorkspace = (template) =>
+  run(async () => {
+    const created = await workspace.createTemplate({ scope: 'workspace', fromTemplateId: template.id });
+    notice.value = created ? `Copied "${template.title}" to this workspace's templates.` : workspace.error || "Couldn't copy it.";
+  });
+
+const setHidden = (template, hidden) =>
+  run(async () => {
+    if (await workspace.setTemplateHidden(template.id, hidden)) {
+      notice.value = hidden ? `Hid "${template.title}" in this workspace, for everyone.` : `"${template.title}" is offered again.`;
+    } else {
+      notice.value = workspace.error || "Couldn't change it.";
+    }
   });
 
 const newTemplate = (scope) =>
@@ -126,12 +153,52 @@ onMounted(() => workspace.loadTemplates());
               <button v-if="section.key !== 'personal'" class="ghost-btn" type="button" :disabled="busy" @click="copyToMine(template)">
                 Copy to mine
               </button>
+              <button
+                v-if="section.key !== 'workspace' && canCopyToWorkspace"
+                class="ghost-btn"
+                type="button"
+                :disabled="busy"
+                @click="copyToWorkspace(template)"
+              >
+                Copy to workspace
+              </button>
+              <button
+                v-if="section.key === 'builtIn' && canManage && !inPersonalWorkspace"
+                class="ghost-btn"
+                type="button"
+                :disabled="busy"
+                @click="setHidden(template, true)"
+              >
+                Hide
+              </button>
               <button v-if="canEdit" class="ghost-btn ghost-btn-background" type="button" :disabled="busy" @click="useTemplate(template)">
                 Use
               </button>
             </div>
           </li>
         </ul>
+        <template v-if="section.key === 'builtIn' && hiddenBuiltIn.length">
+          <button class="templates-hidden-toggle" type="button" :aria-expanded="showHidden ? 'true' : 'false'" @click="showHidden = !showHidden">
+            {{ showHidden ? '▾' : '▸' }} Hidden in this workspace ({{ hiddenBuiltIn.length }})
+          </button>
+          <ul v-if="showHidden" class="templates-list templates-list--hidden">
+            <li v-for="template in hiddenBuiltIn" :key="template.id" class="templates-item">
+              <PageIcon class="templates-item__icon" :icon="template.icon" fallback="📄" aria-hidden="true" />
+              <div class="templates-item__text">
+                <span class="templates-item__title">{{ template.title }}</span>
+                <span class="muted templates-item__desc">
+                  {{ canManage ? 'Hidden here, for everyone.' : "Hidden here by the workspace's owner. You can still copy it to your own." }}
+                </span>
+              </div>
+              <div class="templates-item__actions">
+                <button class="ghost-btn" type="button" :disabled="busy" @click="copyToMine(template)">Copy to mine</button>
+                <button v-if="canManage" class="ghost-btn ghost-btn-background" type="button" :disabled="busy" @click="setHidden(template, false)">
+                  Show again
+                </button>
+              </div>
+            </li>
+          </ul>
+        </template>
       </section>
       <div class="modal-actions">
         <button class="ghost-btn" type="button" @click="emit('close')">Close</button>
@@ -178,6 +245,20 @@ onMounted(() => workspace.loadTemplates());
   padding: 0;
   border: 1px solid var(--surface-border);
   border-radius: 8px;
+}
+.templates-hidden-toggle {
+  margin-top: 8px;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.templates-list--hidden {
+  margin-top: 6px;
+  opacity: 0.85;
 }
 .templates-item {
   display: flex;

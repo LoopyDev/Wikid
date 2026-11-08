@@ -109,9 +109,32 @@ describe('page templates', () => {
   });
 
   it('lets a viewer see the templates but not make pages or templates with them', async () => {
-    expect((await templates(bob)).builtIn).toHaveLength(4);
+    expect((await templates(bob)).builtIn.length).toBeGreaterThan(0);
     expect((await bob.post('/templates/builtin:project-brief/use', { workspaceId })).status).toBe(403);
     expect((await bob.post('/templates', { scope: 'workspace', workspaceId, title: 'Mine' })).status).toBe(403);
+  });
+
+  it("lets the workspace's owner hide a built-in template there, for everyone, and show it again", async () => {
+    expect((await templates(alice)).canManage).toBe(true);
+    expect((await templates(bob)).canManage).toBe(false);
+    expect((await bob.post('/templates/builtin:decision-record/hide', { workspaceId })).status).toBe(403);
+
+    expect((await alice.post('/templates/builtin:decision-record/hide', { workspaceId })).status).toBe(201);
+    for (const session of [alice, bob]) {
+      const { builtIn, hiddenBuiltIn } = await templates(session);
+      expect(builtIn.map((t: any) => t.id)).not.toContain('builtin:decision-record');
+      expect(hiddenBuiltIn.map((t: any) => t.id)).toEqual(['builtin:decision-record']);
+    }
+    // Still there in other workspaces
+    expect((await templates(alice, await createWorkspace(alice))).builtIn).toHaveLength(4);
+    // Anyone can still copy a hidden one to their own
+    expect((await bob.post('/templates', { scope: 'personal', workspaceId, fromTemplateId: 'builtin:decision-record' })).status).toBe(201);
+    // Only built-in ones
+    const own = (await alice.post('/templates', { scope: 'workspace', workspaceId, title: unique('Ours') })).body;
+    expect((await alice.post(`/templates/${own.id}/hide`, { workspaceId })).status).toBe(404);
+
+    expect((await alice.post('/templates/builtin:decision-record/show', { workspaceId })).status).toBe(201);
+    expect((await templates(bob)).builtIn).toHaveLength(4);
   });
 
   it("can't be made through the page endpoint, and a deleted one goes to the Bin", async () => {

@@ -18,6 +18,17 @@ export class TemplatesController {
     return this.templates.create(body ?? {}, { userId, userName });
   }
 
+  // A built-in template hidden in a workspace, or shown again: { workspaceId }. Owners only.
+  @Post(':id/hide')
+  hide(@Param('id') id: string, @Body() body: any, @CurrentUserId() userId?: string, @CurrentUserName() userName?: string) {
+    return this.templates.setHidden(id, body ?? {}, true, { userId, userName });
+  }
+
+  @Post(':id/show')
+  show(@Param('id') id: string, @Body() body: any, @CurrentUserId() userId?: string, @CurrentUserName() userName?: string) {
+    return this.templates.setHidden(id, body ?? {}, false, { userId, userName });
+  }
+
   // A page made from a template: { workspaceId, parentId?, visibility? }, or { pageId } to make a
   // new page that hasn't chosen its type yet from it
   @Post(':id/use')
