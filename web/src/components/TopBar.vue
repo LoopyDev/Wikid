@@ -55,9 +55,13 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  showSaveAsTemplate: {
+    type: Boolean,
+    default: false,
+  },
 });
 
-const emit = defineEmits(['export', 'history', 'navigate', 'toggle-full-width', 'toggle-sidebar', 'preview-sidebar', 'menu-open', 'toggle-ai']);
+const emit = defineEmits(['export', 'history', 'save-as-template', 'navigate', 'toggle-full-width', 'toggle-sidebar', 'preview-sidebar', 'menu-open', 'toggle-ai']);
 
 const menuOpen = ref(false);
 const menuRef = ref(null);
@@ -81,6 +85,10 @@ const handleExport = () => {
 };
 const handleHistory = () => {
   emit('history');
+  closeMenu();
+};
+const handleSaveAsTemplate = () => {
+  emit('save-as-template');
   closeMenu();
 };
 const handleNavigate = (pageId) => emit('navigate', pageId);
@@ -252,6 +260,7 @@ onBeforeUnmount(() => {
         <div v-if="menuOpen" ref="menuRef" class="context-menu topbar-menu__dropdown" @click.stop>
           <button class="context-menu__item" type="button" @click="handleExport">Export</button>
           <button v-if="showHistory" class="context-menu__item" type="button" @click="handleHistory">Page history</button>
+          <button v-if="showSaveAsTemplate" class="context-menu__item" type="button" @click="handleSaveAsTemplate">Save as template…</button>
           <div v-if="showFullWidthToggle" class="topbar-menu__separator" role="separator"></div>
           <button
             v-if="showFullWidthToggle"

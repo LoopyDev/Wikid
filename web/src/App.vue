@@ -28,6 +28,9 @@ import ChooseNewPassword from './components/ChooseNewPassword.vue';
 import UserMenu from './components/UserMenu.vue';
 import DeletePageModal from './components/DeletePageModal.vue';
 import BinModal from './components/BinModal.vue';
+import TemplatesModal from './components/TemplatesModal.vue';
+import SaveTemplateModal from './components/SaveTemplateModal.vue';
+import TemplateBanner from './components/TemplateBanner.vue';
 import PageTree from './components/PageTree';
 import { usePageSwitchHold } from './composables/usePageSwitchHold';
 import { isInIconBrowser } from './utils/iconSearch';
@@ -315,6 +318,13 @@ const expanded = ref({});
 const showEmojiPicker = ref(false);
 const showSettingsPopup = ref(false);
 const showBinModal = ref(false);
+// Page templates: the Templates window, and saving the open page as one
+const showTemplatesModal = ref(false);
+const saveTemplatePage = ref(null);
+const openSaveAsTemplate = () => {
+  const page = workspace.currentPage;
+  if (page) saveTemplatePage.value = { id: page.id, title: page.title || '' };
+};
 const setupError = ref('');
 const setupSaving = ref(false);
 const setupAutoCompleteTriggered = ref(false);
@@ -1114,6 +1124,27 @@ const handleTitleEnter = (event) => {
   }
 };
 
+// Templates offered on the new-page screen: the workspace's, the person's own, then the built-in ones
+const setupTemplates = computed(() => {
+  const t = workspace.templates;
+  return t ? [...t.workspace, ...t.personal, ...t.builtIn] : [];
+});
+watch(
+  () => isSetupPage.value && canEditPage.value,
+  (showing) => {
+    if (showing && !workspace.templates) workspace.loadTemplates();
+  },
+  { immediate: true }
+);
+const chooseSetupTemplate = async (template) => {
+  if (!workspace.currentPage || setupSaving.value) return;
+  setupSaving.value = true;
+  setupError.value = '';
+  const made = await workspace.useTemplate(template.id, { pageId: workspace.currentPage.id });
+  if (!made) setupError.value = workspace.error || "Couldn't make the page from the template";
+  setupSaving.value = false;
+};
+
 // Page history, for the open page
 const historyPageId = ref(null);
 const openPageHistory = () => {
@@ -1137,7 +1168,7 @@ const exportWorkspaceData = () => {
     workspaceName: activeWorkspaceName.value,
     exportedAt: new Date().toISOString(),
     activePageId: activePageId.value,
-    pages: workspace.pages.map((page) => ({
+    pages: workspace.pages.filter((page) => !page.isTemplate).map((page) => ({
       id: page.id,
       title: page.title,
       parentId: page.parentId ?? null,
@@ -1185,7 +1216,7 @@ const exportWorkspaceMarkdown = async () => {
   const userId = workspace.activeUser.id;
   const userName = workspace.activeUser.name;
   const fetched = await Promise.all(
-    workspace.pages.map(async (page) => {
+    workspace.pages.filter((page) => !page.isTemplate).map(async (page) => {
       try {
         const pageData = await api.getPage(page.id, { userId, userName });
         return { path: buildBreadcrumb(page, pageMap), doc: pageData?.content ?? fallbackDoc };
@@ -2247,6 +2278,7 @@ if (typeof window !== 'undefined') {
       </div>
       <div class="sidebar__empty" v-if="loadingPages">Loading...</div>
       <div class="sidebar__footer">
+        <button class="bin-btn" type="button" @click="showTemplatesModal = true">📋 Templates</button>
         <button class="bin-btn" type="button" @click="openBin">
           🗑️ Bin
           <span class="bin-count" v-if="binCount">{{ binCount }}</span>
@@ -2300,8 +2332,10 @@ if (typeof window !== 'undefined') {
           :ai-panel-open="showAiPanel"
           :show-workspace-name="!splitPageId && !(breadcrumbs.length && breadcrumbs[0]?.title === '…')"
           :show-history="!splitPageId && isDocLayout && !isSetupPage"
+          :show-save-as-template="!splitPageId && isDocLayout && !isSetupPage && !workspace.currentPage?.isTemplate"
           @export="openExportModal"
           @history="openPageHistory"
+          @save-as-template="openSaveAsTemplate"
           @toggle-full-width="setFullWidthPreference"
           @toggle-sidebar="showSidebar"
           @preview-sidebar="handleSidebarPreview"
@@ -2470,6 +2504,12 @@ if (typeof window !== 'undefined') {
                 <button class="ghost-btn" type="button" @click="workspace.leaveRemotelyDeletedPage()">Close</button>
               </span>
             </div>
+            <TemplateBanner
+              v-if="workspace.currentPage?.isTemplate && !isSetupPage && !splitPageId"
+              :page="workspace.currentPage"
+              @browse="showTemplatesModal = true"
+              @delete="requestDeleteConfirmation"
+            />
             <div
               class="page-body-slot"
               :class="{ 'page-body-slot--holding': pageHoldStage }"
@@ -2577,6 +2617,25 @@ if (typeof window !== 'undefined') {
                         <div class="create-page__card-desc">Audit-grade records with immutable revisions.</div>
                       </button>
                     </div>
+                    <template v-if="setupTemplates.length">
+                      <p class="muted">Or start from a template:</p>
+                      <div class="setup-templates">
+                        <button
+                          v-for="template in setupTemplates"
+                          :key="template.id"
+                          class="setup-template"
+                          type="button"
+                          :disabled="setupSaving || !canEditPage"
+                          @click="chooseSetupTemplate(template)"
+                        >
+                          <PageIcon :icon="template.icon" fallback="📄" aria-hidden="true" />
+                          <span>{{ template.title }}</span>
+                        </button>
+                        <button class="setup-template setup-template--more" type="button" @click="showTemplatesModal = true">
+                          All templates…
+                        </button>
+                      </div>
+                    </template>
                     <span v-if="setupError" class="alert">{{ setupError }}</span>
                     <p v-if="setupSaving" class="muted">Saving setup...</p>
                   </div>
@@ -2717,6 +2776,13 @@ if (typeof window !== 'undefined') {
         :subtree="deleteModalSubtree"
         @cancel="cancelDeleteModal"
         @confirm="confirmDeleteModal"
+      />
+      <TemplatesModal v-if="showTemplatesModal" @close="showTemplatesModal = false" />
+      <SaveTemplateModal
+        v-if="saveTemplatePage"
+        :page-id="saveTemplatePage.id"
+        :page-title="saveTemplatePage.title"
+        @close="saveTemplatePage = null"
       />
       <BinModal v-if="showBinModal" @close="closeBin" @restored-parents="expandPages" />
       <SearchDialog v-if="showSearch" @open="openSearchResult" @close="showSearch = false" />

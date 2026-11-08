@@ -60,6 +60,7 @@ export class PagesController {
     @CurrentUserName() userName?: string,
     @Query('includeDeleted') includeDeleted?: string,
     @Query('state') state?: string,
+    @Query('includeTemplates') includeTemplates?: string,
   ) {
     return this.pages.listPages({
       workspaceId,
@@ -67,6 +68,7 @@ export class PagesController {
       userName,
       includeDeleted: includeDeleted === 'true',
       state,
+      includeTemplates: includeTemplates === 'true',
     });
   }
 

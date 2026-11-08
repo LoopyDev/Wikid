@@ -18,7 +18,8 @@ export class TemplatesController {
     return this.templates.create(body ?? {}, { userId, userName });
   }
 
-  // A page made from a template: { workspaceId, parentId? }
+  // A page made from a template: { workspaceId, parentId?, visibility? }, or { pageId } to make a
+  // new page that hasn't chosen its type yet from it
   @Post(':id/use')
   use(@Param('id') id: string, @Body() body: any, @CurrentUserId() userId?: string, @CurrentUserName() userName?: string) {
     return this.templates.use(id, body ?? {}, { userId, userName });

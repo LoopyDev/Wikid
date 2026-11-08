@@ -115,7 +115,7 @@ const restorePage = (pageId) => workspace.restorePageFromBin(pageId);
 const listWorkspacePages = () => {
   const workspaceId = activeWorkspaceId.value || workspace.activeWorkspaceId;
   return workspace.pages.filter((page) => {
-    if (!page || page.isDeleted) return false;
+    if (!page || page.isDeleted || page.isTemplate) return false;
     if (page.isHidden && !isDatabaseRowPage(page)) return false;
     if (workspaceId && page.workspaceId !== workspaceId) return false;
     return true;

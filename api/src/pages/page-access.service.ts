@@ -163,6 +163,7 @@ export class PageAccessService {
         setupStatus: true,
         wikiHomeId: true,
         isHidden: true,
+        isTemplate: true,
       },
     });
     if (page.isDeleted && !options.allowDeleted) {

@@ -84,6 +84,30 @@ describe('page templates', () => {
     expect((await templates(bob)).personal.map((t: any) => t.id)).not.toContain(created.body.id);
   });
 
+  it('makes a new page that has no type yet from a template, where it is, and a private page at the top', async () => {
+    const parent = await createPage(alice, workspaceId, { title: 'Meetings' });
+    const fresh = (await alice.post('/pages', { workspaceId, parentId: parent.id, title: 'Untitled page', setupStatus: 'PENDING' })).body;
+    const made = await alice.post('/templates/builtin:meeting-notes/use', { pageId: fresh.id });
+    expect(made.body.id).toBe(fresh.id);
+    expect((await alice.get(`/pages/${fresh.id}`)).body).toMatchObject({ title: 'Meeting notes', icon: '🗓️', setupStatus: 'COMPLETE', kind: 'DOC', parentId: parent.id });
+    expect(await markdownOf(alice, fresh.id)).toContain('## Actions');
+    // Only once: it's a page with content now
+    expect((await alice.post('/templates/builtin:meeting-notes/use', { pageId: fresh.id })).status).toBe(409);
+
+    const mine = await alice.post('/templates/builtin:how-to-guide/use', { workspaceId, visibility: 'PRIVATE' });
+    expect((await alice.get(`/pages/${mine.body.id}`)).body).toMatchObject({ visibility: 'PRIVATE', parentId: null });
+  });
+
+  it("lists a workspace's templates with its pages when asked, and a subpage of a template is part of it", async () => {
+    const template = (await alice.post('/templates', { scope: 'workspace', workspaceId, title: unique('Runbook') })).body;
+    const sub = (await alice.post('/pages', { workspaceId, parentId: template.id, title: 'Rollback' })).body;
+    expect(sub.isTemplate).toBe(true);
+    expect(await listed(alice)).not.toContain(sub.id);
+    const all = ((await alice.get(`/pages?workspaceId=${workspaceId}&includeTemplates=true`)).body as any[]).map((p) => p.id);
+    expect(all).toEqual(expect.arrayContaining([template.id, sub.id]));
+    expect((await templates(alice)).personalWorkspaceId).toEqual(expect.any(String));
+  });
+
   it('lets a viewer see the templates but not make pages or templates with them', async () => {
     expect((await templates(bob)).builtIn).toHaveLength(4);
     expect((await bob.post('/templates/builtin:project-brief/use', { workspaceId })).status).toBe(403);

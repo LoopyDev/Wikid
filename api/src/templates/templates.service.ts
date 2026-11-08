@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { PageKind } from '@prisma/client';
+import { PageKind, PageVisibility } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { PageAccessService } from '../pages/page-access.service';
 import { PageContentService } from '../pages/page-content.service';
@@ -55,6 +55,8 @@ export class TemplatesService {
     const subpages = new Map(counts.map((c) => [c.parentId, c._count._all]));
     const shape = (scope: Scope) => (r: (typeof roots)[number]) => ({ id: r.id, title: r.title || 'Untitled template', icon: r.icon, scope, subpageCount: subpages.get(r.id) ?? 0, updatedAt: r.updatedAt });
     return {
+      // Where someone's own templates live: opening one goes there
+      personalWorkspaceId: personalId,
       workspace: workspaceId === personalId ? [] : roots.filter((r) => r.workspaceId === workspaceId).map(shape('workspace')),
       personal: roots.filter((r) => r.workspaceId === personalId).map(shape('personal')),
       builtIn: BUILTIN_TEMPLATES.map(({ id, title, icon, description }) => ({ id, title, icon, description, scope: 'builtIn', subpageCount: 0 })),
@@ -83,11 +85,24 @@ export class TemplatesService {
     return { id: root.id, workspaceId: target, scope, notes: describeCleanup(cleanup) };
   }
 
-  /** A page (and its subpages) made from a template, in a workspace, under a page if given. */
-  async use(templateId: string, body: { workspaceId?: string; parentId?: string | null }, user: User) {
-    if (!body.workspaceId) throw new BadRequestException('workspaceId is required');
+  /**
+   * A page (and its subpages) made from a template, in a workspace: under a page if given, or at
+   * the top as a private or public page. Or `pageId`: a new page that hasn't chosen its type yet,
+   * made from the template where it is.
+   */
+  async use(templateId: string, body: { workspaceId?: string; parentId?: string | null; visibility?: string; pageId?: string }, user: User) {
     const tree = await this.readTemplate(templateId, user, emptyCleanup());
-    const root = await this.writeTree(tree, { workspaceId: body.workspaceId, parentId: body.parentId ?? null, isTemplate: false }, user);
+    if (body.pageId) {
+      const { userId, userName } = this.requireUser(user);
+      const page = await this.pages.fillNewPage(body.pageId, { title: tree.title, icon: tree.icon, content: { type: 'doc', content: tree.content } }, { userId, userName });
+      for (const child of tree.children) {
+        await this.writeTree(child, { workspaceId: page.workspaceId, parentId: page.id, isTemplate: false }, user);
+      }
+      return { id: page.id, workspaceId: page.workspaceId };
+    }
+    if (!body.workspaceId) throw new BadRequestException('workspaceId is required');
+    const visibility = body.visibility === PageVisibility.PRIVATE ? PageVisibility.PRIVATE : undefined;
+    const root = await this.writeTree(tree, { workspaceId: body.workspaceId, parentId: body.parentId ?? null, isTemplate: false, visibility }, user);
     return { id: root.id, workspaceId: root.workspaceId };
   }
 
@@ -126,7 +141,7 @@ export class TemplatesService {
     return { title: record.title, icon: record.icon, content, children: subtrees };
   }
 
-  private async writeTree(tree: Tree, where: { workspaceId: string; parentId: string | null; isTemplate: boolean }, user: User): Promise<{ id: string; workspaceId: string }> {
+  private async writeTree(tree: Tree, where: { workspaceId: string; parentId: string | null; isTemplate: boolean; visibility?: PageVisibility }, user: User): Promise<{ id: string; workspaceId: string }> {
     const { userId, userName } = this.requireUser(user);
     const page = await this.pages.createPage({
       workspaceId: where.workspaceId,
@@ -135,6 +150,7 @@ export class TemplatesService {
       icon: tree.icon,
       content: { type: 'doc', content: tree.content },
       isTemplate: where.isTemplate,
+      visibility: where.visibility,
       userId,
       userName,
     });

@@ -32,7 +32,7 @@ const exportHtmlChecked = ref(new Set());
 const exportHtmlExporting = ref(false);
 
 const exportHtmlFullTree = computed(() => {
-  const allPages = pages.value.filter((p) => !p.isDeleted && !p.isHidden);
+  const allPages = pages.value.filter((p) => !p.isDeleted && !p.isHidden && !p.isTemplate);
   const childrenOf = (parentId) => allPages.filter((p) => p.parentId === parentId);
   const result = [];
   const walk = (page, depth) => {
@@ -46,7 +46,7 @@ const exportHtmlFullTree = computed(() => {
 const exportHtmlSubtreeIds = computed(() => {
   const roots = exportHtmlRootIds.value;
   if (!roots.size) return new Set(exportHtmlFullTree.value.map((p) => p.id));
-  const allPages = pages.value.filter((p) => !p.isDeleted && !p.isHidden);
+  const allPages = pages.value.filter((p) => !p.isDeleted && !p.isHidden && !p.isTemplate);
   const childrenOf = (parentId) => allPages.filter((p) => p.parentId === parentId);
   const ids = new Set();
   const walk = (id) => {
@@ -66,7 +66,7 @@ const exportHtmlCheckedCount = computed(() => {
 });
 
 const getSubtreeIds = (pageId) => {
-  const allPages = pages.value.filter((p) => !p.isDeleted && !p.isHidden);
+  const allPages = pages.value.filter((p) => !p.isDeleted && !p.isHidden && !p.isTemplate);
   const childrenOf = (parentId) => allPages.filter((p) => p.parentId === parentId);
   const ids = new Set();
   const walk = (id) => { ids.add(id); childrenOf(id).forEach((c) => walk(c.id)); };
@@ -80,14 +80,14 @@ const exportHtmlSelectRoot = (pageId) => {
     exportHtmlChecked.value = getSubtreeIds(pageId);
   } else {
     exportHtmlRootIds.value = new Set();
-    const allPages = pages.value.filter((p) => !p.isDeleted && !p.isHidden);
+    const allPages = pages.value.filter((p) => !p.isDeleted && !p.isHidden && !p.isTemplate);
     exportHtmlChecked.value = new Set(allPages.map((p) => p.id));
   }
 };
 
 const exportHtmlToggleCheck = (pageId) => {
   if (!exportHtmlSubtreeIds.value.has(pageId)) return;
-  const allPages = pages.value.filter((p) => !p.isDeleted && !p.isHidden);
+  const allPages = pages.value.filter((p) => !p.isDeleted && !p.isHidden && !p.isTemplate);
   const childrenOf = (parentId) => allPages.filter((p) => p.parentId === parentId);
   const descendants = [];
   const walk = (id) => { descendants.push(id); childrenOf(id).forEach((c) => walk(c.id)); };
