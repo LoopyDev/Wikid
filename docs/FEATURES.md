@@ -99,21 +99,20 @@ What Wikid does today, and how much to rely on each part. Wikid is in early deve
 | Writing tools: AI Writer, improve/summarise/shorten/expand a selection, AI side panel | Beta | Needs `ANTHROPIC_API_KEY` on the server. The AI responses themselves aren't covered by automated tests. |
 | Turning AI off: hidden when not set up, an admin switch, and a personal setting | Stable | |
 | Page content as Markdown through the API, read and changed block by block | Beta | New. For tools such as the MCP server: blocks Markdown can't hold (columns, database views) are left as they are. Changes reach a page open in the editor straight away. |
-| MCP server (`mcp/`) so AI tools such as Claude Code can work in a workspace | Experimental | Lists workspaces, pages and database rows, and creates and renames pages. Page text comes back empty (it reads a table the editor no longer uses), and new pages can't be given content yet: being reworked, see Planned. Logs in with an email and password. |
+| MCP server (`mcp/`) so AI tools such as Claude Code can work in a workspace | Beta | Search; read pages as Markdown and change them block by block; create and rename pages; read and change database rows. Tested by running it against a live stack. Runs locally and logs in with a password for now (stored in the AI tool's settings). See [mcp/README.md](../mcp/README.md). |
 
 ## Planned
 
 First, making what's here solid: more automated tests (especially for Beta features), checks that every API
 route only lets the right people in, and two-factor authentication. Then, roughly in this order:
 
-1. A reworked MCP server: read pages as Markdown, search, and create and edit pages and database rows (Markdown turned into page content on the server)
-2. Personal API tokens, so tools like the MCP server don't need your password
-3. Import from Markdown: files, or a zip of folders with images, previewed before importing
-4. Page templates
-5. Groups and teams for permissions
-6. Admin audit log (logins, permission changes, deletions, exports)
-7. Comments and @mentions, with notifications
-8. Read-only share links
-9. Single sign-on (OIDC: Google, Microsoft Entra, Okta, Keycloak, Authentik)
-10. Page owners and "last reviewed" dates
-11. Later: invite links, optional email (invites, password reset), and open sign-up behind an admin switch
+1. Connecting Claude by signing in: a remote MCP server with OAuth, so nothing runs locally and no password is stored
+2. Import from Markdown: files, or a zip of folders with images, previewed before importing
+3. Page templates
+4. Groups and teams for permissions
+5. Admin audit log (logins, permission changes, deletions, exports)
+6. Comments and @mentions, with notifications
+7. Read-only share links
+8. Single sign-on (OIDC: Google, Microsoft Entra, Okta, Keycloak, Authentik)
+9. Page owners and "last reviewed" dates
+10. Later: invite links, optional email (invites, password reset), and open sign-up behind an admin switch
