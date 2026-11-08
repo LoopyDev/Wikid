@@ -78,6 +78,12 @@ describe('page content as Markdown', () => {
     expect(markdownKeeps(content)).toBe(true);
   });
 
+  it("keeps an image's title and address whole, quotes, backslashes, spaces and brackets included", () => {
+    const image = { type: 'image', attrs: { src: 'my files/cat (1).png', alt: 'A cat', title: 'Say \\"hi\\" \\' } };
+    const markdown = contentToMarkdown([image]);
+    expect(markdownToContent(markdown)).toEqual([image]);
+  });
+
   it('keeps text that looks like Markdown as text', () => {
     const content = [p('b1', text('# not a heading, *not* italic'))];
     expect(markdownKeeps(content as any)).toBe(true);

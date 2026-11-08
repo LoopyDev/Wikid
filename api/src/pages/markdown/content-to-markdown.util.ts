@@ -155,8 +155,11 @@ export function renderBlock(node: ContentNode | undefined): string {
     case 'image': {
       const src = node.attrs?.src;
       if (!src) return '';
-      const title = node.attrs?.title ? ` "${String(node.attrs.title).replace(/"/g, '\\"')}"` : '';
-      return `![${escapeText(String(node.attrs?.alt || ''))}](${src}${title})`;
+      // Backslashes first, so one already there can't undo the escape of the quote after it
+      const title = node.attrs?.title ? ` "${String(node.attrs.title).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"` : '';
+      // An address with spaces or brackets in it goes in <> to stay one address
+      const address = /[\s()<>]/.test(String(src)) ? `<${String(src).replace(/[<>]/g, encodeURIComponent)}>` : src;
+      return `![${escapeText(String(node.attrs?.alt || ''))}](${address}${title})`;
     }
     case 'table':
       return renderTable(node);
