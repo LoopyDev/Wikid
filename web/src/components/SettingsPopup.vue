@@ -274,7 +274,7 @@ watch(settingsTab, (tab) => {
             <p v-if="renameWorkspaceError" class="login-error">{{ renameWorkspaceError }}</p>
             <div class="settings-workspace-row">
               <span class="muted">Pages</span>
-              <span>{{ workspace.pages.length }}</span>
+              <span>{{ workspace.pages.filter((page) => !page.isTemplate).length }}</span>
             </div>
           </div>
           <div v-if="isWorkspaceOwner" class="settings-danger-zone">

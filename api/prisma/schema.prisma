@@ -69,6 +69,8 @@ model Page {
   wikiHomeId        String?                  @db.Uuid
   wikiConfig        Json?
   isHidden          Boolean                  @default(false)
+  // A page template, not a page: kept out of the page tree and search, and copied to make pages
+  isTemplate        Boolean                  @default(false)
   // Title and document text for search; kept up to date by Postgres (see the add_search migration).
   searchVector      Unsupported("tsvector")?
   blocks            Block[]
@@ -84,6 +86,7 @@ model Page {
   @@index([workspaceId])
   @@index([parentId])
   @@index([wikiHomeId])
+  @@index([workspaceId, isTemplate])
 }
 
 // A page as it was after an editing session: saves a few minutes apart, or up to half an hour of

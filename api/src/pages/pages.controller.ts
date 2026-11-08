@@ -60,6 +60,7 @@ export class PagesController {
     @CurrentUserName() userName?: string,
     @Query('includeDeleted') includeDeleted?: string,
     @Query('state') state?: string,
+    @Query('includeTemplates') includeTemplates?: string,
   ) {
     return this.pages.listPages({
       workspaceId,
@@ -67,6 +68,7 @@ export class PagesController {
       userName,
       includeDeleted: includeDeleted === 'true',
       state,
+      includeTemplates: includeTemplates === 'true',
     });
   }
 
@@ -290,7 +292,9 @@ export class PagesController {
 
   @Post('pages')
   createPage(@Body() body: any, @CurrentUser() user: AuthUser) {
-    return this.pages.createPage({ ...body, userId: user.id, userName: user.displayName });
+    // Templates are made through /templates, which makes their content fit one
+    const { isTemplate: _isTemplate, content: _content, icon: _icon, ...page } = body ?? {};
+    return this.pages.createPage({ ...page, userId: user.id, userName: user.displayName });
   }
 
   @Get('pages/:id/database')

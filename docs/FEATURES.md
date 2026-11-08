@@ -19,6 +19,7 @@ What Wikid does today, and how much to rely on each part. Wikid is in early deve
 | Private and public pages | Stable | Private pages are visible to their author only. |
 | Bin: restore, or delete for good | Stable | |
 | Page history: versions with who edited them, what each changed, restoring a version | Beta | New. A version is an editing session (saves less than 5 minutes apart, up to 30 minutes). Changes are marked block by block (added, changed, removed), not word by word. Kept from the first edit after updating. Database pages have no history yet. |
+| Page templates: a workspace's own, your own (in every workspace) and four built-in ones; start a new page from one, or save a page (with its subpages) as one | Beta | New. Images become image placeholders saying what goes there; database views and forms, page links and Gaussian splats are left out, since they belong to one workspace. Database pages can't be templates. |
 | Live sidebar: pages others create, rename, move or delete appear without reloading | Stable | |
 | Search (⌘K / Ctrl+K) across page titles, page text and database rows | Beta | New. Only shows what you can see. Text edited live becomes searchable within a few minutes. Word matching assumes English. |
 | Wikis: a page as a wiki home with a database of its pages | Beta | |
@@ -34,6 +35,7 @@ What Wikid does today, and how much to rely on each part. Wikid is in early deve
 | Code blocks with syntax highlighting | Beta | |
 | Tables, callouts, columns, toggle headings, dividers, table of contents | Beta | |
 | Images: upload, paste or drop (with upload progress), resize, and a full-screen viewer | Beta | |
+| Image placeholders: say which image goes here, and Upload puts it in | Beta | New. Used by templates in place of images. |
 | Page links and link previews | Beta | |
 | Synced blocks: one block shown on several pages, kept in step | Beta | |
 | Database views and forms inside a page | Beta | A view's title, controls, and add row and column buttons can each be hidden from its block menu. |
@@ -108,11 +110,10 @@ route only lets the right people in, and two-factor authentication. Then, roughl
 
 1. Connecting Claude by signing in: a remote MCP server with OAuth, so nothing runs locally and no password is stored
 2. Import from Markdown: files, or a zip of folders with images, previewed before importing
-3. Page templates
-4. Groups and teams for permissions
-5. Admin audit log (logins, permission changes, deletions, exports)
-6. Comments and @mentions, with notifications
-7. Read-only share links
-8. Single sign-on (OIDC: Google, Microsoft Entra, Okta, Keycloak, Authentik)
-9. Page owners and "last reviewed" dates
-10. Later: invite links, optional email (invites, password reset), and open sign-up behind an admin switch
+3. Groups and teams for permissions
+4. Admin audit log (logins, permission changes, deletions, exports)
+5. Comments and @mentions, with notifications
+6. Read-only share links
+7. Single sign-on (OIDC: Google, Microsoft Entra, Okta, Keycloak, Authentik)
+8. Page owners and "last reviewed" dates
+9. Later: invite links, optional email (invites, password reset), and open sign-up behind an admin switch

@@ -9,6 +9,8 @@ import { WikiService } from './wiki.service';
 import { PagesService } from './pages.service';
 import { PageHistoryService } from './page-history.service';
 import { PageContentService } from './page-content.service';
+import { TemplatesService } from '../templates/templates.service';
+import { TemplatesController } from '../templates/templates.controller';
 import { DatabaseValuesService } from './database-values.service';
 import { DatabasesService } from './databases.service';
 import { DatabaseFormsService } from './database-forms.service';
@@ -23,7 +25,7 @@ import { UploadsService } from '../uploads/uploads.service';
 import { LoginRateLimiter } from '../auth/login-rate-limiter';
 @Module({
   imports: [ComplianceModule, CollabModule],
-  controllers: [PagesController],
+  controllers: [PagesController, TemplatesController],
   providers: [
     LoginRateLimiter,
     PageAccessService,
@@ -33,6 +35,7 @@ import { LoginRateLimiter } from '../auth/login-rate-limiter';
     PagesService,
     PageHistoryService,
     PageContentService,
+    TemplatesService,
     DatabaseValuesService,
     DatabasesService,
     DatabaseFormsService,

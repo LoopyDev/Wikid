@@ -59,7 +59,7 @@ export class SearchService {
       LEFT JOIN "Database" d ON d.id = r."databaseId"
       LEFT JOIN "Page" row_db ON row_db.id = d."pageId"
       CROSS JOIN to_tsquery('english', ${query}) q
-      WHERE p."isDeleted" = false
+      WHERE p."isDeleted" = false AND p."isTemplate" = false
         AND (p.visibility = 'PUBLIC' OR p."authorId" = ${userId}::uuid)
         AND p."searchVector" @@ q
       ORDER BY rank DESC, p."updatedAt" DESC

@@ -16,10 +16,30 @@ export type ContentNode = {
 // An emoji (with its variation selectors and joiners) at the start of a quote's text
 const LEADING_EMOJI = /^((?:\p{Extended_Pictographic}|\p{Regional_Indicator})(?:[\u{FE0F}\u{200D}\u{1F3FB}-\u{1F3FF}]|\p{Extended_Pictographic})*)\s+/u;
 
+const IMAGE_PLACEHOLDER = /^\[Image to add(?::\s*([^\]\n]*))?\]$/;
+
 const paragraph = (content: ContentNode[]): ContentNode => (content.length ? { type: 'paragraph', content } : { type: 'paragraph' });
 
 /** Inline Markdown tokens as text nodes with marks; images come out separately. */
 function inline(tokens: Token[] | undefined, marks: Mark[] = []): ContentNode[] {
+  return mergeText(inlineNodes(tokens, marks));
+}
+
+// Neighbouring text with the same marks as one node ("\[" and the text after it are one)
+function mergeText(nodes: ContentNode[]): ContentNode[] {
+  const out: ContentNode[] = [];
+  for (const node of nodes) {
+    const last = out[out.length - 1];
+    if (node.type === 'text' && last?.type === 'text' && JSON.stringify(last.marks ?? []) === JSON.stringify(node.marks ?? [])) {
+      out[out.length - 1] = { ...last, text: (last.text ?? '') + (node.text ?? '') };
+    } else {
+      out.push(node);
+    }
+  }
+  return out;
+}
+
+function inlineNodes(tokens: Token[] | undefined, marks: Mark[] = []): ContentNode[] {
   const out: ContentNode[] = [];
   const text = (value: string) => {
     if (!value) return;
@@ -144,9 +164,18 @@ function blocks(tokens: Token[]): ContentNode[] {
       case 'heading':
         out.push({ type: 'heading', attrs: { level: Math.min(Math.max(token.depth, 1), 6) }, content: inline(token.tokens) });
         break;
-      case 'paragraph':
-        out.push(...paragraphs(token.tokens));
+      case 'paragraph': {
+        // "[Image to add: …]" on a line of its own is an image placeholder (unescaped brackets only:
+        // a paragraph that just says it is written with \[ \])
+        const placeholder = token.raw.trim().match(IMAGE_PLACEHOLDER);
+        if (placeholder) {
+          const text = (placeholder[1] ?? '').trim();
+          out.push(text ? { type: 'imagePlaceholder', content: [{ type: 'text', text }] } : { type: 'imagePlaceholder' });
+        } else {
+          out.push(...paragraphs(token.tokens));
+        }
         break;
+      }
       case 'list':
         out.push(list(token as Tokens.List));
         break;

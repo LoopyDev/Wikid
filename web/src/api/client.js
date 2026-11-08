@@ -135,8 +135,8 @@ function buildQs(params) {
 }
 
 export const api = {
-  async listPages({ workspaceId, userId, userName, includeDeleted, state } = {}) {
-    return request(`/pages${buildQs({ workspaceId, userId, userName, includeDeleted, state })}`);
+  async listPages({ workspaceId, userId, userName, includeDeleted, state, includeTemplates } = {}) {
+    return request(`/pages${buildQs({ workspaceId, userId, userName, includeDeleted, state, includeTemplates })}`);
   },
   async getPage(pageId, { userId, userName, priority } = {}) {
     return request(`/pages/${pageId}${buildQs({ userId, userName })}`, priority ? { priority } : {});
@@ -212,6 +212,17 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(payload),
     });
+  },
+  // Page templates: those offered in a workspace ({ workspace, personal, builtIn }), a new one
+  // (blank, from a page, or a copy of another; answers with notes on what changed), a page from one
+  async listTemplates(workspaceId) {
+    return request(`/templates${buildQs({ workspaceId })}`);
+  },
+  async createTemplate(payload) {
+    return request(`/templates`, { method: 'POST', body: JSON.stringify(payload) });
+  },
+  async useTemplate(templateId, payload) {
+    return request(`/templates/${encodeURIComponent(templateId)}/use`, { method: 'POST', body: JSON.stringify(payload) });
   },
   // Page history: versions newest first (without their content), one version, restoring one
   async listPageVersions(pageId) {

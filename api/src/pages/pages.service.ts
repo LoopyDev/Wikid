@@ -69,8 +69,8 @@ export class PagesService {
     return last.position.plus(POSITION_INCREMENT);
   }
 
-  async listPages(params: { workspaceId?: string; userId?: string; userName?: string; includeDeleted?: boolean; state?: string }) {
-    const { workspaceId, userId, userName, includeDeleted, state } = params;
+  async listPages(params: { workspaceId?: string; userId?: string; userName?: string; includeDeleted?: boolean; state?: string; includeTemplates?: boolean }) {
+    const { workspaceId, userId, userName, includeDeleted, state, includeTemplates } = params;
     if (!userId) {
       throw new BadRequestException('userId is required');
     }
@@ -95,6 +95,9 @@ export class PagesService {
         workspaceId: workspace.id,
         ...(includeDeleted || onlyBin ? {} : { isDeleted: false }),
         ...(onlyBin ? { isDeleted: true } : {}),
+        // Templates have their own list (the web app asks for them too, and keeps them out of its
+        // page tree); a deleted one is in the Bin with the rest
+        ...(onlyBin || includeTemplates ? {} : { isTemplate: false }),
         ...visibilityFilter,
       },
       orderBy: [{ position: 'asc' }, { createdAt: 'asc' }],
@@ -346,6 +349,10 @@ export class PagesService {
       workflow?: Prisma.InputJsonValue;
       template?: string;
     };
+    // Set by page templates: the page made whole at once, so it never shows half-made
+    isTemplate?: boolean;
+    icon?: string | null;
+    content?: unknown;
   }) {
     if (!body.workspaceId) {
       throw new BadRequestException('workspaceId is required');
@@ -372,6 +379,8 @@ export class PagesService {
       }
       visibility = parent.page.visibility;
       wikiHomeId = parent.page.wikiHomeId ?? null;
+      // A subpage of a template is part of it
+      if (parent.page.isTemplate) body = { ...body, isTemplate: true };
     }
     if (visibility === PageVisibility.PRIVATE && !body.userId) {
       throw new BadRequestException('Private pages require an author');
@@ -380,7 +389,9 @@ export class PagesService {
       data: {
         workspaceId: workspace.id,
         title: body.title || '',
-        content: normalizeEditorContent(null),
+        content: normalizeEditorContent(body.content ?? null),
+        icon: body.icon ?? null,
+        isTemplate: body.isTemplate === true,
         parentId,
         position,
         kind,
@@ -408,6 +419,29 @@ export class PagesService {
       return { ...page, databaseComplianceMode: typeof complianceMode === 'boolean' ? complianceMode : false };
     }
     return page;
+  }
+
+  /**
+   * A new page that hasn't chosen its type yet, made a document page from a template at once:
+   * its title, icon and content. Its subpages are made by the caller.
+   */
+  async fillNewPage(id: string, data: { title: string; icon: string | null; content: unknown }, user?: { userId?: string; userName?: string }) {
+    const { page } = await this.access.requirePageAccess(id, user, { requireWrite: true });
+    if (page.setupStatus !== PageSetupStatus.PENDING || page.isTemplate) {
+      throw new ConflictException('Only a new page can be made from a template');
+    }
+    const updated = await this.prisma.page.update({
+      where: { id },
+      data: {
+        title: data.title,
+        icon: data.icon,
+        content: normalizeEditorContent(data.content ?? null),
+        kind: PageKind.DOC,
+        setupStatus: PageSetupStatus.COMPLETE,
+      },
+    });
+    this.collabSync.announcePagesChanged(updated.workspaceId, [id]);
+    return updated;
   }
 
   async updatePageSetup(
@@ -650,7 +684,7 @@ export class PagesService {
     }
 
     const siblings = await this.prisma.page.findMany({
-      where: { parentId: parentId ?? null, workspaceId, isDeleted: false },
+      where: { parentId: parentId ?? null, workspaceId, isDeleted: false, isTemplate: false },
       orderBy: { position: 'asc' },
       select: { id: true, position: true, workspaceId: true },
     });

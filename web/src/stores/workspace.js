@@ -53,6 +53,8 @@ export const useWorkspaceStore = defineStore('workspace', {
     workspaceName: 'Wikid Workspace',
     pages: [],
     binPages: [],
+    // The templates offered in the active workspace: { personalWorkspaceId, workspace, personal, builtIn }
+    templates: null,
     activePageId: null,
     activePageWorkspaceId: null,
     workspaces: [],
@@ -109,13 +111,13 @@ export const useWorkspaceStore = defineStore('workspace', {
     privatePages() {
       if (!this.activeWorkspaceId) return [];
       return this.pages.filter(
-        (p) => p.workspaceId === this.activeWorkspaceId && p.visibility === 'PRIVATE' && !p.isDeleted && !p.isHidden
+        (p) => p.workspaceId === this.activeWorkspaceId && p.visibility === 'PRIVATE' && !p.isDeleted && !p.isHidden && !p.isTemplate
       );
     },
     publicPages() {
       if (!this.activeWorkspaceId) return [];
       return this.pages.filter(
-        (p) => p.workspaceId === this.activeWorkspaceId && p.visibility !== 'PRIVATE' && !p.isDeleted && !p.isHidden
+        (p) => p.workspaceId === this.activeWorkspaceId && p.visibility !== 'PRIVATE' && !p.isDeleted && !p.isHidden && !p.isTemplate
       );
     },
     activePageRemotelyDeleted(state) {
@@ -316,12 +318,14 @@ export const useWorkspaceStore = defineStore('workspace', {
         workspaceId,
         userId: this.activeUser.id,
         userName: this.activeUser.name,
+        includeTemplates: true,
       });
       this.pages = Array.isArray(pages) ? pages : [];
       this.binPages = [];
+      this.templates = null;
       const savedPageId = this.loadLastPageId();
       const savedPage = this.pages.find((p) => p.id === savedPageId && !p.isDeleted && !p.isHidden);
-      const firstPage = savedPage || this.pages.find((p) => !p.isDeleted && !p.isHidden);
+      const firstPage = savedPage || this.pages.find((p) => !p.isDeleted && !p.isHidden && !p.isTemplate);
       this.activePageId = firstPage?.id || null;
       this.activePageWorkspaceId = firstPage?.workspaceId || workspaceId;
       this.titleDraft = firstPage?.title || 'Untitled page';
@@ -340,6 +344,7 @@ export const useWorkspaceStore = defineStore('workspace', {
         workspaceId,
         userId: this.activeUser.id,
         userName: this.activeUser.name,
+        includeTemplates: true,
       });
       // Ignore the answer if the user has moved to another workspace meanwhile
       if (workspaceId !== this.activeWorkspaceId) return;
@@ -868,6 +873,66 @@ export const useWorkspaceStore = defineStore('workspace', {
     async addDatabaseToPublicSection() {
       return this.createPageInActiveWorkspace({ title: 'Untitled database', kind: 'DATABASE', visibility: 'PUBLIC' });
     },
+    // Page templates. A template is a page marked as one (isTemplate), loaded with the workspace's
+    // pages but kept out of its page tree. Someone's own templates live in their personal workspace.
+    async loadTemplates() {
+      if (!this.activeWorkspaceId || !this.activeUser || !this.hasApi) return null;
+      const workspaceId = this.activeWorkspaceId;
+      try {
+        const templates = await api.listTemplates(workspaceId);
+        if (workspaceId === this.activeWorkspaceId) this.templates = templates;
+      } catch (err) {
+        console.warn('Load templates failed', err);
+      }
+      return this.templates;
+    },
+    /** Opens a page by id, going to its workspace first if it's in another (someone's own template). */
+    async openPageById(pageId, workspaceId) {
+      if (workspaceId && workspaceId !== this.activeWorkspaceId) await this.selectWorkspaceById(workspaceId);
+      else if (!this.pages.some((p) => p.id === pageId) && this.activeWorkspaceId) await this.loadPageList(this.activeWorkspaceId, { keepBin: true });
+      const page = this.pages.find((p) => p.id === pageId) || { id: pageId, workspaceId: workspaceId || this.activeWorkspaceId, kind: 'DOC' };
+      this.selectPage(page);
+    },
+    /**
+     * A page made from a template, and opened: at the top of the workspace (private or public), or
+     * `pageId`, a new page that hasn't chosen its type yet, made from it where it is.
+     */
+    async useTemplate(templateId, { visibility = 'PRIVATE', pageId } = {}) {
+      if (!this.activeWorkspaceId || !this.activeUser || !this.hasApi) return null;
+      try {
+        const made = await api.useTemplate(templateId, pageId ? { pageId } : { workspaceId: this.activeWorkspaceId, visibility });
+        prefetchedPages.delete(made.id);
+        await this.loadPageList(this.activeWorkspaceId, { keepBin: true });
+        const page = this.pages.find((p) => p.id === made.id);
+        if (page) {
+          if (pageId === this.activePageId) await this.loadPageDoc(made.id);
+          else this.selectPage(page);
+        }
+        return made;
+      } catch (err) {
+        console.warn('Use template failed', err);
+        this.error = err?.message || 'Failed to make a page from the template';
+        return null;
+      }
+    },
+    /**
+     * A new template: `scope` 'workspace' (this workspace's) or 'personal' (the person's own), blank,
+     * from a page (with its subpages), or copied from another template. Answers { id, workspaceId,
+     * scope, notes }, notes saying what was changed to make it fit a template.
+     */
+    async createTemplate({ scope, fromPageId, fromTemplateId, title } = {}) {
+      if (!this.activeWorkspaceId || !this.activeUser || !this.hasApi) return null;
+      try {
+        const created = await api.createTemplate({ scope, workspaceId: this.activeWorkspaceId, fromPageId, fromTemplateId, title });
+        if (created.workspaceId === this.activeWorkspaceId) await this.loadPageList(this.activeWorkspaceId, { keepBin: true });
+        await this.loadTemplates();
+        return created;
+      } catch (err) {
+        console.warn('Create template failed', err);
+        this.error = err?.message || 'Failed to make the template';
+        return null;
+      }
+    },
     async createSetupPage(visibility) {
       return this.createPageInActiveWorkspace({ title: 'Untitled page', visibility, kind: 'DOC', setupStatus: 'PENDING' });
     },
@@ -918,6 +983,7 @@ export const useWorkspaceStore = defineStore('workspace', {
             workspaceId: this.activeWorkspaceId,
             userId: this.activeUser.id,
             userName: this.activeUser.name,
+            includeTemplates: true,
           });
           if (Array.isArray(pages)) {
             this.pages = pages;

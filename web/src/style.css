@@ -1292,6 +1292,35 @@ button {
   font-size: 1rem;
 }
 
+/* Templates on the new-page screen */
+.setup-templates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.setup-template {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  background: rgba(15, 23, 42, 0.12);
+  color: var(--text-primary);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.setup-template:hover:not(:disabled) {
+  border-color: var(--text-color-blue);
+}
+
+.setup-template--more {
+  background: transparent;
+  color: var(--text-muted);
+}
+
 .create-page__card-desc {
   font-size: 0.9rem;
   color: var(--text-muted);
