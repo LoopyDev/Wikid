@@ -60,4 +60,33 @@ test.describe('page templates', () => {
     await expect(dialog).toContainText('Copied "Decision record" to your templates.');
     await expect(dialog.locator('.templates-section', { hasText: 'Yours' }).locator('.templates-item', { hasText: 'Decision record' }).first()).toBeVisible();
   });
+
+  test("the workspace's owner hides a built-in template for everyone there, and shows it again", async ({ alice, bob, workspaceId }) => {
+    const id = await createPage(alice, workspaceId);
+    const builtIn = (dialog: ReturnType<Page['getByRole']>) =>
+      dialog.locator('.templates-section', { hasText: 'Built-in' }).locator('.templates-list:not(.templates-list--hidden) .templates-item', { hasText: 'Project brief' });
+
+    await openPage(alice, id);
+    await alice.getByRole('button', { name: '📋 Templates' }).click();
+    const aliceDialog = alice.getByRole('dialog', { name: 'Templates' });
+    await builtIn(aliceDialog).getByRole('button', { name: 'Hide' }).click();
+    await expect(aliceDialog).toContainText('Hid "Project brief" in this workspace, for everyone.');
+    await expect(builtIn(aliceDialog)).toHaveCount(0);
+
+    // Bob, an editor: not offered it, can't show it again, can still copy it to his own
+    await openPage(bob, id);
+    await bob.getByRole('button', { name: '📋 Templates' }).click();
+    const bobDialog = bob.getByRole('dialog', { name: 'Templates' });
+    await expect(builtIn(bobDialog)).toHaveCount(0);
+    await expect(bobDialog.getByRole('button', { name: 'Hide' })).toHaveCount(0);
+    await bobDialog.getByRole('button', { name: /Hidden in this workspace \(1\)/ }).click();
+    const hidden = bobDialog.locator('.templates-list--hidden .templates-item', { hasText: 'Project brief' });
+    await expect(hidden).toContainText("Hidden here by the workspace's owner");
+    await expect(hidden.getByRole('button', { name: 'Show again' })).toHaveCount(0);
+    await expect(hidden.getByRole('button', { name: 'Copy to mine' })).toBeVisible();
+
+    await aliceDialog.getByRole('button', { name: /Hidden in this workspace \(1\)/ }).click();
+    await aliceDialog.locator('.templates-list--hidden .templates-item', { hasText: 'Project brief' }).getByRole('button', { name: 'Show again' }).click();
+    await expect(builtIn(aliceDialog)).toHaveCount(1);
+  });
 });

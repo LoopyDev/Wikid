@@ -221,6 +221,10 @@ export const api = {
   async createTemplate(payload) {
     return request(`/templates`, { method: 'POST', body: JSON.stringify(payload) });
   },
+  // A built-in template hidden in a workspace (for everyone there), or shown again: owners only
+  async setTemplateHidden(templateId, workspaceId, hidden) {
+    return request(`/templates/${encodeURIComponent(templateId)}/${hidden ? 'hide' : 'show'}`, { method: 'POST', body: JSON.stringify({ workspaceId }) });
+  },
   async useTemplate(templateId, payload) {
     return request(`/templates/${encodeURIComponent(templateId)}/use`, { method: 'POST', body: JSON.stringify(payload) });
   },
