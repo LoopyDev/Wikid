@@ -71,6 +71,31 @@ test.describe('loading', () => {
     expect(sockets).toHaveLength(1);
   });
 
+  test('a page filled through the API opens with its content the first time, every time', async ({ alice: page, workspaceId }) => {
+    // Its live document doesn't exist yet, so the editor fills it from the saved content. That once
+    // lost the content now and then (about one page in five): a menu registering its own editor
+    // plugin as it mounted made the editor redraw from the still-empty live document, and the empty
+    // page was then saved. Several pages, as it depended on timing.
+    const para = (text: string, id: number) => ({ type: 'paragraph', attrs: { id: `block-${id}` }, content: [{ type: 'text', text }] });
+    const heading = { type: 'heading', attrs: { level: 2, id: 'block-2' }, content: [{ type: 'text', text: 'Agenda' }] };
+    const ids: string[] = [];
+    for (let i = 0; i < 15; i += 1) {
+      const id = await createPage(page, workspaceId, { title: unique('Filled') });
+      await page.request.patch(`/api/pages/${id}`, { data: { icon: '📝' } });
+      // Saved twice, as an import or the MCP server might
+      for (const last of ['Draft', `Final ${i}`]) {
+        const content = { type: 'doc', content: [para('First line', 1), heading, para(last, 3)] };
+        expect((await page.request.put(`/api/pages/${id}/content`, { data: { content } })).status()).toBe(200);
+      }
+      await page.goto(`/doc/${id}`);
+      await expect(editor(page)).toContainText(`Final ${i}`);
+      ids.push(id);
+    }
+    // And it was saved with its content, not empty
+    await page.goto(`/doc/${ids[ids.length - 1]}`);
+    await expect(editor(page)).toContainText('Final 14');
+  });
+
   test('moving between pages never shows an empty page: the last one stays until the next is in', async ({ alice: page, workspaceId }) => {
     const pages: { id: string; title: string; text: string }[] = [];
     for (const label of ['First', 'Second']) {
