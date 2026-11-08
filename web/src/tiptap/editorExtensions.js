@@ -14,6 +14,7 @@ import { TextStyle } from '@tiptap/extension-text-style';
 import Highlight from '@tiptap/extension-highlight';
 import Link from '@tiptap/extension-link';
 import Typography from '@tiptap/extension-typography';
+import { Markdown } from '@tiptap/markdown';
 import { all, createLowlight } from 'lowlight';
 import javascript from 'highlight.js/lib/languages/javascript';
 import typescript from 'highlight.js/lib/languages/typescript';
@@ -163,6 +164,8 @@ export function createEditorExtensions({
         HTMLAttributes: { class: 'tiptap-task-item' },
       }),
       ListJoin,
+      // Reads Markdown into the page (pasting it) with each extension's own Markdown rules
+      Markdown,
       Link.configure({
         autolink: true,
         linkOnPaste: true,

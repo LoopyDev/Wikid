@@ -40,6 +40,34 @@ test.describe('editor', () => {
     ]);
   });
 
+  test('turns pasted markdown to-dos and tables into to-dos and tables', async ({ alice: page, workspaceId }) => {
+    const id = await createPage(page, workspaceId);
+    await openPage(page, id);
+    await editor(page).click();
+    await pastePlainText(page, '- [ ] Book train\n- [x] Pack **bag**\n\n| Day | Plan |\n| --- | --- |\n| Mon | Travel |');
+
+    await expect.poll(() => outline(page)).toEqual([
+      'taskList',
+      '  taskItem',
+      '    paragraph: Book train',
+      '  taskItem',
+      '    paragraph: Pack bag',
+      'table',
+      '  tableRow',
+      '    tableHeader',
+      '      paragraph: Day',
+      '    tableHeader',
+      '      paragraph: Plan',
+      '  tableRow',
+      '    tableCell',
+      '      paragraph: Mon',
+      '    tableCell',
+      '      paragraph: Travel',
+    ]);
+    await expect(editor(page).locator('li[data-checked="true"] p')).toHaveText('Pack bag');
+    await expect(editor(page).locator('strong', { hasText: 'bag' })).toBeVisible();
+  });
+
   test('removing the empty bullet between two others keeps them one list, so the second can be indented', async ({ alice: page, workspaceId }) => {
     await openPage(page, await createPage(page, workspaceId));
     await editor(page).click();
