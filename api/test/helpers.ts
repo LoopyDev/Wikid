@@ -83,6 +83,13 @@ export class Session {
     };
   }
 
+  /** Another browser holding the same session cookie (as a copied cookie would be). */
+  copy() {
+    const other = new Session();
+    other.cookie = this.cookie;
+    return other;
+  }
+
   async login(email: string, password = DEMO_PASSWORD) {
     return this.post('/auth/login', { email, password });
   }

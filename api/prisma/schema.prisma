@@ -21,6 +21,19 @@ model User {
   pages              Page[]          @relation("PageAuthor")
   memberships        UserWorkspace[]
   personalWorkspace  Workspace?      @relation("PersonalWorkspace")
+  sessions           UserSession[]
+}
+
+// A signed-in session. Its id is in the session cookie; deleting it ends the session (logging out,
+// changing or resetting a password).
+model UserSession {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 model Workspace {

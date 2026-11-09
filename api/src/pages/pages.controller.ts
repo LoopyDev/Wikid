@@ -17,9 +17,11 @@ import { UsersService } from './users.service';
 import { PdfService } from '../pdf/pdf.service';
 import { HtmlExportService } from '../export/html-export.service';
 import { DatabaseLinksService } from './database-links.service';
-import { AdminId, AuthUser, CurrentUser, CurrentUserId, CurrentUserName } from '../auth/auth.guard';
+import { AdminId, AuthUser, CurrentSessionId, CurrentUser, CurrentUserId, CurrentUserName } from '../auth/auth.guard';
 import { AllowPendingPasswordChange, Public } from '../auth/public.decorator';
-import { SESSION_COOKIE, sessionCookieOptions, signSession } from '../auth/session.util';
+import { SESSION_COOKIE, readCookie, sessionCookieOptions, verifySession } from '../auth/session.util';
+import { SessionsService } from '../auth/sessions.service';
+import { WRONG_CURRENT_PASSWORD } from './users.service';
 
 function pickDefined(source: Record<string, any>, keys: string[]): Record<string, any> {
   const result: Record<string, any> = {};
@@ -33,6 +35,18 @@ const requireMarkdown = (value: unknown) => {
   if (typeof value !== 'string') throw new BadRequestException('markdown is required');
   return value;
 };
+
+/** Throws 429 when a limiter says so, with a Retry-After header. */
+function checkLimit(limiter: LoginRateLimiter, key: string, address: string, res: Response) {
+  try {
+    limiter.check(key, address);
+  } catch (err) {
+    if (err instanceof HttpException && err.getStatus() === HttpStatus.TOO_MANY_REQUESTS) {
+      res.setHeader('Retry-After', String((err.getResponse() as { retryAfter: number }).retryAfter));
+    }
+    throw err;
+  }
+}
 
 @Controller()
 export class PagesController {
@@ -52,7 +66,10 @@ export class PagesController {
     private readonly loginLimiter: LoginRateLimiter,
     private readonly history: PageHistoryService,
     private readonly pageContent: PageContentService,
+    private readonly sessions: SessionsService,
   ) {}
+
+  private readonly passwordChangeLimiter = new LoginRateLimiter();
 
   @Get('pages')
   listPages(
@@ -547,14 +564,7 @@ export class PagesController {
     const name = login ?? email ?? '';
     // The client's address, as passed on by Wikid's own proxies (see TRUST_PROXY_HOPS in main.ts)
     const address = req.ip || req.socket.remoteAddress || 'unknown';
-    try {
-      this.loginLimiter.check(name, address);
-    } catch (err) {
-      if (err instanceof HttpException && err.getStatus() === HttpStatus.TOO_MANY_REQUESTS) {
-        res.setHeader('Retry-After', String((err.getResponse() as { retryAfter: number }).retryAfter));
-      }
-      throw err;
-    }
+    checkLimit(this.loginLimiter, name, address, res);
     let result: Awaited<ReturnType<UsersService['loginWithCredentials']>>;
     try {
       result = await this.users.loginWithCredentials(name, password);
@@ -565,13 +575,18 @@ export class PagesController {
       throw err;
     }
     this.loginLimiter.recordSuccess(name, address);
-    res.cookie(SESSION_COOKIE, signSession(result.user.id), sessionCookieOptions());
+    const session = await this.sessions.start(result.user.id);
+    res.cookie(SESSION_COOKIE, session.token, sessionCookieOptions());
     return result;
   }
 
   @Public()
   @Post('auth/logout')
-  logout(@Res({ passthrough: true }) res: Response) {
+  async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    // The session ends, not just this browser's cookie: a copy of it stops working too
+    const token = readCookie(req.headers.cookie, SESSION_COOKIE);
+    const claims = token ? verifySession(token) : null;
+    if (claims) await this.sessions.end(claims.sessionId);
     const { maxAge: _maxAge, ...options } = sessionCookieOptions();
     res.clearCookie(SESSION_COOKIE, options);
     return { ok: true };
@@ -603,14 +618,31 @@ export class PagesController {
 
   @Put('users/:id/password')
   @AllowPendingPasswordChange()
-  changePassword(
+  async changePassword(
     @Param('id') id: string,
     @Body('currentPassword') currentPassword: string,
     @Body('newPassword') newPassword: string,
     @CurrentUser() user: AuthUser,
+    @CurrentSessionId() sessionId: string | undefined,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
   ) {
     if (id !== user.id) throw new ForbiddenException('You can only change your own password');
-    return this.users.changePassword(id, currentPassword, newPassword);
+    // Guessing the current password is limited like logging in (counted apart from logins, so it
+    // can't use up a shared address's login allowance)
+    const limiterKey = user.id;
+    const address = req.ip || req.socket.remoteAddress || 'unknown';
+    checkLimit(this.passwordChangeLimiter, limiterKey, address, res);
+    try {
+      const result = await this.users.changePassword(id, currentPassword, newPassword, sessionId);
+      this.passwordChangeLimiter.recordSuccess(limiterKey, address);
+      return result;
+    } catch (err) {
+      if (err instanceof HttpException && (err.getResponse() as { message?: string })?.message === WRONG_CURRENT_PASSWORD) {
+        this.passwordChangeLimiter.recordFailure(limiterKey, address);
+      }
+      throw err;
+    }
   }
 
   // Admin user management
@@ -648,8 +680,9 @@ export class PagesController {
     @AdminId() adminId: string,
     @Body('newPassword') newPassword: string,
     @Body('mustChangePassword') mustChangePassword?: boolean,
+    @CurrentSessionId() sessionId?: string,
   ) {
-    return this.users.adminResetPassword(adminId, id, newPassword, mustChangePassword);
+    return this.users.adminResetPassword(adminId, id, newPassword, mustChangePassword, sessionId);
   }
 
   @Delete('admin/users/:id')
@@ -671,8 +704,8 @@ export class PagesController {
 
   // Collab: issue JWT for Hocuspocus
   @Post('collab/token')
-  issueCollabToken(@CurrentUser() user: AuthUser, @Body('workspaceId') workspaceId?: string) {
-    return this.collabSync.issueCollabToken({ userId: user.id, userName: user.displayName, workspaceId });
+  issueCollabToken(@CurrentUser() user: AuthUser, @CurrentSessionId() sessionId: string | undefined, @Body('workspaceId') workspaceId?: string) {
+    return this.collabSync.issueCollabToken({ userId: user.id, userName: user.displayName, workspaceId, sessionId });
   }
 
   // Asked by the collab server (with the shared secret) whenever someone opens a live document
@@ -681,10 +714,11 @@ export class PagesController {
   authorizeCollabDocument(
     @Body('userId') userId?: string,
     @Body('documentName') documentName?: string,
+    @Body('sessionId') sessionId?: string,
     @Headers('authorization') authHeader?: string,
   ) {
     assertCollabSecret(authHeader);
-    return this.collabSync.authorizeCollabDocument(userId, documentName);
+    return this.collabSync.authorizeCollabDocument(userId, documentName, sessionId);
   }
 
   // Admin: list non-personal workspaces

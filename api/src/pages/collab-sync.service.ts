@@ -256,10 +256,14 @@ export class CollabSyncService {
    * included: the same check as the page's own routes. Membership is checked now, not when the token
    * was issued, so someone removed from a workspace can't open its documents any more.
    */
-  async authorizeCollabDocument(userId: string | undefined, documentName: string | undefined) {
+  async authorizeCollabDocument(userId: string | undefined, documentName: string | undefined, sessionId?: string) {
     const target = collabDocumentTarget(documentName || '');
-    if (!userId || !target) throw new ForbiddenException('Not a document you can open');
+    if (!userId || !target || !sessionId) throw new ForbiddenException('Not a document you can open');
     try {
+      // The token's session must still be there: logging out or a password change ends live
+      // editing too, not just the API
+      const session = await this.prisma.userSession.findUnique({ where: { id: sessionId }, select: { userId: true, expiresAt: true } });
+      if (!session || session.userId !== userId || session.expiresAt < new Date()) throw new ForbiddenException('Session ended');
       if (target.type === 'workspace') {
         const membership = await this.access.requireMembership(userId, target.workspaceId);
         if (!canEdit(membership.role)) throw new ForbiddenException('Editor access required');
@@ -275,8 +279,8 @@ export class CollabSyncService {
     }
   }
 
-  async issueCollabToken(payload: { userId?: string; userName?: string; workspaceId?: string }) {
-    const { userId, userName, workspaceId } = payload;
+  async issueCollabToken(payload: { userId?: string; userName?: string; workspaceId?: string; sessionId?: string }) {
+    const { userId, userName, workspaceId, sessionId } = payload;
     if (!this.collabJwtSecret) {
       throw new Error('COLLAB_JWT_SECRET is not configured on the API');
     }
@@ -298,7 +302,7 @@ export class CollabSyncService {
       allowedWorkspaces = [workspaceId];
     }
 
-    const token = jwt.sign({ sub: user.id, workspaceIds: allowedWorkspaces }, this.collabJwtSecret, { expiresIn: '12h' });
+    const token = jwt.sign({ sub: user.id, sid: sessionId, workspaceIds: allowedWorkspaces }, this.collabJwtSecret, { expiresIn: '12h' });
     return { token, workspaceIds: allowedWorkspaces };
   }
 }

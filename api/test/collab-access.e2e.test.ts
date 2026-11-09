@@ -129,6 +129,16 @@ describe('opening live documents', () => {
   });
 });
 
+describe('live editing after signing out', () => {
+  it("refuses a token from a session that has ended", async () => {
+    const session = await loginAs(USERS.alice.email);
+    const token = (await session.post('/collab/token', { workspaceId: shared })).body.token as string;
+    expect(await open(session, shared, `ws:${shared}:${publicPage}`, token)).toBe('synced');
+    expect((await session.post('/auth/logout')).status).toBe(201);
+    expect(await open(session, shared, `ws:${shared}:${publicPage}`, token)).toBe('denied');
+  });
+});
+
 describe('what live documents can change', () => {
   it("doesn't let a database's live document give a row a page that isn't one made for it", async () => {
     const workspace = await createWorkspace(alice);

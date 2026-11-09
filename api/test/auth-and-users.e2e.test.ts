@@ -217,10 +217,13 @@ describe('admin user management and passwords', () => {
     expect((await user.put(`/users/${userId}/password`, { currentPassword: 'given-pass', newPassword: 'own-pass' })).status).toBe(200);
     expect((await user.get('/workspaces')).status).toBe(200);
 
-    // An admin reset asks again, unless the admin says not to.
+    // An admin reset signs them out everywhere, and asks again, unless the admin says not to.
     await admin.post(`/admin/users/${userId}/reset-password`, { adminId: 'x', newPassword: 'reset-pass' });
+    expect((await user.get('/workspaces')).status).toBe(401);
+    expect((await user.login(email, 'reset-pass')).status).toBe(201);
     expect((await user.get('/workspaces')).body.code).toBe('PASSWORD_CHANGE_REQUIRED');
     await admin.post(`/admin/users/${userId}/reset-password`, { adminId: 'x', newPassword: 'reset-pass', mustChangePassword: false });
+    expect((await user.login(email, 'reset-pass')).status).toBe(201);
     expect((await user.get('/workspaces')).status).toBe(200);
     await admin.delete(`/admin/users/${userId}?adminId=x`);
   });
