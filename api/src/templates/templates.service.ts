@@ -58,7 +58,7 @@ export class TemplatesService {
     });
     const counts = await this.prisma.page.groupBy({
       by: ['parentId'],
-      where: { parentId: { in: roots.map((r) => r.id) }, isDeleted: false },
+      where: { parentId: { in: roots.map((r) => r.id) }, isDeleted: false, OR: [{ visibility: PageVisibility.PUBLIC }, { authorId: user.userId }] },
       _count: { _all: true },
     });
     const subpages = new Map(counts.map((c) => [c.parentId, c._count._all]));

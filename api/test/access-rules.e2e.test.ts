@@ -40,6 +40,15 @@ describe('uploads', () => {
     expect(served.contentType).toBe('application/octet-stream');
     expect(served.headers.get('content-security-policy') || '').toContain('sandbox');
   });
+
+  it('takes the image types pages show, under their usual names, and refuses others', async () => {
+    const page = await createPage(alice, workspaceId);
+    const jpg = await bob.upload('/uploads', { pageId: page.id }, { field: 'image', name: 'a.jpg', type: 'image/jpg', data: new Uint8Array([0xff, 0xd8, 0xff]) });
+    expect(jpg.status).toBe(201);
+    expect((await alice.download(uploadUrl(jpg.body.file.url))).contentType).toBe('image/jpeg');
+    const tiff = await bob.upload('/uploads', { pageId: page.id }, { field: 'image', name: 'a.tiff', type: 'image/tiff', data: new Uint8Array([1, 2]) });
+    expect(tiff.status).toBe(400);
+  });
 });
 
 describe("someone else's pages", () => {
@@ -49,6 +58,15 @@ describe("someone else's pages", () => {
     expect((await alice.get(`/pages/${alices.id}`)).status).toBe(200);
     const bobs = await createPage(bob, workspaceId, { title: unique('Bob draft') });
     expect((await bob.patch(`/pages/${bobs.id}/visibility`, { visibility: 'PRIVATE' })).status).toBe(200);
+  });
+
+  it("doesn't let an editor take other people's pages under their own page private or out of the workspace", async () => {
+    const bobs = await createPage(bob, workspaceId, { title: unique('Bob parent') });
+    const alicesChild = await createPage(alice, workspaceId, { title: unique('Alice child'), parentId: bobs.id });
+    expect((await bob.patch(`/pages/${bobs.id}/visibility`, { visibility: 'PRIVATE' })).status).toBe(403);
+    expect((await bob.patch(`/pages/${bobs.id}/workspace`, { targetWorkspaceId: bobsOwn })).status).toBe(403);
+    const child = (await alice.get(`/pages/${alicesChild.id}`)).body;
+    expect(child).toMatchObject({ visibility: 'PUBLIC', workspaceId });
   });
 
   it("doesn't let an editor move the owner's page out of the workspace, nor anyone move another's private page", async () => {
@@ -74,6 +92,17 @@ describe("someone else's pages", () => {
     expect((await bob.delete('/pages', { ids: [page.id] })).status).toBe(200);
   });
 
+  it("deletes what's still in the Bin when someone else restored one of the pages meanwhile", async () => {
+    const gone = await createPage(alice, workspaceId, { title: unique('Gone') });
+    const back = await createPage(alice, workspaceId, { title: unique('Back') });
+    await alice.delete(`/pages/${gone.id}`);
+    await alice.delete(`/pages/${back.id}`);
+    expect((await alice.patch(`/pages/${back.id}/restore`, {})).status).toBe(200);
+    expect((await bob.delete('/pages', { ids: [gone.id, back.id] })).status).toBe(200);
+    expect((await alice.get(`/pages/${gone.id}`)).status).toBe(404);
+    expect((await alice.get(`/pages/${back.id}`)).status).toBe(200);
+  });
+
   it("doesn't let a page be put under a private page its mover can't see", async () => {
     const secret = await createPage(alice, workspaceId, { title: unique('Alice only'), visibility: 'PRIVATE' });
     const bobs = await createPage(bob, workspaceId, { title: unique('Bob note') });
@@ -95,6 +124,8 @@ describe('members', () => {
     expect((await alice.post(`/workspaces/${workspace}/members`, { email: USERS.alice.email, role: 'VIEWER' })).status).toBe(409);
     const members = (await alice.get(`/workspaces/${workspace}/members`)).body as any[];
     expect(members.find((m) => (m.user?.id ?? m.userId) === USERS.alice.id)?.role).toBe('OWNER');
+    // Adding someone again as what they already are is fine (a double click, say)
+    expect((await alice.post(`/workspaces/${workspace}/members`, { email: USERS.alice.email, role: 'OWNER' })).status).toBe(201);
   });
 });
 
@@ -107,6 +138,7 @@ describe('exports', () => {
       content: [
         { type: 'paragraph', content: [link('javascript:alert(1)', 'bad'), { type: 'text', text: ' ' }, link('https://example.com', 'good')] },
         { type: 'paragraph', content: [link('data:text/html,<script>alert(1)</script>', 'also bad')] },
+        { type: 'paragraph', content: [link(' JaVaScRiPt:alert(1)', 'sneaky'), { type: 'text', text: ' ' }, link('www.example.org', 'no scheme')] },
       ],
     };
     expect((await alice.put(`/pages/${page.id}/content`, { content })).status).toBe(200);
@@ -115,5 +147,7 @@ describe('exports', () => {
     expect(html).toContain('https://example.com');
     expect(html).not.toMatch(/href="\s*javascript:/i);
     expect(html).not.toMatch(/href="\s*data:/i);
+    // A link with no scheme is still a link
+    expect(html).toContain('href="www.example.org"');
   });
 });

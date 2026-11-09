@@ -965,9 +965,10 @@ ${hasSplats ? JS_SPLAT_INIT : ''}
         case 'underline':
           text = `<u>${text}</u>`; break;
         case 'link': {
-          // Only links that go somewhere: not ones that run a script (javascript:, data:)
+          // Not links that run a script (javascript:, data:, vbscript:): any other scheme, or none
           const raw = String(mark.attrs?.href || '').trim();
-          if (!/^(https?:|mailto:|tel:|\/|#|\.)/i.test(raw)) break;
+          const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(raw.replace(/[\u0000-\u001f\s]/g, ''))?.[1]?.toLowerCase();
+          if (!raw || (scheme && ['javascript', 'data', 'vbscript'].includes(scheme))) break;
           const target = mark.attrs?.target === '_blank' ? ' target="_blank" rel="noopener noreferrer"' : '';
           text = `<a href="${esc(raw)}"${target}>${text}</a>`; break;
         }
