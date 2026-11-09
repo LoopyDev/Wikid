@@ -79,6 +79,37 @@ test.describe('editor menus', () => {
     await expect.poll(() => outline(page)).toEqual(['heading2: Second']);
   });
 
+  test('the block menu changes a block without scrolling the page to where the text cursor was', async ({ alice: page, workspaceId }) => {
+    await openPage(page, await createPage(page, workspaceId));
+    await page.evaluate(() => {
+      const p = (text: string) => ({ type: 'paragraph', content: [{ type: 'text', text }] });
+      const ed = (document.querySelector('.ProseMirror') as any).editor;
+      ed.commands.setContent({ type: 'doc', content: Array.from({ length: 80 }, (_, i) => p(`Line ${i}`)) });
+      ed.commands.setTextSelection(1); // the cursor at the top
+    });
+    const scrollTop = () => page.evaluate(() => Math.round((document.querySelector('.wikid-mainframe') as HTMLElement).scrollTop));
+    await editor(page).locator(':scope > *').nth(60).scrollIntoViewIfNeeded();
+    const before = await scrollTop();
+    expect(before).toBeGreaterThan(500);
+
+    await (await handleFor(page, 60)).click();
+    await menuItem(page, 'Delete').click();
+    await expect.poll(() => outline(page).then((o) => o[60])).toBe('paragraph: Line 61');
+    await page.waitForTimeout(300);
+    expect(Math.abs((await scrollTop()) - before)).toBeLessThan(80);
+    // The cursor where the block was, so typing goes there
+    await page.keyboard.type('Here ');
+    await expect.poll(() => outline(page).then((o) => o[60])).toBe('paragraph: Here Line 61');
+
+    await page.evaluate(() => (document.querySelector('.ProseMirror') as any).editor.commands.setTextSelection(1));
+    await (await handleFor(page, 62)).click();
+    await menuItem(page, 'Turn into…').click();
+    await menuItem(page, 'Heading 2').click();
+    await expect.poll(() => outline(page).then((o) => o[62])).toBe('heading2: Line 63');
+    await page.waitForTimeout(300);
+    expect(Math.abs((await scrollTop()) - before)).toBeLessThan(80);
+  });
+
   test("blocks that aren't text have no Turn into in their menu", async ({ alice: page, workspaceId }) => {
     await openPage(page, await createPage(page, workspaceId));
     await page.evaluate(() => {
