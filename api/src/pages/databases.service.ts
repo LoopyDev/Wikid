@@ -1116,6 +1116,8 @@ export class DatabasesService {
     await this.access.requirePageAccess(database.pageId, user, { requireWrite: true });
     if (row.pageId) {
       const page = await this.prisma.page.findUnique({ where: { id: row.pageId } });
+      // The row's page is a page like any other: only one this person may open (and edit, to rename)
+      if (page) await this.access.requirePageAccess(row.pageId, user, { requireWrite: typeof payload.title === 'string', allowDeleted: true });
       if (page && typeof payload.title === 'string') {
         const nextTitle = normalizePageTitle(payload.title);
         const updatedPage = await this.prisma.page.update({

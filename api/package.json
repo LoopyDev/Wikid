@@ -38,6 +38,7 @@
     "yjs": "^13.6.33"
   },
   "devDependencies": {
+    "@hocuspocus/provider": "^4.7.1",
     "@types/express": "^5.0.0",
     "@types/jsonwebtoken": "^9.0.6",
     "@types/multer": "^2.3.0",

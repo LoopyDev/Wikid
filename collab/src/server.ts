@@ -108,6 +108,7 @@ type FetchOptions = {
   method?: string;
   headers?: Record<string, string>;
   body?: string;
+  signal?: AbortSignal;
 };
 
 const collabApiFetch = async (path: string, options: FetchOptions = {}) => {
@@ -119,6 +120,27 @@ const collabApiFetch = async (path: string, options: FetchOptions = {}) => {
   }
   const res = await fetch(`${collabApiUrl}${path}`, { ...options, headers });
   return res;
+};
+
+// Asks the API whether this person may open this document: the page really is in the workspace the
+// document's name says, and they may edit it, private pages included. The token only says which
+// workspaces they could edit when it was issued. Refused if the API says no or can't be asked.
+const authorizeDocument = async (userId: string, documentName: string) => {
+  let res: Response;
+  try {
+    res = await collabApiFetch('/collab/authorize', {
+      method: 'POST',
+      body: JSON.stringify({ userId, documentName }),
+      // An API that doesn't answer refuses, rather than leaving every open waiting
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch (err) {
+    console.warn('Collab authorize failed', { documentName, error: (err as Error).message });
+    throw new Error('Could not check access to this document');
+  }
+  if (!res.ok) {
+    throw new Error('Access denied for this document');
+  }
 };
 
 const fetchDocState = async (documentName: string | undefined | null) => {
@@ -355,7 +377,12 @@ const server = new Server({
     if (!doc) {
       throw new Error('Invalid document name');
     }
+    // Per-user documents aren't used by the app; only a workspace's documents are opened
+    if (doc.scope !== 'ws') {
+      throw new Error('Invalid document name');
+    }
     const ctx = verifyToken(token, doc);
+    await authorizeDocument(ctx.userId, documentName);
     console.log('[auth ok]', { documentName, userId: ctx.userId, workspaceIds: ctx.workspaceIds });
     return ctx;
   },

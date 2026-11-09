@@ -1,7 +1,8 @@
-import { BadRequestException, Controller, ForbiddenException, Get, Headers, NotFoundException, Post, Put, Query, Body } from '@nestjs/common';
+import { BadRequestException, Controller, Get, Headers, NotFoundException, Post, Put, Query, Body } from '@nestjs/common';
 import { Public } from '../auth/public.decorator';
 import { CollabService } from './collab.service';
 import { assertSystemAdmin } from '../utils/assert-admin.util';
+import { assertCollabSecret } from '../utils/collab-secret.util';
 
 import { AdminId } from '../auth/auth.guard';
 @Controller('collab')
@@ -10,21 +11,10 @@ export class CollabController {
 
   private readonly PURGE_CONFIRM_TEXT = 'PURGE ALL DOCUMENTS';
 
-  private assertSecret(authHeader?: string) {
-    const secret = process.env.COLLAB_API_SECRET;
-    if (!secret) {
-      throw new ForbiddenException('Collab API secret not configured');
-    }
-    const token = (authHeader || '').replace(/^Bearer\s+/i, '').trim();
-    if (!token || token !== secret) {
-      throw new ForbiddenException('Invalid collab API secret');
-    }
-  }
-
   @Public()
   @Get('docs')
   async getDoc(@Query('documentName') documentName: string, @Headers('authorization') authHeader?: string) {
-    this.assertSecret(authHeader);
+    assertCollabSecret(authHeader);
     if (!documentName) {
       throw new BadRequestException('documentName is required');
     }
@@ -44,7 +34,7 @@ export class CollabController {
     @Body('editors') editors?: unknown,
     @Headers('authorization') authHeader?: string
   ) {
-    this.assertSecret(authHeader);
+    assertCollabSecret(authHeader);
     if (!documentName || typeof documentName !== 'string') {
       throw new BadRequestException('documentName is required');
     }
@@ -62,7 +52,7 @@ export class CollabController {
   @Public()
   @Post('docs/materialize')
   async requestMaterialize(@Body('documentName') documentName: string, @Headers('authorization') authHeader?: string) {
-    this.assertSecret(authHeader);
+    assertCollabSecret(authHeader);
     if (!documentName || typeof documentName !== 'string') {
       throw new BadRequestException('documentName is required');
     }

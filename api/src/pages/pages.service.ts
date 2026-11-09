@@ -273,6 +273,7 @@ export class PagesService {
     const descendantIds = await this.access.collectDescendantIds(pageId);
     const idsToMove = [pageId, ...descendantIds];
     const newPosition = await this.nextPosition(targetWorkspaceId, null);
+    await this.pageContent.moveLiveDocuments(idsToMove, page.workspaceId, targetWorkspaceId);
     await this.prisma.page.updateMany({
       where: { id: { in: idsToMove } },
       data: { workspaceId: targetWorkspaceId },
