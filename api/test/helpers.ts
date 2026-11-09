@@ -78,6 +78,7 @@ export class Session {
       status: res.status,
       contentType: res.headers.get('content-type') || '',
       cacheControl: res.headers.get('cache-control') || '',
+      headers: res.headers,
       bytes: new Uint8Array(await res.arrayBuffer()),
     };
   }
