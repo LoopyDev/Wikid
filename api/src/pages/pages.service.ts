@@ -202,6 +202,14 @@ export class PagesService {
     return updated;
   }
 
+  /** A page among these that isn't this person's: someone else's, or one with no author. */
+  private notOwnPage(ids: string[], userId: string | undefined, where: Prisma.PageWhereInput = {}) {
+    return this.prisma.page.findFirst({
+      where: { id: { in: ids }, ...where, OR: [{ authorId: null }, { NOT: { authorId: userId || '' } }] },
+      select: { id: true },
+    });
+  }
+
   async updatePageVisibility(id: string, visibility: PageVisibility, user?: { userId?: string; userName?: string }) {
     const target =
       visibility && Object.values(PageVisibility).includes(visibility) ? (visibility as PageVisibility) : null;
@@ -209,27 +217,18 @@ export class PagesService {
       throw new BadRequestException('visibility is required');
     }
     const { page, membership } = await this.access.requirePageAccess(id, user, { requireWrite: true });
-    // Making a page private takes it away from everyone else: only its author (or the workspace's
-    // owner) may, not any editor
-    if (
-      target === PageVisibility.PRIVATE &&
-      page.visibility !== PageVisibility.PRIVATE &&
-      page.authorId &&
-      page.authorId !== user?.userId &&
-      membership.role !== WorkspaceRole.OWNER
-    ) {
-      throw new ForbiddenException("Only the page's author or the workspace's owner can make it private");
-    }
     const descendantIds = await this.access.collectDescendantIds(id);
     const idsToUpdate = [id, ...descendantIds];
-    const forbiddenPrivate = await this.prisma.page.findFirst({
-      where: {
-        id: { in: idsToUpdate },
-        visibility: PageVisibility.PRIVATE,
-        NOT: { authorId: user?.userId || '' },
-      },
-      select: { id: true },
-    });
+    // Making pages private takes them away from everyone else: an editor only their own pages (the
+    // page and every page under it); the workspace's owner any of them
+    if (
+      target === PageVisibility.PRIVATE &&
+      membership.role !== WorkspaceRole.OWNER &&
+      (await this.notOwnPage(idsToUpdate, user?.userId, { visibility: { not: PageVisibility.PRIVATE } }))
+    ) {
+      throw new ForbiddenException("Only a page's author or the workspace's owner can make it private");
+    }
+    const forbiddenPrivate = await this.notOwnPage(idsToUpdate, user?.userId, { visibility: PageVisibility.PRIVATE });
     if (forbiddenPrivate) {
       throw new ForbiddenException('Cannot move private pages you do not own');
     }
@@ -273,10 +272,6 @@ export class PagesService {
   ) {
     if (!isUuid(targetWorkspaceId)) throw new BadRequestException('Invalid targetWorkspaceId');
     const { page, membership } = await this.access.requirePageAccess(pageId, user, { requireWrite: true });
-    // Taking a page out of a workspace is for its author or the workspace's owner, not any editor
-    if (page.authorId !== user?.userId && membership.role !== WorkspaceRole.OWNER) {
-      throw new ForbiddenException("Only the page's author or the workspace's owner can move it to another workspace");
-    }
     if (page.workspaceId === targetWorkspaceId) {
       throw new BadRequestException('Page is already in that workspace');
     }
@@ -288,12 +283,13 @@ export class PagesService {
     const descendantIds = await this.access.collectDescendantIds(pageId);
     const idsToMove = [pageId, ...descendantIds];
     // Someone else's private page under it stays where it is (as when deleting)
-    const othersPrivate = await this.prisma.page.findFirst({
-      where: { id: { in: idsToMove }, visibility: PageVisibility.PRIVATE, NOT: { authorId: user?.userId || '' } },
-      select: { id: true },
-    });
-    if (othersPrivate) {
+    if (await this.notOwnPage(idsToMove, userId, { visibility: PageVisibility.PRIVATE })) {
       throw new ForbiddenException('Cannot move private pages you do not own');
+    }
+    // Taking pages out of the workspace: an editor only their own (the page and every page under
+    // it); the workspace's owner any of them
+    if (membership.role !== WorkspaceRole.OWNER && (await this.notOwnPage(idsToMove, userId))) {
+      throw new ForbiddenException("Only a page's author or the workspace's owner can move it to another workspace");
     }
     const newPosition = await this.nextPosition(targetWorkspaceId, null);
     await this.pageContent.moveLiveDocuments(idsToMove, page.workspaceId, targetWorkspaceId);
@@ -586,14 +582,7 @@ export class PagesService {
     const { page } = await this.access.requirePageAccess(id, user, { requireWrite: true });
     const descendantIds = await this.access.collectDescendantIds(id);
     const idsToDelete = [id, ...descendantIds];
-    const forbiddenPrivate = await this.prisma.page.findFirst({
-      where: {
-        id: { in: idsToDelete },
-        visibility: PageVisibility.PRIVATE,
-        NOT: { authorId: user?.userId || '' },
-      },
-      select: { id: true },
-    });
+    const forbiddenPrivate = await this.notOwnPage(idsToDelete, user?.userId, { visibility: PageVisibility.PRIVATE });
     if (forbiddenPrivate) {
       throw new ForbiddenException('Cannot delete private pages you do not own');
     }
@@ -612,13 +601,14 @@ export class PagesService {
   async destroyPages(ids: string[], user?: { userId?: string; userName?: string }) {
     if (!ids?.length) return { count: 0 };
     await Promise.all(ids.map((pageId) => this.access.requirePageAccess(pageId, user, { requireWrite: true, allowDeleted: true })));
-    // For good only from the Bin: a page in use goes there first
-    const inUse = await this.prisma.page.count({ where: { id: { in: ids }, isDeleted: false } });
-    if (inUse) {
+    // For good only from the Bin: a page in use goes there first. One restored meanwhile (someone
+    // else's Bin list was out of date) is left alone; the rest still go.
+    const pages = await this.prisma.page.findMany({ where: { id: { in: ids }, isDeleted: true }, select: { id: true, workspaceId: true } });
+    if (!pages.length) {
       throw new BadRequestException('Only pages in the Bin can be deleted for good');
     }
-    const pages = await this.prisma.page.findMany({ where: { id: { in: ids } }, select: { id: true, workspaceId: true } });
-    const result = await this.prisma.$transaction((tx) => this.removePages(tx, ids));
+    const binned = pages.map((p) => p.id);
+    const result = await this.prisma.$transaction((tx) => this.removePages(tx, binned));
     for (const workspaceId of new Set(pages.map((p) => p.workspaceId))) {
       this.collabSync.announcePagesChanged(workspaceId, pages.filter((p) => p.workspaceId === workspaceId).map((p) => p.id));
     }

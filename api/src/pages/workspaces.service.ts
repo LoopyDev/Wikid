@@ -184,6 +184,7 @@ export class WorkspacesService {
     // list. A system admin's "Assign user" still sets the role: it's how they repair a workspace.
     const existing = await this.prisma.userWorkspace.findUnique({ where: { userId_workspaceId: { userId: user.id, workspaceId } } });
     if (existing && !adminId) {
+      if (existing.role === role) return existing;
       throw new ConflictException('Already a member: change their role in the members list');
     }
     return this.prisma.userWorkspace.upsert({

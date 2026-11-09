@@ -15,6 +15,12 @@ const MAX_URL_IMAGE_BYTES = 10 * 1024 * 1024;
 // as a plain download. All are served sandboxed, so a script in an SVG or a mislabelled file can't
 // run on the wiki's address when someone opens its link.
 const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/avif', 'image/heic', 'image/bmp', 'image/svg+xml']);
+/** The image type to store an upload as, or null if it isn't one shown in pages. */
+const shownImageType = (mime?: string | null) => {
+  const type = String(mime || '').split(';')[0].trim().toLowerCase();
+  const normalized = type === 'image/jpg' || type === 'image/pjpeg' ? 'image/jpeg' : type;
+  return IMAGE_TYPES.has(normalized) ? normalized : null;
+};
 const UPLOAD_CSP = "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; sandbox";
 @Controller('uploads')
 export class UploadsController {
@@ -51,15 +57,16 @@ export class UploadsController {
     if (!pageId) throw new BadRequestException('pageId is required');
     if (!userId) throw new BadRequestException('userId is required');
     const ext = file.originalname ? ('.' + file.originalname.split('.').pop()?.toLowerCase()) : '';
-    const isImage = file.mimetype?.startsWith('image/');
-    const isAllowedExt = ['.spz'].includes(ext);
-    if (!isImage && !isAllowedExt) throw new BadRequestException('Unsupported file type');
+    // 3D scans by their extension; images by a type pages show
+    const isScan = ext === '.spz';
+    const imageType = isScan ? null : shownImageType(file.mimetype);
+    if (!isScan && !imageType) throw new BadRequestException('Unsupported file type');
     await this.pageAccess.ensurePageWriteAccess(pageId, { userId, userName });
     const uploaded = await this.uploads.uploadImage({
       pageId,
       buffer: file.buffer,
       // A 3D scan is stored as what it is, not as whatever type it was sent with
-      contentType: isImage ? file.mimetype : 'application/octet-stream',
+      contentType: imageType ?? 'application/octet-stream',
       originalName: file.originalname,
     });
     return {
@@ -83,8 +90,8 @@ export class UploadsController {
     await this.pageAccess.ensurePageWriteAccess(pageId, { userId, userName });
     // Only public addresses: this runs on the server, which can reach Wikid's own services
     const { response, body: buffer } = await safeFetch(trimmed, { maxBytes: MAX_URL_IMAGE_BYTES });
-    const contentType = response.headers.get('content-type') || '';
-    if (!contentType.startsWith('image/')) {
+    const contentType = shownImageType(response.headers.get('content-type'));
+    if (!contentType) {
       throw new BadRequestException('URL did not return an image');
     }
     const uploaded = await this.uploads.uploadImage({
@@ -114,9 +121,9 @@ export class UploadsController {
     try {
       const result = await this.uploads.getObject(key);
       const body = result.Body as Readable;
-      const type = String(result.ContentType || '').split(';')[0].trim().toLowerCase();
-      const isImage = IMAGE_TYPES.has(type);
-      res?.setHeader('Content-Type', isImage ? type : 'application/octet-stream');
+      const type = shownImageType(result.ContentType);
+      const isImage = !!type;
+      res?.setHeader('Content-Type', type ?? 'application/octet-stream');
       res?.setHeader('X-Content-Type-Options', 'nosniff');
       res?.setHeader('Content-Security-Policy', UPLOAD_CSP);
       if (!isImage) res?.setHeader('Content-Disposition', 'attachment');
