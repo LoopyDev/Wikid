@@ -31,7 +31,19 @@ async function openLive(session: Session, pageId: string) {
   await new Promise<void>((resolve) => provider.on('synced', () => resolve()));
   return {
     doc,
-    paragraphs: () => doc.getXmlFragment('default').toArray().map((node) => (node instanceof Y.XmlElement ? node.toArray().map((t) => t.toString()).join('').replace(/<[^>]+>/g, '') : '')),
+    // Each block's text, read from its text items (without the formatting)
+    paragraphs: () =>
+      doc
+        .getXmlFragment('default')
+        .toArray()
+        .map((node) =>
+          node instanceof Y.XmlElement
+            ? node
+                .toArray()
+                .map((child) => (child instanceof Y.XmlText ? child.toDelta().map((op: { insert: unknown }) => (typeof op.insert === 'string' ? op.insert : '')).join('') : ''))
+                .join('')
+            : '',
+        ),
     title: () => doc.getText('title').toString(),
     close: () => {
       provider.destroy();
