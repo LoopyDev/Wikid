@@ -757,8 +757,8 @@ editor = useEditor({
       logBlockSummary('collab-remote-update', ed.getJSON());
       logDuplicateBlockDetails('collab-remote-duplicates', ed.state.doc);
     }
+    // Ids in someone else's change are theirs to fix (see blockIds.js), not every browser's
     if (transaction?.getMeta?.(ySyncPluginKey)) {
-      dedupeBlockIds('collab-remote');
       pruneInitialAutoBlock();
     }
     emit('update:doc', {
@@ -876,8 +876,9 @@ const clearBlockFocus = () => {
 
 const blockScrollRetry = ref(null);
 
+// Selects and scrolls to a block; false if it isn't (yet) on the page
 const focusBlockById = (blockId) => {
-  if (!editor.value || typeof window === 'undefined' || !blockId) return;
+  if (!editor.value || typeof window === 'undefined' || !blockId) return false;
   let targetPos = null;
   editor.value.state.doc.descendants((node, pos) => {
     if (node.isBlock && node.attrs?.id === blockId && targetPos === null) {
@@ -886,7 +887,7 @@ const focusBlockById = (blockId) => {
     }
     return undefined;
   });
-  if (targetPos === null) return;
+  if (targetPos === null) return false;
   const { state, view } = editor.value;
   const SelectionCtor = state.selection.constructor;
   const sel = SelectionCtor.near(state.doc.resolve(targetPos));
@@ -918,6 +919,7 @@ const focusBlockById = (blockId) => {
     clearBlockFocus();
   };
   window.addEventListener('click', handleClick, { capture: true, once: true });
+  return true;
 };
 
 const setHoveredCodeBlockFromElement = (element) => {

@@ -4,6 +4,7 @@ import * as Y from 'yjs';
 import { prosemirrorJSONToYXmlFragment, yXmlFragmentToProsemirror } from 'y-prosemirror';
 import { collabSchema } from './collab-doc.schema';
 import { BLOCK_ID_TYPES, normalizeEditorContent } from '../pages/editor-doc.util';
+import { isBlockId } from '../pages/block-id.util';
 
 const COLLAB_FRAGMENT = 'default';
 
@@ -27,7 +28,7 @@ const hasBlockIdIssues = (node: any) => {
     const type = value.type;
     if (type && BLOCK_ID_TYPES.includes(type)) {
       const id = value.attrs?.id;
-      const valid = typeof id === 'string' && /^block-\d+$/.test(id);
+      const valid = isBlockId(id);
       if (!valid) {
         hasInvalid = true;
       } else if (seen.has(id)) {
@@ -102,6 +103,8 @@ const COLLAB_META = 'wikidMeta';
 const hasText = (node: any): boolean => {
   if (!node) return false;
   if (node.type === 'text') return typeof node.text === 'string' && node.text.trim().length > 0;
+  // An empty table is still something put on the page (as the browser counts it).
+  if (node.type === 'table') return true;
   const content = Array.isArray(node.content) ? node.content : [];
   if (content.length > 0) return content.some(hasText);
   return !!node.type && node.type !== 'doc' && node.type !== 'paragraph';

@@ -56,6 +56,17 @@ describe('page content as Markdown', () => {
     // And the end of the page
     const appended = await alice.post(`/pages/${page.id}/markdown/blocks`, { markdown: 'Last' });
     expect(appended.body.markdown.endsWith('\n\nLast')).toBe(true);
+    // A new block never takes a deleted block's id, so a stale edit to that id can't land on it
+    expect(ids(appended.body)).not.toContain(three);
+    expect((await alice.put(`/pages/${page.id}/markdown/blocks/${three}`, { markdown: 'Stale edit' })).status).toBe(400);
+  });
+
+  it('a whole-page rewrite keeps the ids of blocks it leaves alone or edits', async () => {
+    const page = await createPage(alice, workspaceId);
+    const [one, two, three] = ids((await alice.put(`/pages/${page.id}/markdown`, { markdown: 'One\n\nTwo\n\nThree' })).body);
+    const rewritten = (await alice.put(`/pages/${page.id}/markdown`, { markdown: 'Zero\n\nOne\n\nTwo, changed\n\nThree' })).body;
+    expect(ids(rewritten).slice(1)).toEqual([one, two, three]);
+    expect(ids(rewritten)[0]).not.toBe(one);
   });
 
   it('changes a block inside columns, keeps the columns, and won’t rewrite the page whole', async () => {

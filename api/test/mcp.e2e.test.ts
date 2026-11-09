@@ -18,7 +18,7 @@ const call = async (name: string, args: Record<string, unknown> = {}) => {
   return { text: result.content.map((c) => c.text).join('\n'), isError: !!result.isError };
 };
 // Block ids in get_page's output, in order
-const blockIds = (text: string) => [...text.matchAll(/<!-- (block-\d+)/g)].map((m) => m[1]);
+const blockIds = (text: string) => [...text.matchAll(/<!-- (block-[A-Za-z0-9_-]+)/g)].map((m) => m[1]);
 const pageIdIn = (text: string) => text.match(/Page ([0-9a-f-]{36})\./)?.[1] as string;
 
 beforeAll(async () => {
@@ -112,7 +112,7 @@ describe('MCP server', () => {
     expect(stored[0].content).toHaveLength(2);
 
     const read = await call('get_page', { pageId });
-    expect(read.text).toMatch(/::: columns\n<!-- block-\d+ -->\n\*\*Before\*\*\n\n::: column\n<!-- block-\d+ -->\n\*\*After\*\*\n:::/);
+    expect(read.text).toMatch(/::: columns\n<!-- block-[a-z0-9]+ -->\n\*\*Before\*\*\n\n::: column\n<!-- block-[a-z0-9]+ -->\n\*\*After\*\*\n:::/);
     expect((await alice.get(`/pages/${pageId}/markdown`)).body.markdown).toBe(markdown.replace('**Before**\n::: column', '**Before**\n\n::: column'));
 
     // A mistake in a section comes back as a message

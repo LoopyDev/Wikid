@@ -1,7 +1,7 @@
 import { Extension } from '@tiptap/core';
 import { Plugin, PluginKey } from 'prosemirror-state';
 import { Decoration, DecorationSet } from 'prosemirror-view';
-import { ORIGIN_META_KEY, SYNCED_FROM_ATTR } from './editorShared';
+import { ORIGIN_META_KEY, SYNCED_FROM_ATTR, isRemoteCollabChange } from './editorShared';
 
 // Stable block ids (used by block links, synced blocks and the table of contents) and block highlighting.
 
@@ -32,78 +32,25 @@ export const createBlockIdExtension = ({ isCollabEnabled }) => Extension.create(
     ];
   },
   addProseMirrorPlugins() {
-    const nextFromDoc = (doc) => {
-      let max = 0;
-      doc.descendants((node) => {
-        const num = parseBlockIdCounter(node.attrs?.id);
-        if (num !== null && num >= max) {
-          max = num + 1;
-        }
-      });
-      return max || 1;
-    };
-
-    const key = new PluginKey('block-id-manager');
     return [
       new Plugin({
-        key,
-        state: {
-          init: (_, state) => ({ nextId: nextFromDoc(state.doc) }),
-          apply(tr, value) {
-            const meta = tr.getMeta(key);
-            if (meta && typeof meta.nextId === 'number') {
-              return { nextId: meta.nextId };
-            }
-            return value;
-          },
-        },
+        key: new PluginKey('block-id-manager'),
         appendTransaction(transactions, oldState, newState) {
-          let tr = newState.tr;
-          let changed = false;
-          const seen = new Set();
-          const pluginState = key.getState(newState) || { nextId: 1 };
-          let nextId = pluginState.nextId;
-          const isSingleEmptyParagraph =
+          if (!transactions.some((tr) => tr.docChanged)) return null;
+          // Ids in someone else's change are theirs to fix; fixing them here too would give the
+          // same block a different id in each browser.
+          if (transactions.every((tr) => isRemoteCollabChange(tr))) return null;
+          if (
             isCollabEnabled.value
             && newState.doc.childCount === 1
-            && isEmptyParagraphNode(newState.doc.child(0));
-
-          if (isSingleEmptyParagraph) {
+            && isEmptyParagraphNode(newState.doc.child(0))
+          ) {
             return null;
           }
-
-          newState.doc.descendants((node, pos) => {
-            if (!node.isBlock) return;
-            if (!BLOCK_ID_TYPES.includes(node.type.name)) return;
-            const currentId = node.attrs?.id;
-            const num = parseBlockIdCounter(currentId);
-            const isDuplicate = currentId && seen.has(currentId);
-            const needsId = !currentId || num === null || isDuplicate;
-            if (currentId) {
-              seen.add(currentId);
-            }
-            if (needsId) {
-              const newId = `block-${nextId}`;
-              nextId += 1;
-              seen.add(newId);
-              tr = tr.setNodeMarkup(pos, node.type, { ...node.attrs, id: newId }, node.marks);
-              changed = true;
-            }
-          });
-
-          if (changed) {
-            tr.setMeta(ORIGIN_META_KEY, 'block-id-manager');
-            tr.setMeta(key, { nextId });
-            return tr;
-          }
-
-          // keep counter fresh if doc gained larger ids externally
-          const maxId = nextFromDoc(newState.doc);
-          if (maxId > nextId) {
-            const metaTr = newState.tr.setMeta(key, { nextId: maxId });
-            return metaTr;
-          }
-          return null;
+          const tr = withBlockIds(newState);
+          if (!tr) return null;
+          tr.setMeta(ORIGIN_META_KEY, 'block-id-manager');
+          return tr;
         },
       }),
     ];
@@ -183,10 +130,45 @@ export const createBlockPositionExtension = ({ hasWorkspaceSyncedReference }) =>
 
 export const isEmptyParagraphNode = (node) => node?.type?.name === 'paragraph' && node.content?.size === 0;
 
-export const parseBlockIdCounter = (id) => {
-  if (typeof id !== 'string') return null;
-  const match = id.match(/block-(\d+)/);
-  if (!match) return null;
-  const num = Number.parseInt(match[1], 10);
-  return Number.isFinite(num) && num >= 0 ? num : null;
+// The first character is a digit, so a browser tab still running the older code (which reads
+// "block-" and a number) takes these ids as valid, rather than renumbering them for everyone.
+// The server makes them the same way (api/src/pages/block-id.util.ts): keep the two in step.
+const FIRST = '23456789';
+const REST = '0123456789abcdefghjkmnpqrstvwxyz';
+
+// A random id, so two people (or one person offline) adding blocks at once never pick the same one,
+// and an id is never handed out again after its block is deleted.
+export const newBlockId = () => {
+  const bytes = crypto.getRandomValues(new Uint8Array(10));
+  let id = `block-${FIRST[bytes[0] & 7]}`;
+  for (const byte of bytes.subarray(1)) id += REST[byte & 31];
+  return id;
+};
+
+// An id a link can point at: "block-" and then letters, digits, "_" or "-" (the older "block-12" too).
+export const isBlockId = (id) => typeof id === 'string' && /^block-[A-Za-z0-9_-]{1,64}$/.test(id);
+
+/**
+ * A transaction giving every block that needs one an id: blocks without one, or with an invalid one,
+ * and all but one of the blocks sharing one (as after a split). Of those, the id stays with the
+ * first that has something in it, so Enter at the start of a block leaves the id with its text
+ * rather than the new empty line above. Existing ids are kept. Returns null when nothing changes.
+ */
+export const withBlockIds = (state) => {
+  const blocks = [];
+  const keeper = new Map();
+  state.doc.descendants((node, pos) => {
+    if (!node.isBlock || !BLOCK_ID_TYPES.includes(node.type.name)) return;
+    const id = node.attrs?.id;
+    blocks.push({ node, pos, id });
+    if (!isBlockId(id)) return;
+    const kept = keeper.get(id);
+    if (!kept || (kept.node.content.size === 0 && node.content.size > 0)) keeper.set(id, { node, pos });
+  });
+  const tr = state.tr;
+  for (const { node, pos, id } of blocks) {
+    if (isBlockId(id) && keeper.get(id).pos === pos) continue;
+    tr.setNodeMarkup(pos, undefined, { ...node.attrs, id: newBlockId() }, node.marks);
+  }
+  return tr.docChanged ? tr : null;
 };

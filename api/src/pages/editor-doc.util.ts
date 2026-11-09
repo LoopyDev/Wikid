@@ -1,3 +1,5 @@
+import { isBlockId, newBlockId } from './block-id.util';
+
 export type EditorDocument = {
   time: number;
   version: string;
@@ -172,67 +174,24 @@ const parseInput = (raw: unknown) => {
   return null;
 };
 
-const parseCounter = (id: unknown) => {
-  if (typeof id !== 'string') return null;
-  const match = id.match(/block-(\d+)/);
-  if (!match) return null;
-  const num = Number.parseInt(match[1], 10);
-  return Number.isFinite(num) && num >= 0 ? num : null;
-};
-
+// Each block an id of its own: any it has is kept, unless another block had it first (a pasted or
+// split copy), and those without one get a new one (see block-id.util.ts)
 const ensureBlockIds = (nodes: any[]): any[] => {
   const seen = new Set<string>();
-  // New ids count on from the highest already used, so a new block can't take the id of another
-  const used = new Set<string>();
-  let highest = 0;
-  const collect = (node: any) => {
-    if (!node || typeof node !== 'object') return;
-    const num = BLOCK_ID_TYPES.includes(node.type) ? parseCounter(node.attrs?.id) : null;
-    if (num !== null) {
-      used.add(node.attrs.id);
-      highest = Math.max(highest, num);
-    }
-    if (Array.isArray(node.content)) node.content.forEach(collect);
-  };
-  nodes.forEach(collect);
-  let nextId = highest + 1;
-  const takeNextId = () => {
-    while (used.has(`block-${nextId}`)) nextId += 1;
-    const id = `block-${nextId}`;
-    nextId += 1;
-    used.add(id);
-    return id;
-  };
-
   const assign = (node: any): any => {
     if (!node || typeof node !== 'object') return node;
-
     let updated: any = node;
-
     if (BLOCK_ID_TYPES.includes(node.type)) {
       const attrs = typeof node.attrs === 'object' && node.attrs !== null ? { ...(node.attrs as any) } : {};
-      const currentId = typeof attrs.id === 'string' ? attrs.id : null;
-      const num = parseCounter(currentId);
-      const isDuplicate = currentId && seen.has(currentId);
-      const needsId = !currentId || num === null || isDuplicate;
-      if (currentId && !isDuplicate && num !== null) {
-        seen.add(currentId);
-      }
-      if (needsId) {
-        const newId = takeNextId();
-        seen.add(newId);
-        attrs.id = newId;
-      }
+      if (!isBlockId(attrs.id) || seen.has(attrs.id)) attrs.id = newBlockId();
+      seen.add(attrs.id);
       updated = { ...updated, attrs };
     }
-
     if (Array.isArray(updated.content)) {
       updated = { ...updated, content: updated.content.map(assign) };
     }
-
     return updated;
   };
-
   return nodes.map(assign);
 };
 
