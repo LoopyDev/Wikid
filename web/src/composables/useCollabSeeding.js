@@ -1,6 +1,6 @@
 import { ref } from 'vue';
 import { prosemirrorToYXmlFragment, yDocToProsemirrorJSON } from '@tiptap/y-tiptap';
-import { BLOCK_ID_TYPES, isEmptyParagraphNode, parseBlockIdCounter } from '../tiptap/blockIds';
+import { BLOCK_ID_TYPES, isEmptyParagraphNode, withBlockIds } from '../tiptap/blockIds';
 import { blockDebugEnabled, logBlockDebug, logSetup, summarizeBlockStats } from '../utils/editorDebug';
 import { editorDocToTiptap } from '../utils/editorDoc';
 import { findBlockById } from '../tiptap/syncedBlocks';
@@ -159,35 +159,8 @@ export function useCollabSeeding({ props, isCollabEnabled, collabDoc, collabFiel
       logBlockDebug('block-id-repair-skip', { reason, empty: true });
       return false;
     }
-    const seen = new Set();
-    let nextId = 1;
-    state.doc.descendants((node) => {
-      if (!node.isBlock) return;
-      if (!BLOCK_ID_TYPES.includes(node.type.name)) return;
-      const num = parseBlockIdCounter(node.attrs?.id);
-      if (num !== null && num >= nextId) {
-        nextId = num + 1;
-      }
-    });
-    let tr = state.tr;
-    state.doc.descendants((node, pos) => {
-      if (!node.isBlock) return;
-      if (!BLOCK_ID_TYPES.includes(node.type.name)) return;
-      const currentId = node.attrs?.id;
-      const num = parseBlockIdCounter(currentId);
-      const isDuplicate = currentId && seen.has(currentId);
-      const needsId = !currentId || num === null || isDuplicate;
-      if (currentId && !isDuplicate && num !== null) {
-        seen.add(currentId);
-        return;
-      }
-      if (!needsId) return;
-      const newId = `block-${nextId}`;
-      nextId += 1;
-      seen.add(newId);
-      tr = tr.setNodeMarkup(pos, node.type, { ...node.attrs, id: newId }, node.marks);
-    });
-    if (tr.docChanged) {
+    const tr = withBlockIds(state);
+    if (tr) {
       view.dispatch(tr);
       logBlockDebug('block-id-repair', { reason, updated: true });
       return true;

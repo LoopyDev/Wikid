@@ -385,5 +385,86 @@ export function replaceAll(content: ContentNode[], markdown: string): ContentNod
     );
   }
   const blocks = blocksFor(markdown, null);
+  carryIds(content, blocks);
   return blocks.length ? blocks : [{ type: 'paragraph' }];
+}
+
+/**
+ * Gives rewritten blocks the ids they had, so links to them and synced copies still work. A block
+ * that's the same as one before takes its id (and a synced copy its link). Between two such blocks,
+ * edited ones keep theirs when it's clear which is which: as many blocks there as before, of the same
+ * kinds. Otherwise they get new ids, so a link never lands on a different block. Blocks inside go
+ * the same way.
+ */
+function carryIds(before: ContentNode[], after: ContentNode[]) {
+  const byKey = new Map<string, number[]>();
+  before.forEach((node, index) => {
+    const key = JSON.stringify(comparable(node));
+    byKey.set(key, [...(byKey.get(key) ?? []), index]);
+  });
+  const match = after.map((node) => byKey.get(JSON.stringify(comparable(node)))?.shift() ?? -1);
+  const used = new Set(match.filter((index) => index >= 0));
+
+  // The blocks between two that are the same as before (or the page's ends)
+  let start = 0;
+  let previous = -1;
+  for (let index = 0; index <= after.length; index += 1) {
+    if (index < after.length && match[index] < 0) continue;
+    const next = index < after.length ? match[index] : before.length;
+    const edited = after.slice(start, index);
+    const was: number[] = [];
+    for (let old = previous + 1; old < next; old += 1) if (!used.has(old)) was.push(old);
+    if (edited.length && edited.length === was.length && edited.every((node, i) => before[was[i]].type === node.type)) {
+      was.forEach((old, i) => {
+        match[start + i] = old;
+        used.add(old);
+      });
+    } else {
+      // A different number: each block before goes to the one after it that still starts or ends
+      // much the same, in order
+      let from = 0;
+      for (const old of was) {
+        const oldText = textOf(before[old]);
+        let best = -1;
+        let bestScore = 0;
+        for (let i = from; i < edited.length; i += 1) {
+          if (edited[i].type !== before[old].type) continue;
+          const score = sharedEnds(oldText, textOf(edited[i]));
+          if (score > bestScore) {
+            best = i;
+            bestScore = score;
+          }
+        }
+        if (best < 0 || bestScore * 2 < Math.min(oldText.length, textOf(edited[best]).length)) continue;
+        match[start + best] = old;
+        used.add(old);
+        from = best + 1;
+      }
+    }
+    start = index + 1;
+    if (index < after.length) previous = match[index];
+  }
+
+  after.forEach((node, index) => {
+    if (match[index] < 0) return;
+    const old = before[match[index]];
+    const same = JSON.stringify(comparable(old)) === JSON.stringify(comparable(node));
+    const carried: Record<string, unknown> = {};
+    if (old.attrs?.id) carried.id = old.attrs.id;
+    if (same && old.attrs?.syncedFrom) carried.syncedFrom = old.attrs.syncedFrom;
+    if (Object.keys(carried).length) node.attrs = { ...node.attrs, ...carried };
+    if (old.content && node.content) carryIds(old.content, node.content);
+  });
+}
+
+const textOf = (node: ContentNode): string =>
+  typeof node.text === 'string' ? node.text : (node.content ?? []).map(textOf).join(' ');
+
+// How many characters two texts share at the start, or at the end, whichever is more
+function sharedEnds(a: string, b: string) {
+  let start = 0;
+  while (start < a.length && start < b.length && a[start] === b[start]) start += 1;
+  let end = 0;
+  while (end < a.length && end < b.length && a[a.length - 1 - end] === b[b.length - 1 - end]) end += 1;
+  return Math.max(start, end);
 }

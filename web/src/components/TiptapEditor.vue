@@ -757,8 +757,8 @@ editor = useEditor({
       logBlockSummary('collab-remote-update', ed.getJSON());
       logDuplicateBlockDetails('collab-remote-duplicates', ed.state.doc);
     }
+    // Ids in someone else's change are theirs to fix (see blockIds.js), not every browser's
     if (transaction?.getMeta?.(ySyncPluginKey)) {
-      dedupeBlockIds('collab-remote');
       pruneInitialAutoBlock();
     }
     emit('update:doc', {

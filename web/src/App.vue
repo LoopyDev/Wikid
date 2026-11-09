@@ -1822,9 +1822,9 @@ const updateUrlForForm = (formId) => {
 
 const focusBlockFromHash = () => {
   if (typeof window === 'undefined') return;
-  const match = window.location.hash.match(/block-([A-Za-z0-9_-]+)/);
+  const match = window.location.hash.match(/^#(block-[A-Za-z0-9_-]+)/);
   if (!match) return;
-  const blockId = match[1];
+  const blockId = match[1].replace(/^block-block-/, 'block-'); // older links had the prefix twice
   tiptapEditorRef.value?.focusBlockById?.(blockId);
 };
 
