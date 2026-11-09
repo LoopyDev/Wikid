@@ -4,6 +4,10 @@ import { VueRenderer } from '@tiptap/vue-3';
 import tippy from 'tippy.js';
 import SlashCommandList from './SlashCommandList.vue';
 
+// One slash menu on screen at a time. While a new page's first editor hands over to the live one,
+// both can briefly have the menu open (each editor has its own); the newer one wins.
+let closeOpenMenu = null;
+
 export default Extension.create({
   name: 'slash-command',
   addOptions() {
@@ -38,6 +42,7 @@ export default Extension.create({
           let popup;
 
           const close = () => {
+            if (closeOpenMenu === close) closeOpenMenu = null;
             extension.options.onClose?.();
             if (popup?.[0] && !popup[0].state?.isDestroyed) {
               popup[0].destroy();
@@ -49,6 +54,8 @@ export default Extension.create({
           const stillTyping = (editor) => !editor.isDestroyed && !!SuggestionPluginKey.getState(editor.state)?.active;
 
           const start = (props) => {
+            if (closeOpenMenu && closeOpenMenu !== close) closeOpenMenu();
+            closeOpenMenu = close;
             extension.options.onOpen?.();
             component = new VueRenderer(SlashCommandList, {
               editor: props.editor,
