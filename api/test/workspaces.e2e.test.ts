@@ -108,8 +108,9 @@ describe('workspace members', () => {
     // Members can see the member list too.
     expect((await bob.get(`/workspaces/${id}/members`)).status).toBe(200);
 
-    // Adding again updates the role; the default role is EDITOR.
-    expect((await alice.post(`/workspaces/${id}/members`, { email: USERS.bob.email })).body.role).toBe('EDITOR');
+    // Adding again is refused: roles change in the members list, which checks for the last owner
+    expect((await alice.post(`/workspaces/${id}/members`, { email: USERS.bob.email })).status).toBe(409);
+    expect(await memberIds(alice, id)).toContainEqual([USERS.bob.email, 'VIEWER']);
   });
 
   it('reports unknown emails and missing input clearly', async () => {
@@ -171,6 +172,8 @@ describe('workspace members', () => {
     const id = await createWorkspace(alice);
     expect((await admin.get(`/workspaces/${id}/members?adminId=x`)).status).toBe(200);
     expect((await admin.post(`/workspaces/${id}/members?adminId=x`, { email: USERS.bob.email })).status).toBe(201);
+    // Assigning someone again sets their role: how an admin repairs a workspace left without an owner
+    expect((await admin.post(`/workspaces/${id}/members?adminId=x`, { email: USERS.bob.email, role: 'OWNER' })).body.role).toBe('OWNER');
     expect((await admin.delete(`/workspaces/${id}/members/${USERS.bob.id}?adminId=x`)).status).toBe(200);
     expect((await alice.get(`/workspaces/${id}/members?adminId=x`)).status).toBe(403);
   });

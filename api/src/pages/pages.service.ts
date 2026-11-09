@@ -208,7 +208,18 @@ export class PagesService {
     if (!target) {
       throw new BadRequestException('visibility is required');
     }
-    const { page } = await this.access.requirePageAccess(id, user, { requireWrite: true });
+    const { page, membership } = await this.access.requirePageAccess(id, user, { requireWrite: true });
+    // Making a page private takes it away from everyone else: only its author (or the workspace's
+    // owner) may, not any editor
+    if (
+      target === PageVisibility.PRIVATE &&
+      page.visibility !== PageVisibility.PRIVATE &&
+      page.authorId &&
+      page.authorId !== user?.userId &&
+      membership.role !== WorkspaceRole.OWNER
+    ) {
+      throw new ForbiddenException("Only the page's author or the workspace's owner can make it private");
+    }
     const descendantIds = await this.access.collectDescendantIds(id);
     const idsToUpdate = [id, ...descendantIds];
     const forbiddenPrivate = await this.prisma.page.findFirst({
@@ -261,7 +272,11 @@ export class PagesService {
     user?: { userId?: string; userName?: string },
   ) {
     if (!isUuid(targetWorkspaceId)) throw new BadRequestException('Invalid targetWorkspaceId');
-    const { page } = await this.access.requirePageAccess(pageId, user, { requireWrite: true });
+    const { page, membership } = await this.access.requirePageAccess(pageId, user, { requireWrite: true });
+    // Taking a page out of a workspace is for its author or the workspace's owner, not any editor
+    if (page.authorId !== user?.userId && membership.role !== WorkspaceRole.OWNER) {
+      throw new ForbiddenException("Only the page's author or the workspace's owner can move it to another workspace");
+    }
     if (page.workspaceId === targetWorkspaceId) {
       throw new BadRequestException('Page is already in that workspace');
     }
@@ -272,6 +287,14 @@ export class PagesService {
     }
     const descendantIds = await this.access.collectDescendantIds(pageId);
     const idsToMove = [pageId, ...descendantIds];
+    // Someone else's private page under it stays where it is (as when deleting)
+    const othersPrivate = await this.prisma.page.findFirst({
+      where: { id: { in: idsToMove }, visibility: PageVisibility.PRIVATE, NOT: { authorId: user?.userId || '' } },
+      select: { id: true },
+    });
+    if (othersPrivate) {
+      throw new ForbiddenException('Cannot move private pages you do not own');
+    }
     const newPosition = await this.nextPosition(targetWorkspaceId, null);
     await this.pageContent.moveLiveDocuments(idsToMove, page.workspaceId, targetWorkspaceId);
     await this.prisma.page.updateMany({
@@ -589,6 +612,11 @@ export class PagesService {
   async destroyPages(ids: string[], user?: { userId?: string; userName?: string }) {
     if (!ids?.length) return { count: 0 };
     await Promise.all(ids.map((pageId) => this.access.requirePageAccess(pageId, user, { requireWrite: true, allowDeleted: true })));
+    // For good only from the Bin: a page in use goes there first
+    const inUse = await this.prisma.page.count({ where: { id: { in: ids }, isDeleted: false } });
+    if (inUse) {
+      throw new BadRequestException('Only pages in the Bin can be deleted for good');
+    }
     const pages = await this.prisma.page.findMany({ where: { id: { in: ids } }, select: { id: true, workspaceId: true } });
     const result = await this.prisma.$transaction((tx) => this.removePages(tx, ids));
     for (const workspaceId of new Set(pages.map((p) => p.workspaceId))) {
@@ -688,6 +716,8 @@ export class PagesService {
       if (!parent || parent.isDeleted || parent.workspaceId !== workspaceId) {
         throw new BadRequestException('parent does not exist in workspace');
       }
+      // Not under a page the mover can't see (someone else's private page)
+      await this.access.requirePageAccess(parentId, user);
     }
 
     const siblings = await this.prisma.page.findMany({

@@ -11,6 +11,11 @@ import { AdminId, CurrentUserId, CurrentUserName } from '../auth/auth.guard';
 import { safeFetch } from '../utils/safe-fetch.util';
 
 const MAX_URL_IMAGE_BYTES = 10 * 1024 * 1024;
+// Shown in the page as images; anything else (3D scans, a type an image claimed falsely) is served
+// as a plain download. All are served sandboxed, so a script in an SVG or a mislabelled file can't
+// run on the wiki's address when someone opens its link.
+const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/avif', 'image/heic', 'image/bmp', 'image/svg+xml']);
+const UPLOAD_CSP = "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; sandbox";
 @Controller('uploads')
 export class UploadsController {
   constructor(private readonly uploads: UploadsService, private readonly pageAccess: PageAccessService) {}
@@ -53,7 +58,8 @@ export class UploadsController {
     const uploaded = await this.uploads.uploadImage({
       pageId,
       buffer: file.buffer,
-      contentType: file.mimetype,
+      // A 3D scan is stored as what it is, not as whatever type it was sent with
+      contentType: isImage ? file.mimetype : 'application/octet-stream',
       originalName: file.originalname,
     });
     return {
@@ -108,9 +114,12 @@ export class UploadsController {
     try {
       const result = await this.uploads.getObject(key);
       const body = result.Body as Readable;
-      if (result.ContentType) {
-        res?.setHeader('Content-Type', result.ContentType);
-      }
+      const type = String(result.ContentType || '').split(';')[0].trim().toLowerCase();
+      const isImage = IMAGE_TYPES.has(type);
+      res?.setHeader('Content-Type', isImage ? type : 'application/octet-stream');
+      res?.setHeader('X-Content-Type-Options', 'nosniff');
+      res?.setHeader('Content-Security-Policy', UPLOAD_CSP);
+      if (!isImage) res?.setHeader('Content-Disposition', 'attachment');
       if (result.ContentLength) {
         res?.setHeader('Content-Length', String(result.ContentLength));
       }

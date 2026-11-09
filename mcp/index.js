@@ -60,6 +60,14 @@ async function api(path, { method = 'GET', body, form } = {}, retried = false) {
 
 const text = (value) => ({ content: [{ type: 'text', text: value }] });
 
+// Ids go into API addresses, so only real ids: anything else (a path like "../workspaces/…") could
+// reach another part of the API
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function id(value) {
+  if (typeof value !== 'string' || !UUID.test(value)) throw new Error(`Not a valid id: ${JSON.stringify(value)}`);
+  return value;
+}
+
 /** A tool that reports a failure as an error the AI can read, rather than crashing the call. */
 function tool(name, description, schema, run) {
   server.tool(name, description, schema, async (args) => {
@@ -90,7 +98,7 @@ function formatPage(page) {
   ].join('\n');
 }
 
-const getPage = (pageId) => api(`/pages/${pageId}/markdown`);
+const getPage = (pageId) => api(`/pages/${id(pageId)}/markdown`);
 
 function pageTree(pages) {
   const listed = new Set(pages.map((p) => p.id));
@@ -153,7 +161,7 @@ function imageMarkdown(src, alt) {
 
 /** A database's columns and rows, cells by column name. */
 async function getDatabase(pageId) {
-  const db = await api(`/pages/${pageId}/database`);
+  const db = await api(`/pages/${id(pageId)}/database`);
   const fields = db.fields ?? [];
   const rows = (db.rows ?? []).map((row) => {
     const cells = {};
@@ -195,7 +203,7 @@ tool('list_workspaces', 'List the Wikid workspaces you can see, with their ids.'
 });
 
 tool('list_pages', 'List the pages in a workspace as a tree, with their ids. Pages marked "database" are databases: use get_database.', { workspaceId: z.string().describe('Workspace id') }, async ({ workspaceId }) =>
-  pageTree(await api(`/pages?workspaceId=${encodeURIComponent(workspaceId)}`)),
+  pageTree(await api(`/pages?workspaceId=${id(workspaceId)}`)),
 );
 
 tool(
@@ -245,7 +253,7 @@ tool(
     beforeId: z.string().optional().describe('Add them before this block'),
   },
   async ({ pageId, markdown, afterId, beforeId }) =>
-    formatPage(await api(`/pages/${pageId}/markdown/blocks`, { method: 'POST', body: { markdown, afterId, beforeId } })),
+    formatPage(await api(`/pages/${id(pageId)}/markdown/blocks`, { method: 'POST', body: { markdown, afterId, beforeId } })),
 );
 
 tool(
@@ -253,18 +261,18 @@ tool(
   `Rewrite one block of a page (by id) from Markdown; it can become several blocks. A list or table is rewritten whole. Blocks with no Markdown form (database views and the like) can’t be rewritten. ${SECTIONS}`,
   { pageId: z.string().describe('Page id'), blockId: z.string().describe('Block id, from get_page'), markdown: z.string().describe('The block’s new content, as Markdown') },
   async ({ pageId, blockId, markdown }) =>
-    formatPage(await api(`/pages/${pageId}/markdown/blocks/${encodeURIComponent(blockId)}`, { method: 'PUT', body: { markdown } })),
+    formatPage(await api(`/pages/${id(pageId)}/markdown/blocks/${encodeURIComponent(blockId)}`, { method: 'PUT', body: { markdown } })),
 );
 
 tool('delete_block', 'Delete one block of a page (by id).', { pageId: z.string().describe('Page id'), blockId: z.string().describe('Block id, from get_page') }, async ({ pageId, blockId }) =>
-  formatPage(await api(`/pages/${pageId}/markdown/blocks/${encodeURIComponent(blockId)}`, { method: 'DELETE' })),
+  formatPage(await api(`/pages/${id(pageId)}/markdown/blocks/${encodeURIComponent(blockId)}`, { method: 'DELETE' })),
 );
 
 tool(
   'replace_page',
   `Rewrite a whole page from Markdown. Refused when the page has things Markdown can’t hold (database views, colours, image sizes, column widths): change it block by block then. ${SECTIONS}`,
   { pageId: z.string().describe('Page id'), markdown: z.string().describe('The whole page, as Markdown') },
-  async ({ pageId, markdown }) => formatPage(await api(`/pages/${pageId}/markdown`, { method: 'PUT', body: { markdown } })),
+  async ({ pageId, markdown }) => formatPage(await api(`/pages/${id(pageId)}/markdown`, { method: 'PUT', body: { markdown } })),
 );
 
 tool(
@@ -293,14 +301,14 @@ tool(
     const src = await uploadImage(pageId, { file, url });
     const markdown = imageMarkdown(src, description);
     const page = replaceId
-      ? await api(`/pages/${pageId}/markdown/blocks/${encodeURIComponent(replaceId)}`, { method: 'PUT', body: { markdown } })
-      : await api(`/pages/${pageId}/markdown/blocks`, { method: 'POST', body: { markdown, afterId, beforeId } });
+      ? await api(`/pages/${id(pageId)}/markdown/blocks/${encodeURIComponent(replaceId)}`, { method: 'PUT', body: { markdown } })
+      : await api(`/pages/${id(pageId)}/markdown/blocks`, { method: 'POST', body: { markdown, afterId, beforeId } });
     return `Added the image.\n\n${formatPage(page)}`;
   },
 );
 
 tool('rename_page', 'Rename a page.', { pageId: z.string().describe('Page id'), title: z.string().describe('New title') }, async ({ pageId, title }) => {
-  await api(`/pages/${pageId}`, { method: 'PATCH', body: { title } });
+  await api(`/pages/${id(pageId)}`, { method: 'PATCH', body: { title } });
   return `Renamed to "${title}".`;
 });
 
@@ -314,7 +322,7 @@ tool(
   { pageId: z.string().describe('Page id of the database'), cells: z.record(z.string(), z.unknown()).describe('Cell values by column name') },
   async ({ pageId, cells }) => {
     const { fields } = await getDatabase(pageId);
-    const row = await api(`/pages/${pageId}/database/rows`, { method: 'POST', body: { data: cellsById(fields, cells) } });
+    const row = await api(`/pages/${id(pageId)}/database/rows`, { method: 'POST', body: { data: cellsById(fields, cells) } });
     return `Added row ${row.id}.`;
   },
 );
@@ -328,7 +336,7 @@ tool(
     const row = (db.rows ?? []).find((r) => r.id === rowId);
     if (!row) throw new Error(`No row ${rowId} in this database`);
     // The API takes the row's cells whole, so the change goes onto what's there
-    await api(`/database-rows/${rowId}`, { method: 'PATCH', body: { data: { ...(row.data ?? {}), ...cellsById(fields, cells) } } });
+    await api(`/database-rows/${id(rowId)}`, { method: 'PATCH', body: { data: { ...(row.data ?? {}), ...cellsById(fields, cells) } } });
     return `Updated row ${rowId}.`;
   },
 );

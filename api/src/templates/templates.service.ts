@@ -44,7 +44,15 @@ export class TemplatesService {
     await this.access.ensureWorkspaceReadAccess(workspaceId, user);
     const personalId = await this.personalWorkspaceId(user);
     const roots = await this.prisma.page.findMany({
-      where: { isTemplate: true, isDeleted: false, parentId: null, workspaceId: { in: [...new Set([workspaceId, personalId])] }, kind: PageKind.DOC },
+      where: {
+        isTemplate: true,
+        isDeleted: false,
+        parentId: null,
+        workspaceId: { in: [...new Set([workspaceId, personalId])] },
+        kind: PageKind.DOC,
+        // Someone's private template is theirs alone
+        OR: [{ visibility: PageVisibility.PUBLIC }, { authorId: user.userId }],
+      },
       orderBy: [{ position: 'asc' }, { createdAt: 'asc' }],
       select: { id: true, title: true, icon: true, workspaceId: true, updatedAt: true },
     });

@@ -89,6 +89,20 @@ describe('MCP server', () => {
     expect((await call('add_image', { pageId, file, url: 'https://example.com/a.png' })).text).toBe('Give either file or url');
   });
 
+  it("refuses an id that isn't one, so it can't reach another part of the API", async () => {
+    const victim = pageIdIn((await call('create_page', { workspaceId, title: 'Keep me', markdown: 'Still here.' })).text);
+    for (const [tool, args] of [
+      ['get_page', { pageId: '../auth/me?' }],
+      ['delete_block', { pageId: `../pages/${victim}?x=`, blockId: 'block-1' }],
+      ['list_pages', { workspaceId: `${workspaceId}&x=` }],
+    ] as const) {
+      const result = await call(tool, args);
+      expect(result.isError).toBe(true);
+      expect(result.text).toMatch(/not a valid id/i);
+    }
+    expect((await alice.get(`/pages/${victim}`)).body.isDeleted).toBe(false);
+  });
+
   it('makes columns and toggles, and shows them as it reads the page', async () => {
     const markdown = '::: columns\n**Before**\n::: column\n**After**\n:::\n\n::: toggle\n## Details\n\nThe small print.\n:::';
     const created = await call('create_page', { workspaceId, title: 'Compare', markdown });

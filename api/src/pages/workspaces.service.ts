@@ -179,12 +179,18 @@ export class WorkspacesService {
     if (workspace.personalOwnerId && workspace.personalOwnerId === user.id && role !== WorkspaceRole.OWNER) {
       throw new BadRequestException('Personal workspace owners must remain owners');
     }
-    const membership = await this.prisma.userWorkspace.upsert({
+    // Adding someone who's already a member would quietly change their role, skipping the checks a
+    // role change has (an owner demoting themselves, the last owner): owners do that in the members
+    // list. A system admin's "Assign user" still sets the role: it's how they repair a workspace.
+    const existing = await this.prisma.userWorkspace.findUnique({ where: { userId_workspaceId: { userId: user.id, workspaceId } } });
+    if (existing && !adminId) {
+      throw new ConflictException('Already a member: change their role in the members list');
+    }
+    return this.prisma.userWorkspace.upsert({
       where: { userId_workspaceId: { userId: user.id, workspaceId } },
       update: { role },
       create: { userId: user.id, workspaceId, role },
     });
-    return membership;
   }
 
   // Members are existing accounts, found by email (or exact user ID). Never create a user

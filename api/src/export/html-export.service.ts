@@ -965,9 +965,11 @@ ${hasSplats ? JS_SPLAT_INIT : ''}
         case 'underline':
           text = `<u>${text}</u>`; break;
         case 'link': {
-          const href = esc(mark.attrs?.href || '');
-          const target = mark.attrs?.target ? ` target="${esc(mark.attrs.target)}"` : '';
-          text = `<a href="${href}"${target}>${text}</a>`; break;
+          // Only links that go somewhere: not ones that run a script (javascript:, data:)
+          const raw = String(mark.attrs?.href || '').trim();
+          if (!/^(https?:|mailto:|tel:|\/|#|\.)/i.test(raw)) break;
+          const target = mark.attrs?.target === '_blank' ? ' target="_blank" rel="noopener noreferrer"' : '';
+          text = `<a href="${esc(raw)}"${target}>${text}</a>`; break;
         }
         case 'highlight': {
           const color = mark.attrs?.color || 'yellow';
