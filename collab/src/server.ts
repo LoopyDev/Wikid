@@ -173,8 +173,9 @@ const noteEditor = (documentName: string, userId: string | undefined) => {
   unsavedEditors.set(documentName, editors);
 };
 
-const storeDocState = async (documentName: string | undefined | null, state: Buffer) => {
-  if (!documentName) return;
+/** Saves a document's state through the API; says whether it was saved. */
+const storeDocState = async (documentName: string | undefined | null, state: Buffer): Promise<boolean> => {
+  if (!documentName) return false;
   const editors = [...(unsavedEditors.get(documentName) ?? [])];
   unsavedEditors.delete(documentName);
   // Not saved: they're still to be credited with the next save
@@ -187,10 +188,30 @@ const storeDocState = async (documentName: string | undefined | null, state: Buf
     if (!res.ok) {
       keepEditors();
       console.warn('Collab store failed', { documentName, status: res.status });
+      return false;
     }
+    return true;
   } catch (err) {
     keepEditors();
     console.warn('Collab store error', { documentName, error: err });
+    return false;
+  }
+};
+
+const STORE_RETRY_MAX_MS = 60_000;
+
+/**
+ * Saves a document, trying again (waiting longer each time, up to a minute) until it's saved: the API
+ * restarting, say. Until then Hocuspocus keeps the document in memory (it doesn't unload one while
+ * it's being saved), and nobody is told it's saved (that's sent after this returns). Each try saves
+ * the document as it is by then.
+ */
+const storeUntilSaved = async (documentName: string, document: Y.Doc) => {
+  for (let attempt = 0; ; attempt += 1) {
+    if (await storeDocState(documentName, Buffer.from(Y.encodeStateAsUpdate(document)))) return;
+    const wait = Math.min(STORE_RETRY_MAX_MS, 2000 * 2 ** attempt);
+    console.warn('Collab store will retry', { documentName, attempt: attempt + 1, waitMs: wait });
+    await new Promise((resolve) => setTimeout(resolve, wait));
   }
 };
 
@@ -362,9 +383,9 @@ const server = new Server({
         if (isEventsDocument(documentName)) return null;
         return fetchDocState(documentName);
       },
-      store: async ({ documentName, state, instance }) => {
+      store: async ({ documentName, document, instance }) => {
         if (isEventsDocument(documentName)) return;
-        await storeDocState(documentName, state);
+        await storeUntilSaved(documentName, document);
         // Tell the workspace a database changed, once saved, so a "Linked from" column showing
         // its links elsewhere can catch up
         const database = parseDatabaseDocumentName(documentName);
