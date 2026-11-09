@@ -653,7 +653,9 @@ export const useWorkspaceStore = defineStore('workspace', {
         console.warn('Save user preferences failed', err);
       }
     },
-    updateDoc(doc) {
+    // save false: kept here but not saved (a new page's first editor, whose content goes to the live
+    // one when it takes over; saved too, the server would fill the live document with it as well)
+    updateDoc(doc, { save = true } = {}) {
       this.doc = normalizeEditorDoc(doc);
       this.docRevision += 1;
       if (this.activePageId) {
@@ -661,6 +663,11 @@ export const useWorkspaceStore = defineStore('workspace', {
         this.updatePageInLists(this.activePageId, (p) => ({ ...p, updatedAt: now }));
       }
       if (this.collabActive) return; // Yjs manages persistence during collaboration
+      if (!save) {
+        clearTimeout(this.pendingSave);
+        this.pendingSave = null;
+        return;
+      }
       this.scheduleSave();
     },
     beginSaving() {
@@ -935,6 +942,13 @@ export const useWorkspaceStore = defineStore('workspace', {
         }
         return made;
       } catch (err) {
+        // Someone else set this new page up first: open it as they did
+        if (pageId && err?.status === 409) {
+          prefetchedPages.delete(pageId);
+          await this.loadPageList(this.activeWorkspaceId, { keepBin: true });
+          await this.loadPageDoc(pageId);
+          return { id: pageId, alreadySetUp: true };
+        }
         console.warn('Use template failed', err);
         this.error = err?.message || 'Failed to make a page from the template';
         return null;
