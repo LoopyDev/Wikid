@@ -2,7 +2,8 @@ import 'reflect-metadata';
 import 'dotenv/config';
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
-import { json } from 'express';
+import { json, type NextFunction, type Request, type Response } from 'express';
+import { isCollabSecret } from './utils/collab-secret.util';
 import { AppModule } from './app.module';
 import { PrismaNotFoundFilter } from './utils/prisma-not-found.filter';
 
@@ -17,8 +18,11 @@ async function bootstrap() {
   app.useGlobalFilters(new PrismaNotFoundFilter(app.getHttpAdapter()));
 
   // The collab server saves whole live documents, which can be far bigger than any other request:
-  // refused, they'd be lost (internal, and only with the shared collab secret)
-  app.use('/collab/docs', json({ limit: process.env.COLLAB_STORE_MAX_BODY || '512mb' }));
+  // refused, they'd be lost. Only its own requests (with the shared secret) may be that big.
+  const collabStoreJson = json({ limit: process.env.COLLAB_STORE_MAX_BODY || '256mb' });
+  app.use('/collab/docs', (req: Request, res: Response, next: NextFunction) =>
+    isCollabSecret(req.headers.authorization) ? collabStoreJson(req, res, next) : next(),
+  );
   app.useBodyParser('json', { limit: '10mb' });
   app.useBodyParser('urlencoded', { extended: true, limit: '10mb' });
 
