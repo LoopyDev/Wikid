@@ -60,5 +60,8 @@ describe('sessions', () => {
     const short = await session.put(`/users/${id}/password`, { currentPassword: 'first-password', newPassword: 'x' });
     expect(short.status).toBe(400);
     expect(short.body.message).toMatch(/8 characters/);
+    // Only text: a list of 8 things isn't a password of 8 characters
+    const list = await session.put(`/users/${id}/password`, { currentPassword: 'first-password', newPassword: ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'] });
+    expect(list.status).toBe(400);
   });
 });

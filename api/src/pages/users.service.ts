@@ -158,9 +158,9 @@ export class UsersService {
     if (clash && clash.id !== exceptUserId) throw new BadRequestException('That username is taken');
   }
 
-  async adminResetPassword(adminId: string, userId: string, newPassword: string, mustChangePassword = true, adminSessionId?: string) {
+  async adminResetPassword(adminId: string, userId: string, newPassword: unknown, mustChangePassword = true, adminSessionId?: string) {
     assertSystemAdmin(adminId);
-    if (!newPassword) throw new BadRequestException('newPassword is required');
+    if (typeof newPassword !== 'string' || !newPassword) throw new BadRequestException('newPassword is required');
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new NotFoundException('User not found');
     const passwordHash = await hashPassword(newPassword);
@@ -218,8 +218,9 @@ export class UsersService {
   }
 
   /** Their own password; their other sessions end, the one they're using (keepSessionId) stays. */
-  async changePassword(userId: string, currentPassword: string, newPassword: string, keepSessionId?: string) {
-    if (!currentPassword || !newPassword) {
+  async changePassword(userId: string, currentPassword: unknown, newPassword: unknown, keepSessionId?: string) {
+    // Text only: a request body could send anything (an array has a length too)
+    if (typeof currentPassword !== 'string' || typeof newPassword !== 'string' || !currentPassword || !newPassword) {
       throw new BadRequestException('currentPassword and newPassword are required');
     }
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
