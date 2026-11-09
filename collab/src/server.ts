@@ -173,9 +173,13 @@ const noteEditor = (documentName: string, userId: string | undefined) => {
   unsavedEditors.set(documentName, editors);
 };
 
-/** Saves a document's state through the API; says whether it was saved. */
-const storeDocState = async (documentName: string | undefined | null, state: Buffer): Promise<boolean> => {
-  if (!documentName) return false;
+/**
+ * Saves a document's state through the API. 'saved'; 'retry' when trying again may work (the API
+ * unreachable or failing); 'failed' when it won't (refused: too big, wrong secret).
+ */
+type StoreResult = 'saved' | 'retry' | 'failed';
+const storeDocState = async (documentName: string | undefined | null, state: Uint8Array): Promise<StoreResult> => {
+  if (!documentName) return 'failed';
   const editors = [...(unsavedEditors.get(documentName) ?? [])];
   unsavedEditors.delete(documentName);
   // Not saved: they're still to be credited with the next save
@@ -183,35 +187,61 @@ const storeDocState = async (documentName: string | undefined | null, state: Buf
   try {
     const res = await collabApiFetch('/collab/docs', {
       method: 'PUT',
-      body: JSON.stringify({ documentName, state: Buffer.from(state).toString('base64'), editors }),
+      body: JSON.stringify({ documentName, state: Buffer.from(state.buffer, state.byteOffset, state.byteLength).toString('base64'), editors }),
     });
     if (!res.ok) {
       keepEditors();
       console.warn('Collab store failed', { documentName, status: res.status });
-      return false;
+      return res.status >= 500 || res.status === 429 || res.status === 408 ? 'retry' : 'failed';
     }
-    return true;
+    return 'saved';
   } catch (err) {
     keepEditors();
     console.warn('Collab store error', { documentName, error: err });
-    return false;
+    return 'retry';
   }
 };
 
 const STORE_RETRY_MAX_MS = 60_000;
 
+// Shutting down: a save still trying makes its last attempt rather than hold the server up
+let shuttingDown = false;
+const shutdownWaiters = new Set<() => void>();
+for (const signal of ['SIGTERM', 'SIGINT'] as const) {
+  process.once(signal, () => {
+    shuttingDown = true;
+    shutdownWaiters.forEach((wake) => wake());
+  });
+}
+const waitOrShutdown = (ms: number) =>
+  new Promise<void>((resolve) => {
+    const done = () => {
+      clearTimeout(timer);
+      shutdownWaiters.delete(done);
+      resolve();
+    };
+    const timer = setTimeout(done, ms);
+    shutdownWaiters.add(done);
+  });
+
 /**
- * Saves a document, trying again (waiting longer each time, up to a minute) until it's saved: the API
- * restarting, say. Until then Hocuspocus keeps the document in memory (it doesn't unload one while
- * it's being saved), and nobody is told it's saved (that's sent after this returns). Each try saves
- * the document as it is by then.
+ * Saves a document. When the API can't take it just now (restarting, say) it tries again, waiting
+ * longer each time up to a minute, with the document as it is by then, until it's saved. Meanwhile
+ * Hocuspocus keeps the document in memory (it doesn't unload one being saved), and nobody is told it's
+ * saved: that's sent after this returns, and a save that fails throws, so it isn't sent at all (and
+ * the next change tries again). `retry` false (the API's own flushes and pushes): one try only, so
+ * the request waiting on it isn't held up.
  */
-const storeUntilSaved = async (documentName: string, document: Y.Doc) => {
+const storeUntilSaved = async (documentName: string, document: Y.Doc, firstState: Uint8Array, retry: boolean) => {
+  let state = firstState;
   for (let attempt = 0; ; attempt += 1) {
-    if (await storeDocState(documentName, Buffer.from(Y.encodeStateAsUpdate(document)))) return;
+    const result = await storeDocState(documentName, state);
+    if (result === 'saved') return;
+    if (result === 'failed' || !retry || shuttingDown) throw new Error(`Could not save ${documentName}`);
     const wait = Math.min(STORE_RETRY_MAX_MS, 2000 * 2 ** attempt);
     console.warn('Collab store will retry', { documentName, attempt: attempt + 1, waitMs: wait });
-    await new Promise((resolve) => setTimeout(resolve, wait));
+    await waitOrShutdown(wait);
+    state = Y.encodeStateAsUpdate(document);
   }
 };
 
@@ -383,9 +413,11 @@ const server = new Server({
         if (isEventsDocument(documentName)) return null;
         return fetchDocState(documentName);
       },
-      store: async ({ documentName, document, instance }) => {
+      store: async ({ documentName, document, state, instance, lastContext }) => {
         if (isEventsDocument(documentName)) return;
-        await storeUntilSaved(documentName, document);
+        // The API's own flushes and pushes are waiting on this: one try for them
+        const source = (lastContext as { source?: string } | undefined)?.source;
+        await storeUntilSaved(documentName, document, state, source !== 'flush' && source !== 'api');
         // Tell the workspace a database changed, once saved, so a "Linked from" column showing
         // its links elsewhere can catch up
         const database = parseDatabaseDocumentName(documentName);
@@ -478,9 +510,7 @@ const server = new Server({
           const conn = await instance.openDirectConnection(docName, { source: 'flush' });
           const document = conn.document;
           if (document) {
-            const state = Buffer.from(Y.encodeStateAsUpdate(document));
-            await storeDocState(docName, state);
-            flushed++;
+            if ((await storeDocState(docName, Y.encodeStateAsUpdate(document))) === 'saved') flushed++;
           }
           await conn.disconnect();
         } catch {

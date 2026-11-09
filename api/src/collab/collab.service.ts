@@ -28,10 +28,11 @@ export class CollabService {
   async recordPageVersion(documentName: string, state: CollabState, editorIds: string[]) {
     const parsed = parseDocName(documentName);
     if (!parsed?.pageId || parsed.kind !== 'DOC' || parsed.scope !== 'ws') return;
-    // Only the history of the page the document belongs to (in the workspace its name says)
-    const page = await this.prisma.page.findUnique({ where: { id: parsed.pageId }, select: { workspaceId: true, kind: true } });
-    if (!page || page.workspaceId !== parsed.workspaceId || page.kind !== 'DOC') return;
+    // History is kept as well as it can be; failing at it never fails the save
     try {
+      // Only the history of the page the document belongs to (in the workspace its name says)
+      const page = await this.prisma.page.findUnique({ where: { id: parsed.pageId }, select: { workspaceId: true, kind: true } });
+      if (!page || page.workspaceId !== parsed.workspaceId || page.kind !== 'DOC') return;
       const { normalized, title } = await normalizeCollabDocState(state);
       await this.versions.recordVersion(parsed.pageId, { title, content: normalized as any, editorIds });
     } catch (err) {
