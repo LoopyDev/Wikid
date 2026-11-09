@@ -11,6 +11,8 @@ import {
 } from '../collab/collab-database.util';
 import jwt from 'jsonwebtoken';
 import { PageAccessService } from './page-access.service';
+import { collabDocumentTarget } from '../utils/collab-document-target.util';
+import { canEdit } from './pages.shared';
 
 // Keeps live-editing (Hocuspocus) documents in step with changes made through the API,
 // and issues the tokens the browser uses to join them.
@@ -244,6 +246,32 @@ export class CollabSyncService {
       if (!res.ok) console.warn('Collab push failed', { path, ...context, status: res.status });
     } catch (err) {
       console.warn('Collab push error', { path, ...context, error: err });
+    }
+  }
+
+  /**
+   * Whether someone may open a live document; the collab server asks each time one is opened. A
+   * token is for a workspace, but the document's name says which page, so the page must really be
+   * in that workspace, be that kind (page or database), and be one they may edit, private pages
+   * included: the same check as the page's own routes. Membership is checked now, not when the token
+   * was issued, so someone removed from a workspace can't open its documents any more.
+   */
+  async authorizeCollabDocument(userId: string | undefined, documentName: string | undefined) {
+    const target = collabDocumentTarget(documentName || '');
+    if (!userId || !target) throw new ForbiddenException('Not a document you can open');
+    try {
+      if (target.type === 'workspace') {
+        const membership = await this.access.requireMembership(userId, target.workspaceId);
+        if (!canEdit(membership.role)) throw new ForbiddenException('Editor access required');
+        return { ok: true };
+      }
+      // One in the Bin stays open to whoever had it open, so it can be restored from there
+      const { page } = await this.access.requirePageAccess(target.pageId, { userId }, { requireWrite: true, allowDeleted: true });
+      if (page.workspaceId !== target.workspaceId || page.kind !== target.kind) throw new ForbiddenException('Not that page');
+      return { ok: true };
+    } catch {
+      // Unknown page, not a member, private, wrong workspace: all the same to the asker
+      throw new ForbiddenException('Not a document you can open');
     }
   }
 

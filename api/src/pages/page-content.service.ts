@@ -60,6 +60,26 @@ export class PageContentService {
     return { content: normalizeEditorContent(stored.content ?? null).content as ContentNode[], state: null };
   }
 
+  /**
+   * Pages moving to another workspace take their live documents with them: saved now (with what's
+   * on screen), then renamed for the new workspace. Their names include the workspace, so under a new
+   * name they'd start again from the stored copy, which can be minutes behind.
+   */
+  async moveLiveDocuments(pageIds: string[], fromWorkspaceId: string, toWorkspaceId: string) {
+    const names = pageIds.flatMap((id) => [`ws:${fromWorkspaceId}:${id}`, `ws:${fromWorkspaceId}:db:${id}`]);
+    await this.materializer.flushLiveDocuments(names);
+    const from = `ws:${fromWorkspaceId}:`;
+    const rename = (name: string) => `ws:${toWorkspaceId}:${name.slice(from.length)}`;
+    await this.prisma.$transaction(async (tx) => {
+      const docs = await tx.collabDoc.findMany({ where: { documentName: { in: names } }, select: { documentName: true } });
+      if (!docs.length) return;
+      await tx.collabDoc.deleteMany({ where: { documentName: { in: docs.map((doc) => rename(doc.documentName)) } } });
+      for (const doc of docs) {
+        await tx.collabDoc.update({ where: { documentName: doc.documentName }, data: { documentName: rename(doc.documentName) } });
+      }
+    });
+  }
+
   /** Writes new content: into the live document if the page has one, and the stored copy. */
   private async write(page: DocPage, content: ContentNode[], state: Uint8Array | null, user: User) {
     const normalized = normalizeEditorContent({ type: 'doc', content });

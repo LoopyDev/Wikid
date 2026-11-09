@@ -171,10 +171,19 @@ export class CollabMaterializerService implements OnModuleInit, OnModuleDestroy 
       await this.markMaterialized(documentName);
       return;
     }
+    // Only into the page the document belongs to: in the workspace its name says, and of its kind.
+    // (Who may open a document is checked when it's opened; this keeps a document named for one
+    // workspace from ever writing to a page in another.)
+    const target = await this.prisma.page.findUnique({ where: { id: parsed.pageId }, select: { workspaceId: true, kind: true } });
+    if (parsed.scope !== 'ws' || (target && (target.workspaceId !== parsed.workspaceId || target.kind !== parsed.kind))) {
+      console.warn('Collab materializer skipped a document that is not its page\'s', { documentName });
+      await this.markMaterialized(documentName);
+      return;
+    }
     if (parsed.kind === PageKind.DATABASE) {
       try {
         const state = databaseStateFromYjsState(record.state);
-        await this.materializeDatabaseState(parsed.pageId, state, record.updatedAt);
+        await this.materializeDatabaseState(parsed.pageId, parsed.workspaceId!, state, record.updatedAt);
         // As of the state copied: one stored meanwhile is still to copy
         await this.markMaterialized(documentName, record.updatedAt);
       } catch (err) {
@@ -204,7 +213,7 @@ export class CollabMaterializerService implements OnModuleInit, OnModuleDestroy 
         pageData.title = title;
       }
       const result = await this.prisma.page.updateMany({
-        where: { id: parsed.pageId, kind: PageKind.DOC },
+        where: { id: parsed.pageId, kind: PageKind.DOC, workspaceId: parsed.workspaceId },
         data: pageData,
       });
       if (!result.count) {
@@ -299,15 +308,10 @@ export class CollabMaterializerService implements OnModuleInit, OnModuleDestroy 
 
   // stateAt: when the state was stored. Rows and fields made after it (through the API, say)
   // aren't in it yet rather than deleted, so they're kept: the next copy sees them.
-  private async materializeDatabaseState(pageId: string, state: CollabDatabaseState, stateAt: Date) {
+  private async materializeDatabaseState(pageId: string, workspaceId: string, state: CollabDatabaseState, stateAt: Date) {
     if (!state.fields.length) return;
-    const page = await this.prisma.page.findUnique({
-      where: { id: pageId },
-      select: { id: true, kind: true, workspaceId: true },
-    });
-    if (!page || page.kind !== PageKind.DATABASE) {
-      return;
-    }
+    // Checked by the caller: the database page, in this workspace
+    const page = { id: pageId, workspaceId };
     const database = await this.prisma.database.upsert({
       where: { pageId: page.id },
       update: {},
@@ -353,9 +357,39 @@ export class CollabMaterializerService implements OnModuleInit, OnModuleDestroy 
       pageId: row.pageId,
       createdById: row.createdBy && members.has(row.createdBy) ? row.createdBy : null,
     }));
-    const rowIds = rows.map((row) => row.id);
+    // Fields and rows only of this database: ids that belong to another database are left alone.
+    // A row's page is the server's to set (it makes them): a row already saved keeps the page it
+    // has, and a new one may only take a page made for this database that no other row has.
+    const rowIdsInState = rows.map((row) => row.id);
+    const offeredPageIds = [...new Set(rows.map((row) => row.pageId).filter((id): id is string => !!id))];
+    const [foreignFields, savedRows, offeredPages, takenPages] = await Promise.all([
+      this.prisma.databaseField.findMany({ where: { id: { in: fieldIds }, NOT: { databaseId: database.id } }, select: { id: true } }),
+      this.prisma.databaseRow.findMany({ where: { id: { in: rowIdsInState } }, select: { id: true, databaseId: true, pageId: true } }),
+      this.prisma.page.findMany({ where: { id: { in: offeredPageIds }, workspaceId: page.workspaceId, parentId: page.id }, select: { id: true } }),
+      this.prisma.databaseRow.findMany({ where: { pageId: { in: offeredPageIds } }, select: { id: true, pageId: true } }),
+    ]);
+    const foreignFieldIds = new Set(foreignFields.map((field) => field.id));
+    const savedRowById = new Map(savedRows.map((row) => [row.id, row]));
+    const pagesForThisDatabase = new Set(offeredPages.map((p) => p.id));
+    const rowWithPage = new Map(takenPages.map((row) => [row.pageId, row.id]));
+    const ownFields = fields.filter((field) => !foreignFieldIds.has(field.id));
+    const ownRows = rows
+      .filter((row) => {
+        const saved = savedRowById.get(row.id);
+        return !saved || saved.databaseId === database.id;
+      })
+      .map((row) => {
+        const saved = savedRowById.get(row.id);
+        if (saved) return { ...row, pageId: saved.pageId ?? undefined };
+        const free = row.pageId && pagesForThisDatabase.has(row.pageId) && !rowWithPage.has(row.pageId);
+        return { ...row, pageId: free ? row.pageId : undefined };
+      });
+    if (foreignFieldIds.size || ownRows.length < rows.length) {
+      console.warn('Collab materializer left out fields or rows that are not this database\'s', { pageId });
+    }
+    const rowIds = ownRows.map((row) => row.id);
     await this.prisma.$transaction(async (tx) => {
-      for (const [index, field] of fields.entries()) {
+      for (const [index, field] of ownFields.entries()) {
         await tx.databaseField.upsert({
           where: { id: field.id },
           update: {
@@ -377,18 +411,17 @@ export class CollabMaterializerService implements OnModuleInit, OnModuleDestroy 
       await tx.databaseField.deleteMany({
         where: { databaseId: database.id, id: { notIn: fieldIds }, createdAt: { lte: stateAt } },
       });
-      for (const [index, row] of rows.entries()) {
-        const data = this.sanitizeDatabaseRowData(fields, row.data, {
-          preservePageId: true,
+      for (const [index, row] of ownRows.entries()) {
+        const data = this.sanitizeDatabaseRowData(ownFields, row.data, {
           preserveComplianceRecordId: database.complianceMode === true,
         });
+        // The row's page as decided above, not as the document has it
+        if (row.pageId) data[PAGE_ID_KEY] = row.pageId;
         const rowData: Prisma.DatabaseRowUncheckedUpdateInput = {
           data,
           position: index + 1,
         };
-        if (row.pageId) {
-          rowData.pageId = row.pageId;
-        }
+        // A saved row keeps its page (rowData has none); a new one gets the page it may take
         const createData: Prisma.DatabaseRowUncheckedCreateInput = {
           id: row.id,
           databaseId: database.id,

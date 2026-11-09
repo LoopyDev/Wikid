@@ -1,4 +1,5 @@
-import { BadRequestException, Body, Controller, Delete, ForbiddenException, Get, HttpException, HttpStatus, Param, Patch, Post, Put, Query, Req, Res, StreamableFile } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, ForbiddenException, Get, Headers, HttpException, HttpStatus, Param, Patch, Post, Put, Query, Req, Res, StreamableFile } from '@nestjs/common';
+import { assertCollabSecret } from '../utils/collab-secret.util';
 import { Request, Response } from 'express';
 import { LoginRateLimiter } from '../auth/login-rate-limiter';
 import { isUuid } from '../utils/uuid.util';
@@ -672,6 +673,18 @@ export class PagesController {
   @Post('collab/token')
   issueCollabToken(@CurrentUser() user: AuthUser, @Body('workspaceId') workspaceId?: string) {
     return this.collabSync.issueCollabToken({ userId: user.id, userName: user.displayName, workspaceId });
+  }
+
+  // Asked by the collab server (with the shared secret) whenever someone opens a live document
+  @Public()
+  @Post('collab/authorize')
+  authorizeCollabDocument(
+    @Body('userId') userId?: string,
+    @Body('documentName') documentName?: string,
+    @Headers('authorization') authHeader?: string,
+  ) {
+    assertCollabSecret(authHeader);
+    return this.collabSync.authorizeCollabDocument(userId, documentName);
   }
 
   // Admin: list non-personal workspaces

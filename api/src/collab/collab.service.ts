@@ -27,7 +27,10 @@ export class CollabService {
   // A saved page goes into its history (databases have none yet)
   async recordPageVersion(documentName: string, state: CollabState, editorIds: string[]) {
     const parsed = parseDocName(documentName);
-    if (!parsed?.pageId || parsed.kind !== 'DOC') return;
+    if (!parsed?.pageId || parsed.kind !== 'DOC' || parsed.scope !== 'ws') return;
+    // Only the history of the page the document belongs to (in the workspace its name says)
+    const page = await this.prisma.page.findUnique({ where: { id: parsed.pageId }, select: { workspaceId: true, kind: true } });
+    if (!page || page.workspaceId !== parsed.workspaceId || page.kind !== 'DOC') return;
     try {
       const { normalized, title } = await normalizeCollabDocState(state);
       await this.versions.recordVersion(parsed.pageId, { title, content: normalized as any, editorIds });
