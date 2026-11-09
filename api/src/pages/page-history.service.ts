@@ -4,6 +4,9 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CollabMaterializerService } from '../collab/collab-materializer.service';
 import { PageVersionRecorder } from '../collab/page-version-recorder.service';
 import { PageAccessService } from './page-access.service';
+import { PageContentService } from './page-content.service';
+import { PagesService } from './pages.service';
+import { normalizeEditorContent } from './editor-doc.util';
 import { isUuid } from '../utils/uuid.util';
 
 type User = { userId?: string; userName?: string };
@@ -17,7 +20,13 @@ export class PageHistoryService {
     private readonly access: PageAccessService,
     private readonly materializer: CollabMaterializerService,
     private readonly recorder: PageVersionRecorder,
+    private readonly pageContent: PageContentService,
+    private readonly pages: PagesService,
   ) {}
+
+  // One restore of a page at a time: two at once would each change the page from the same starting
+  // point, and could put the same blocks in twice
+  private readonly restoring = new Map<string, Promise<unknown>>();
 
   async listVersions(pageId: string, user: User) {
     await this.access.ensurePageReadAccess(pageId, user);
@@ -42,11 +51,22 @@ export class PageHistoryService {
   }
 
   /**
-   * Starts a version holding the one being restored, and returns its content for the restorer's
-   * editor to put on the page (so everyone with it open sees it at once). Edits not saved yet are
-   * saved first, so the version before the restore has them.
+   * Puts a version back: its content onto the page (into the live document, as a change, so everyone
+   * with it open sees it at once) and its title, and starts a version holding it. Edits not saved yet
+   * are saved first, so the version before the restore has them.
    */
   async restoreVersion(pageId: string, versionId: string, user: User) {
+    const previous = this.restoring.get(pageId) ?? Promise.resolve();
+    const run = previous.catch(() => undefined).then(() => this.restoreNow(pageId, versionId, user));
+    this.restoring.set(pageId, run);
+    try {
+      return await run;
+    } finally {
+      if (this.restoring.get(pageId) === run) this.restoring.delete(pageId);
+    }
+  }
+
+  private async restoreNow(pageId: string, versionId: string, user: User) {
     const { page } = await this.access.ensurePageWriteAccess(pageId, user);
     const version = await this.findVersion(pageId, versionId);
     await this.materializer.flushLiveDocuments([`ws:${page.workspaceId}:${pageId}`]);
@@ -61,7 +81,18 @@ export class PageHistoryService {
       },
       select: { id: true, content: true },
     });
+    // The title first, so the content's save is recorded with it
+    if (typeof version.title === 'string' && version.title !== (await this.currentTitle(pageId))) {
+      // Into the live document, then as any rename (a database row's name too)
+      await this.pageContent.replaceTitle(pageId, version.title, user);
+      await this.pages.updatePage(pageId, { title: version.title }, user);
+    }
+    await this.pageContent.replaceContent(pageId, normalizeEditorContent(version.content).content as any, user);
     return { versionId: restored.id, content: restored.content };
+  }
+
+  private async currentTitle(pageId: string) {
+    return (await this.prisma.page.findUnique({ where: { id: pageId }, select: { title: true } }))?.title ?? null;
   }
 
   private async findVersion(pageId: string, versionId: string) {

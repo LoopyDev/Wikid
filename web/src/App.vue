@@ -985,11 +985,13 @@ const hasSetupContent = (node) => {
   return node.type && node.type !== 'doc' && node.type !== 'paragraph';
 };
 const handleUpdateDoc = async (updated) => {
-  workspace.updateDoc(updated);
   const hasContent = hasSetupContent(updated);
   // Kept up to date until the live editor takes over from this local one, which can be a moment
   // after setup finishes: anything typed meanwhile goes across with the rest
   const localEditor = !editorCollab.value;
+  // Meanwhile it isn't saved on its own: the live editor puts it in (with live editing set up)
+  const handingOver = !!workspace.collabUrl && (isSetupPage.value || (setupAutoCompleteTriggered.value && localEditor));
+  workspace.updateDoc(updated, { save: !handingOver });
   if ((isSetupPage.value || (setupAutoCompleteTriggered.value && localEditor)) && hasContent) {
     setupSeedDoc.value = updated;
     logSetup('seed-doc', { captured: true });
@@ -1009,15 +1011,21 @@ const handleUpdateDoc = async (updated) => {
   }
   setupAutoCompleteTriggered.value = true;
   logSetup('auto-complete-start');
-  try {
-    await workspace.saveDoc();
-    logSetup('auto-complete-saved');
-  } catch (err) {
-    logSetup('auto-complete-save-failed', err?.message || err);
+  // Without live editing, what's typed is saved now. With it, the live editor puts it in when it
+  // takes over; saved as well, the server would fill the live document with it too, twice over.
+  if (!workspace.collabUrl) {
+    try {
+      await workspace.saveDoc();
+      logSetup('auto-complete-saved');
+    } catch (err) {
+      logSetup('auto-complete-save-failed', err?.message || err);
+    }
   }
   const success = await chooseSetupKind('DOC');
   if (!success) {
     setupAutoCompleteTriggered.value = false;
+    // No live editor to take it over: what's typed is saved the ordinary way
+    await workspace.saveDoc().catch((err) => logSetup('auto-complete-save-failed', err?.message || err));
   }
 };
 const handleCollabStatus = ({ text, state }) => {
@@ -1167,6 +1175,7 @@ const chooseSetupTemplate = async (template) => {
   if (!workspace.currentPage || setupSaving.value) return;
   setupSaving.value = true;
   setupError.value = '';
+  workspace.error = '';
   const made = await workspace.useTemplate(template.id, { pageId: workspace.currentPage.id });
   if (!made) setupError.value = workspace.error || "Couldn't make the page from the template";
   setupSaving.value = false;
@@ -1177,10 +1186,12 @@ const historyPageId = ref(null);
 const openPageHistory = () => {
   historyPageId.value = workspace.currentPage?.id || null;
 };
+// The server puts a restored version on the page itself (into the live document, so everyone with it
+// open sees it), title too. Without live editing, the editor shows it (and its next save keeps it).
 const restorePageVersion = (content) => {
-  // Only onto the page the history was for, if it's still the one open
-  if (workspace.currentPage?.id !== historyPageId.value) return;
-  tiptapEditorRef.value?.replaceContent?.(content);
+  if (!workspace.currentPage?.id || workspace.currentPage.id !== historyPageId.value) return;
+  if (!workspace.collabActive) tiptapEditorRef.value?.replaceContent?.(content);
+  workspace.loadPageList(workspace.activeWorkspaceId, { keepBin: true });
 };
 
 const openExportModal = (format) => {

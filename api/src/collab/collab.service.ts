@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { normalizeCollabDocState, type CollabState } from './collab-doc.util';
+import { initialStateFromContent, normalizeCollabDocState, type CollabState } from './collab-doc.util';
+import { collabDocumentTarget } from '../utils/collab-document-target.util';
 import { extractPageIdFromDocName, parseDocName } from '../utils/collab-doc-name.util';
 import { PageVersionRecorder } from './page-version-recorder.service';
 import { deleteDatabasesWithContents } from '../utils/delete-databases.util';
@@ -9,11 +10,30 @@ import { deleteDatabasesWithContents } from '../utils/delete-databases.util';
 export class CollabService {
   constructor(private readonly prisma: PrismaService, private readonly versions: PageVersionRecorder) {}
 
+  /**
+   * A document's stored state. A page's that has never been stored starts from the page's saved
+   * content, made here and stored, so everyone opening it gets the same (see initialStateFromContent).
+   */
   async fetchState(documentName: string) {
-    return this.prisma.collabDoc.findUnique({
-      where: { documentName },
-      select: { state: true },
+    const stored = await this.prisma.collabDoc.findUnique({ where: { documentName }, select: { state: true } });
+    if (stored) return stored;
+    const target = collabDocumentTarget(documentName);
+    if (!target || target.type !== 'page' || target.kind !== 'DOC') return null;
+    const page = await this.prisma.page.findUnique({
+      where: { id: target.pageId },
+      select: { workspaceId: true, kind: true, setupStatus: true, title: true, content: true },
     });
+    if (!page || page.workspaceId !== target.workspaceId || page.kind !== 'DOC' || page.setupStatus !== 'COMPLETE') return null;
+    const state = initialStateFromContent(page.content, page.title);
+    if (!state) return null;
+    try {
+      await this.prisma.collabDoc.create({ data: { documentName, state, materializedAt: new Date() } });
+      return { state };
+    } catch (err) {
+      // Made meanwhile by another request: that one's it. Anything else is a real failure.
+      if ((err as { code?: string })?.code !== 'P2002') throw err;
+      return this.prisma.collabDoc.findUnique({ where: { documentName }, select: { state: true } });
+    }
   }
 
   async storeState(documentName: string, state: CollabState) {

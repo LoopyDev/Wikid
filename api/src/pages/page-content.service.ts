@@ -4,7 +4,7 @@ import * as Y from 'yjs';
 import { PrismaService } from '../prisma/prisma.service';
 import { CollabMaterializerService } from '../collab/collab-materializer.service';
 import { PageVersionRecorder } from '../collab/page-version-recorder.service';
-import { contentUpdateForState, normalizeCollabDocState } from '../collab/collab-doc.util';
+import { contentUpdateForState, titleUpdateForState, normalizeCollabDocState } from '../collab/collab-doc.util';
 import { PageAccessService } from './page-access.service';
 import { CollabSyncService } from './collab-sync.service';
 import { normalizeEditorContent } from './editor-doc.util';
@@ -122,6 +122,34 @@ export class PageContentService {
     const page = await this.docPage(pageId, user, true, false);
     const { state } = await this.current(page);
     return this.write(page, content, state, user);
+  }
+
+  /**
+   * A new title into the page's live document, if it has one (as a change, so everyone with it open
+   * sees it, and the next save of the live document keeps it). The page's own title is the caller's
+   * to set (PagesService.updatePage, which also renames a database row).
+   */
+  async replaceTitle(pageId: string, title: string, user: User) {
+    const page = await this.docPage(pageId, user, true, false);
+    const name = this.documentName(page);
+    const { state } = await this.current(page);
+    const update = state ? titleUpdateForState(state, title) : null;
+    if (state && update && !(await this.collabSync.pushContentUpdate(name, update, user.userId))) {
+      // The collab server isn't there: nobody has the page open, so the stored state is it (if it's
+      // still the one read: one saved meanwhile isn't overwritten)
+      const record = await this.prisma.collabDoc.findUnique({ where: { documentName: name }, select: { state: true, updatedAt: true } });
+      if (record) {
+        const doc = new Y.Doc();
+        Y.applyUpdate(doc, new Uint8Array(record.state));
+        const change = titleUpdateForState(record.state, title);
+        if (change) Y.applyUpdate(doc, change);
+        const saved = await this.prisma.collabDoc.updateMany({
+          where: { documentName: name, updatedAt: record.updatedAt },
+          data: { state: new Uint8Array(Y.encodeStateAsUpdate(doc)) },
+        });
+        if (!saved.count) throw new ConflictException('The page changed meanwhile; try again');
+      }
+    }
   }
 
   /** A page's content as it is now (its live document's, if it has one), for copying it. */
