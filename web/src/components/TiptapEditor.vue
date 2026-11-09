@@ -365,6 +365,7 @@ const bindUndoOriginObserver = () => {
 
 const lastTextInputAt = ref(0);
 const lastTextInputInfo = ref(null);
+const lastPointerDownAt = ref(0);
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -420,6 +421,18 @@ const createCollabDoc = () => {
   return doc;
 };
 const collabDoc = ref(createCollabDoc());
+// Leaving (closing or reloading the tab) with changes the server hasn't got yet would lose them:
+// offline, or the server unreachable. The browser asks first.
+// Only for changes made here (a reconnect alone can look like unsent changes until the server answers).
+const hasOwnUnsentChanges = ref(false);
+const clearOwnUnsentWhenSynced = (count) => {
+  if (!count) hasOwnUnsentChanges.value = false;
+};
+const warnBeforeLeavingUnsaved = (event) => {
+  if (!isCollabEnabled.value || !hasOwnUnsentChanges.value || !collabProvider.value?.hasUnsyncedChanges) return;
+  event.preventDefault();
+  event.returnValue = '';
+};
 const collabProvider = ref(null);
 const currentDocName = ref(props.collab?.docName || null);
 const isCollabEnabled = computed(
@@ -437,6 +450,7 @@ const teardownCollabProvider = () => {
     collabProvider.value.off?.('status', handleProviderStatus);
     collabProvider.value.off?.('stateless', handleStatelessMessage);
     collabProvider.value.off?.('unsyncedChanges', handleUnsyncedChanges);
+    collabProvider.value.off?.('unsyncedChanges', clearOwnUnsentWhenSynced);
     collabProvider.value.destroy();
     collabProvider.value = null;
     emit('collabready', { doc: null, provider: null });
@@ -459,6 +473,11 @@ const setupCollabProvider = () => {
   teardownCollabProvider();
   // Recreate doc/provider when the document name changes.
   collabDoc.value = createCollabDoc();
+  hasOwnUnsentChanges.value = false;
+  // Changes not from the server (the provider) are this person's own
+  collabDoc.value.on('update', (_update, origin) => {
+    if (origin !== collabProvider.value) hasOwnUnsentChanges.value = true;
+  });
   bindSyncedLocksMap(collabDoc.value);
   bindUndoOriginObserver();
   currentDocName.value = props.collab.docName || null;
@@ -478,6 +497,7 @@ const setupCollabProvider = () => {
     collabProvider.value.on('status', handleProviderStatus);
     collabProvider.value.on('stateless', handleStatelessMessage);
     collabProvider.value.on('unsyncedChanges', handleUnsyncedChanges);
+    collabProvider.value.on('unsyncedChanges', clearOwnUnsentWhenSynced);
     emitStatus('Connecting...', 'connecting');
     updateAwarenessUser();
     emitCollabReady();
@@ -653,6 +673,7 @@ editor = useEditor({
     getPlaceholder: () => props.placeholder,
     lastTextInputAt,
     lastTextInputInfo,
+    lastPointerDownAt,
     dragBlock: (event, options) => handleBlockDragStart(event, options),
   }),
   onMount({ editor: ed }) {
@@ -1472,6 +1493,7 @@ const handleMainframeScroll = () => {
 };
 
 onMounted(() => {
+  window.addEventListener('beforeunload', warnBeforeLeavingUnsaved);
   document.addEventListener('mousedown', handleOutsideClick);
   document.addEventListener('dragstart', handleGlobalDragStart);
   document.addEventListener('dragend', handleGlobalDragEnd);
@@ -1497,6 +1519,7 @@ watch(
 );
 
 onBeforeUnmount(() => {
+  window.removeEventListener('beforeunload', warnBeforeLeavingUnsaved);
   editor.value?.destroy();
   teardownCollabProvider();
   disposeSyncedBlocks();

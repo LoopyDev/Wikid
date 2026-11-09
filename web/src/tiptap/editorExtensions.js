@@ -69,6 +69,7 @@ lowlight.register('lua', lua);
  * - pageLinks, databaseViews, slashCommands: the options for those extensions.
  * - getPlaceholder: the page's own placeholder text, if any.
  * - lastTextInputAt, lastTextInputInfo: when and what was last typed (for the selection guard).
+ * - lastPointerDownAt: when the editor was last clicked (a cursor move then is meant).
  * - dragBlock(event, { pos, node }): starts dragging a block, as its handle does (for images).
  */
 export function createEditorExtensions({
@@ -82,6 +83,7 @@ export function createEditorExtensions({
   getPlaceholder,
   lastTextInputAt,
   lastTextInputInfo,
+  lastPointerDownAt,
   dragBlock,
 }) {
   return [
@@ -214,7 +216,7 @@ export function createEditorExtensions({
       }),
       SlashCommand.configure(slashCommands),
       ColumnInputGuardExtension,
-      createInputSelectionGuardExtension({ lastTextInputAt, lastTextInputInfo }),
+      createInputSelectionGuardExtension({ lastTextInputAt, lastTextInputInfo, lastPointerDownAt }),
       AiSuggestionExtension,
       Extension.create({ name: 'bullet-depth', addProseMirrorPlugins: () => [createBulletDepthPlugin()] }),
   ];
