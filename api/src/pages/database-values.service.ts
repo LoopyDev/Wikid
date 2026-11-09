@@ -1,8 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { Prisma, DatabaseFieldType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { isUuid } from '../utils/uuid.util';
-import { coerceCellValue, coerceRelationValue } from '../utils/cell-values.util';
+import { checkCellValue, coerceCellValue, coerceRelationValue } from '../utils/cell-values.util';
 import { DatabaseSetupService } from './database-setup.service';
 
 // Field options and the values stored in database rows and forms: normalises and
@@ -51,6 +51,49 @@ export class DatabaseValuesService {
     const allowMultiple =
       field.type === DatabaseFieldType.PERSON ? (options as any).allowMultiple === true : relation ? relation.allowMultiple : null;
     return coerceCellValue({ type: field.type, choiceValues: options.choiceValues, allowMultiple }, value);
+  }
+
+  /**
+   * The cells a strict writer (the MCP server) gives, checked: each that changes must fit its
+   * column (see checkCellValue), name people in the workspace and rows of the linked database.
+   * Throws naming each that doesn't, so nothing is saved; returns the cells to save.
+   */
+  async checkCells(databaseId: string, workspaceId: string, data: Prisma.InputJsonValue, previous: Prisma.JsonValue | null) {
+    if (!data || typeof data !== 'object' || Array.isArray(data)) throw new BadRequestException('Cells must be an object');
+    const cells = { ...(data as Record<string, any>) };
+    const before = previous && typeof previous === 'object' && !Array.isArray(previous) ? (previous as Record<string, any>) : {};
+    const fields = await this.prisma.databaseField.findMany({
+      where: { databaseId },
+      select: { id: true, name: true, type: true, options: true },
+    });
+    const problems: string[] = [];
+    for (const field of fields) {
+      if (!(field.id in cells) || JSON.stringify(cells[field.id]) === JSON.stringify(before[field.id])) continue;
+      const options = this.normalizeDatabaseFieldOptions(field.options ?? null);
+      const relation = field.type === DatabaseFieldType.RELATION ? this.databaseSetup.normalizeRelationOptions(field.options ?? null) : null;
+      const allowMultiple = field.type === DatabaseFieldType.PERSON ? (options as any).allowMultiple === true : relation ? relation.allowMultiple : null;
+      const given = JSON.stringify(cells[field.id]);
+      const checked = checkCellValue({ type: field.type, choiceValues: options.choiceValues, allowMultiple }, cells[field.id]);
+      if ('problem' in checked) {
+        problems.push(`${field.name}: ${given} doesn't fit; it takes ${checked.problem}`);
+        continue;
+      }
+      cells[field.id] = checked.value;
+      if (checked.value === null) continue;
+      if (field.type === DatabaseFieldType.PERSON) {
+        const ids: string[] = checked.value; // without repeats
+        const members = await this.prisma.userWorkspace.count({ where: { workspaceId, userId: { in: ids } } });
+        if (members !== ids.length) problems.push(`${field.name}: ${given} isn't everyone in this workspace; it takes members' user ids`);
+      }
+      if (field.type === DatabaseFieldType.RELATION) {
+        const target = relation ? await this.prisma.database.findUnique({ where: { pageId: relation.pageId }, select: { id: true } }) : null;
+        const ids = [...new Set([checked.value].flat().map((entry: any) => entry.id as string))];
+        const found = target ? await this.prisma.databaseRow.count({ where: { databaseId: target.id, id: { in: ids } } }) : 0;
+        if (found !== ids.length) problems.push(`${field.name}: ${given} isn't rows of the linked database`);
+      }
+    }
+    if (problems.length) throw new BadRequestException(`Some cells don't fit their columns, so nothing was saved:\n- ${problems.join('\n- ')}`);
+    return cells;
   }
 
   normalizeDatabaseFormStorage(raw: Prisma.InputJsonValue) {

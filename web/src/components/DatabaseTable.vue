@@ -1458,6 +1458,88 @@ const hideFieldFromView = (fieldId) => {
   closeFieldMenu();
 };
 
+// Saves a row's cells; false if it couldn't (the error is shown)
+const saveRow = async (row, data, { deferSort = false, reason } = {}) => {
+  const rowId = row?.id;
+  try {
+    const res = await api.updateDatabaseRow(rowId, { data, ...(reason ? { reason } : {}) }, { userId: activeUser.value?.id, userName: activeUser.value?.name });
+    const payload = res && res.row ? res : { row: res };
+    const nextRow = payload?.row;
+    if (nextRow && row) {
+      // Merge server data into existing row in-place to avoid triggering
+      // a full re-render that would steal focus from another cell.
+      if (nextRow.data && typeof nextRow.data === 'object') {
+        if (!row.data || typeof row.data !== 'object') row.data = {};
+        for (const [k, v] of Object.entries(nextRow.data)) {
+          row.data[k] = v;
+        }
+      }
+      if (nextRow.pageId) {
+        row.pageId = nextRow.pageId;
+      }
+      if (nextRow.updatedAt) {
+        row.updatedAt = nextRow.updatedAt;
+      }
+    }
+    if (!deferSort) {
+      scheduleSortRefresh();
+    }
+    if (payload?.page) {
+      workspace.upsertPage(payload.page);
+    }
+    return true;
+  } catch (err) {
+    console.warn('Update row failed', err);
+    error.value = err?.message || 'Failed to update row';
+    return false;
+  }
+};
+
+// A compliance database's records change only with a reason, kept in their audit trail: edits wait
+// here, by row, until they're saved together with one (or discarded)
+const pendingAmendments = ref(new Map());
+const amendmentReason = ref('');
+const savingAmendments = ref(false);
+
+const saveAmendments = async () => {
+  const reason = amendmentReason.value.trim();
+  if (!reason || savingAmendments.value) return;
+  savingAmendments.value = true;
+  const started = workspace.beginSaving();
+  try {
+    for (const [rowId, { row, data }] of [...pendingAmendments.value]) {
+      if (!(await saveRow(row, data, { reason }))) return;
+      const next = new Map(pendingAmendments.value);
+      next.delete(rowId);
+      pendingAmendments.value = next;
+    }
+    amendmentReason.value = '';
+  } finally {
+    savingAmendments.value = false;
+    workspace.finishSaving(started);
+  }
+};
+
+const dropPendingAmendments = (rowIds) => {
+  if (!rowIds.some((id) => pendingAmendments.value.has(id))) return;
+  const next = new Map(pendingAmendments.value);
+  rowIds.forEach((id) => next.delete(id));
+  pendingAmendments.value = next;
+};
+
+// Leaving with record changes not yet saved asks first
+const warnOfUnsavedAmendments = (event) => {
+  if (!pendingAmendments.value.size) return;
+  event.preventDefault();
+  event.returnValue = '';
+};
+
+const discardAmendments = async () => {
+  pendingAmendments.value = new Map();
+  amendmentReason.value = '';
+  await loadDatabase();
+};
+
 const scheduleRowUpdate = (row, data, options = {}) => {
   const rowId = row?.id;
   if (!rowId) return;
@@ -1465,6 +1547,12 @@ const scheduleRowUpdate = (row, data, options = {}) => {
   if (!hasApi.value) return;
   if (isReadonly.value) return;
   if (!activeUser.value) return;
+  if (isComplianceDatabase.value) {
+    const next = new Map(pendingAmendments.value);
+    next.set(rowId, { row, data });
+    pendingAmendments.value = next;
+    return;
+  }
   const deferSort = options?.deferSort === true;
   const existing = rowSaveTimers.get(rowId);
   const started = existing?.started || workspace.beginSaving();
@@ -1474,34 +1562,7 @@ const scheduleRowUpdate = (row, data, options = {}) => {
   const timer = setTimeout(async () => {
     rowSaveTimers.delete(rowId);
     try {
-      const res = await api.updateDatabaseRow(rowId, { data }, { userId: activeUser.value?.id, userName: activeUser.value?.name });
-      const payload = res && res.row ? res : { row: res };
-      const nextRow = payload?.row;
-      if (nextRow && row) {
-        // Merge server data into existing row in-place to avoid triggering
-        // a full re-render that would steal focus from another cell.
-        if (nextRow.data && typeof nextRow.data === 'object') {
-          if (!row.data || typeof row.data !== 'object') row.data = {};
-          for (const [k, v] of Object.entries(nextRow.data)) {
-            row.data[k] = v;
-          }
-        }
-        if (nextRow.pageId) {
-          row.pageId = nextRow.pageId;
-        }
-        if (nextRow.updatedAt) {
-          row.updatedAt = nextRow.updatedAt;
-        }
-      }
-      if (!deferSort) {
-        scheduleSortRefresh();
-      }
-      if (payload?.page) {
-        workspace.upsertPage(payload.page);
-      }
-    } catch (err) {
-      console.warn('Update row failed', err);
-      error.value = err?.message || 'Failed to update row';
+      await saveRow(row, data, { deferSort });
     } finally {
       workspace.finishSaving(started);
     }
@@ -2729,6 +2790,9 @@ watch(
     formViews.value = [];
     activeViewId.value = 'table';
     lastLoadedSnapshot.value = null;
+    // Record changes held for another database's table aren't this one's
+    pendingAmendments.value = new Map();
+    amendmentReason.value = '';
     loadDatabase();
   },
   { immediate: true }
@@ -2973,13 +3037,25 @@ const updateField = async (field, changes, { convertCells = null } = {}) => {
   }
 };
 
+// Why records are going: required, and kept in their audit trail. Empty if cancelled.
+const askArchiveReason = (count) => {
+  const answer = window.prompt(
+    count > 1
+      ? `Archive ${count} records? They leave the table but stay in the audit trail. Reason:`
+      : 'Archive this record? It leaves the table but stays in the audit trail. Reason:'
+  );
+  return typeof answer === 'string' ? answer.trim() : '';
+};
+
 const deleteRow = async (row) => {
   if (isReadonly.value) return;
   const rowId = row?.id;
   if (!rowId) return;
-  const confirmed = window.confirm('Delete this row?');
-  if (!confirmed) return;
+  // A compliance record is archived, with a reason, rather than deleted
+  const reason = isComplianceDatabase.value ? askArchiveReason(1) : '';
+  if (isComplianceDatabase.value ? !reason : !window.confirm('Delete this row? Its page goes to the Bin.')) return;
   closeRowMenu();
+  dropPendingAmendments([rowId]);
   if (selectedRowIds.value.has(rowId)) {
     const next = new Set(selectedRowIds.value);
     next.delete(rowId);
@@ -3005,7 +3081,7 @@ const deleteRow = async (row) => {
   }
   if (!hasApi.value || !activeUser.value) return;
   try {
-    await runWithSavingIndicator(() => api.deleteDatabaseRow(rowId, { userId: activeUser.value.id, userName: activeUser.value.name }));
+    await runWithSavingIndicator(() => api.deleteDatabaseRow(rowId, { userId: activeUser.value.id, userName: activeUser.value.name, reason }));
     if (!isCollabEnabled.value) {
       rows.value = rows.value.filter((item) => item.id !== rowId);
     }
@@ -3041,9 +3117,10 @@ const deleteSelectedRows = async () => {
   if (isReadonly.value) return;
   const ids = [...selectedRowIds.value];
   if (!ids.length) return;
-  const confirmed = window.confirm(`Delete ${ids.length} row${ids.length > 1 ? 's' : ''}?`);
-  if (!confirmed) return;
+  const reason = isComplianceDatabase.value ? askArchiveReason(ids.length) : '';
+  if (isComplianceDatabase.value ? !reason : !window.confirm(ids.length > 1 ? `Delete ${ids.length} rows? Their pages go to the Bin.` : 'Delete this row? Its page goes to the Bin.')) return;
   const idSet = new Set(ids);
+  dropPendingAmendments(ids);
   if (isCollabEnabled.value) {
     whenCollabSynced(() => {
       const doc = ensureCollabDoc();
@@ -3072,7 +3149,7 @@ const deleteSelectedRows = async () => {
     await runWithSavingIndicator(() =>
       Promise.all(
         ids.map((id) =>
-          api.deleteDatabaseRow(id, { userId: activeUser.value.id, userName: activeUser.value.name })
+          api.deleteDatabaseRow(id, { userId: activeUser.value.id, userName: activeUser.value.name, reason })
         )
       )
     );
@@ -3237,6 +3314,7 @@ onMounted(() => {
   }
   if (typeof window !== 'undefined') {
     window.addEventListener('wikid:page-title-updated', handlePageTitleUpdated);
+    window.addEventListener('beforeunload', warnOfUnsavedAmendments);
     window.addEventListener('wikid:db-row-updated', handleRowPropertiesUpdated);
   }
 });
@@ -3256,6 +3334,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('resize', updateTableWrapWidth);
   if (typeof window !== 'undefined') {
     window.removeEventListener('wikid:page-title-updated', handlePageTitleUpdated);
+    window.removeEventListener('beforeunload', warnOfUnsavedAmendments);
     window.removeEventListener('wikid:db-row-updated', handleRowPropertiesUpdated);
   }
   teardownCollabProvider();
@@ -3277,6 +3356,19 @@ onBeforeUnmount(() => {
       <strong>{{ collabEverSynced ? 'Reconnecting…' : 'Connecting…' }}</strong>
       {{ collabEverSynced ? 'Editing is paused until the table reconnects.' : 'You can edit the table once it has connected.' }}
     </div>
+    <form
+      v-if="isComplianceDatabase && pendingAmendments.size && !props.readonly"
+      class="database-table__amend"
+      @submit.prevent="saveAmendments"
+    >
+      <strong>{{ pendingAmendments.size === 1 ? '1 record changed' : `${pendingAmendments.size} records changed` }}</strong>
+      <label class="database-table__amend-reason">
+        <span>Reason, kept in the audit trail</span>
+        <input v-model="amendmentReason" type="text" required :disabled="savingAmendments" placeholder="Why these changes?" />
+      </label>
+      <button class="ghost-btn ghost-btn-background" type="submit" :disabled="!amendmentReason.trim() || savingAmendments">Save changes</button>
+      <button class="ghost-btn" type="button" :disabled="savingAmendments" @click="discardAmendments">Discard</button>
+    </form>
     <teleport v-if="toolbarTeleportTarget" :to="toolbarTeleportTarget">
       <div class="database-table__toolbar">
         <span v-if="error" class="alert database-table__alert">{{ error }}</span>

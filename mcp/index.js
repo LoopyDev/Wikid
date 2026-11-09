@@ -318,25 +318,30 @@ tool('get_database', 'Read a database: its columns (with a select’s choices) a
 
 tool(
   'add_database_row',
-  'Add a row to a database. Cells by column name: text, a number, a date (YYYY-MM-DD), true/false for a checkbox, a choice for a select, a list of choices for a multi-select.',
+  'Add a row to a database. Cells by column name: text, a number, a date (YYYY-MM-DD), true/false for a checkbox, a choice for a select, a list of choices for a multi-select, user ids for a person, row ids for a relation; null clears a cell. A value that doesn’t fit its column is refused, and nothing is saved.',
   { pageId: z.string().describe('Page id of the database'), cells: z.record(z.string(), z.unknown()).describe('Cell values by column name') },
   async ({ pageId, cells }) => {
     const { fields } = await getDatabase(pageId);
-    const row = await api(`/pages/${id(pageId)}/database/rows`, { method: 'POST', body: { data: cellsById(fields, cells) } });
+    const row = await api(`/pages/${id(pageId)}/database/rows`, { method: 'POST', body: { data: cellsById(fields, cells), strict: true } });
     return `Added row ${row.id}.`;
   },
 );
 
 tool(
   'update_database_row',
-  'Change cells of a database row (by id); cells not given stay as they are. Cells by column name, as for add_database_row.',
-  { pageId: z.string().describe('Page id of the database'), rowId: z.string().describe('Row id, from get_database'), cells: z.record(z.string(), z.unknown()).describe('Cell values by column name') },
-  async ({ pageId, rowId, cells }) => {
+  'Change cells of a database row (by id); cells not given stay as they are. Cells by column name, as for add_database_row. In a compliance database, give a reason: the change is kept in the record’s audit trail.',
+  {
+    pageId: z.string().describe('Page id of the database'),
+    rowId: z.string().describe('Row id, from get_database'),
+    cells: z.record(z.string(), z.unknown()).describe('Cell values by column name'),
+    reason: z.string().optional().describe('Why the record changes (required in a compliance database)'),
+  },
+  async ({ pageId, rowId, cells, reason }) => {
     const { db, fields } = await getDatabase(pageId);
     const row = (db.rows ?? []).find((r) => r.id === rowId);
     if (!row) throw new Error(`No row ${rowId} in this database`);
     // The API takes the row's cells whole, so the change goes onto what's there
-    await api(`/database-rows/${id(rowId)}`, { method: 'PATCH', body: { data: { ...(row.data ?? {}), ...cellsById(fields, cells) } } });
+    await api(`/database-rows/${id(rowId)}`, { method: 'PATCH', body: { data: { ...(row.data ?? {}), ...cellsById(fields, cells) }, strict: true, ...(reason ? { reason } : {}) } });
     return `Updated row ${rowId}.`;
   },
 );

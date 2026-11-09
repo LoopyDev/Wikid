@@ -509,7 +509,7 @@ export class ComplianceService {
     return updated;
   }
 
-  async archiveRecord(recordId: string, user?: UserContext) {
+  async archiveRecord(recordId: string, user?: UserContext, reason?: string) {
     if (!recordId) throw new BadRequestException('recordId is required');
     const record = await this.compliance.complianceRecord.findUnique({
       where: { id: recordId },
@@ -529,6 +529,7 @@ export class ComplianceService {
         eventType: ComplianceAuditEventType.ARCHIVE,
         actorId: user?.userId || null,
         actorName: user?.userName || null,
+        ...(reason ? { metadata: { reason } } : {}),
       },
     });
     return updated;

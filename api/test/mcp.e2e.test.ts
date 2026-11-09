@@ -160,4 +160,38 @@ describe('MCP server', () => {
     expect(unknown.isError).toBe(true);
     expect(unknown.text).toContain('No column "Colour"');
   });
+
+  it("refuses database cells that don't fit their column, saying why, and changes nothing", async () => {
+    const database = (await alice.post('/pages', { workspaceId, title: 'Orders', kind: 'DATABASE' })).body;
+    await alice.post(`/pages/${database.id}/database/fields`, { name: 'Count', type: 'NUMBER' });
+    await alice.post(`/pages/${database.id}/database/fields`, { name: 'Due', type: 'DATE' });
+    await alice.post(`/pages/${database.id}/database/fields`, { name: 'Done', type: 'CHECKBOX' });
+    await alice.post(`/pages/${database.id}/database/fields`, { name: 'Owner', type: 'PERSON' });
+    await alice.post(`/pages/${database.id}/database/fields`, { name: 'Status', type: 'SELECT', options: { choices: [{ value: 'Open' }, { value: 'Shipped' }] } });
+
+    const added = await call('add_database_row', { pageId: database.id, cells: { Name: 'Bolts', Count: 4, Due: '2026-12-01', Done: false, Status: 'open' } });
+    expect(added.isError).toBe(false);
+    const rowId = added.text.match(/row ([0-9a-f-]{36})/)?.[1] as string;
+    const cells = async () => JSON.parse((await call('get_database', { pageId: database.id })).text.split('Rows (1):')[1])[0].cells;
+    // A choice in another case is the choice
+    expect(await cells()).toEqual({ Name: 'Bolts', Count: 4, Due: '2026-12-01', Done: false, Status: 'Open' });
+
+    for (const [column, value, says] of [
+      ['Status', 'Lost', /Status.*Open, Shipped/],
+      ['Count', 'abc', /Count.*number/],
+      ['Due', 'next tuesday', /Due.*YYYY-MM-DD/],
+      ['Due', '03/04/2026', /Due.*YYYY-MM-DD/],
+      ['Done', 'maybe', /Done.*true or false/],
+      ['Owner', 'Somebody', /Owner/],
+      ['Owner', '00000000-0000-4000-8000-000000000000', /Owner/],
+    ] as const) {
+      const refused = await call('update_database_row', { pageId: database.id, rowId, cells: { [column]: value } });
+      expect(refused.isError, `${column}: ${value}`).toBe(true);
+      expect(refused.text).toMatch(says);
+    }
+    const refusedAdd = await call('add_database_row', { pageId: database.id, cells: { Name: 'Nuts', Count: 'lots' } });
+    expect(refusedAdd.isError).toBe(true);
+    // Nothing changed, nothing added
+    expect(await cells()).toEqual({ Name: 'Bolts', Count: 4, Due: '2026-12-01', Done: false, Status: 'Open' });
+  });
 });
