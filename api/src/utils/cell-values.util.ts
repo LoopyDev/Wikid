@@ -155,6 +155,67 @@ export const coerceCellValue = (rules: CellValueRules, value: any): any => {
   }
 };
 
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?)?$/;
+
+/**
+ * For writers that would rather hear about a value that doesn't fit than have it kept aside (the
+ * MCP server): the value to save, with a choice matched whatever its case, or what the column
+ * takes. Empty clears the cell. Stricter than coerceCellValue: "maybe" isn't a checkbox's true, and
+ * a date is YYYY-MM-DD, never a guess at 03/04.
+ */
+export const checkCellValue = (rules: CellValueRules, value: any): { value: any } | { problem: string } => {
+  if (value === null || value === undefined || value === '' || (Array.isArray(value) && !value.length)) return { value: null };
+  const choice = (item: unknown) => {
+    if (typeof item !== 'string') return undefined;
+    const text = item.trim();
+    if (!rules.choiceValues) return text || undefined;
+    return rules.choiceValues.find((c) => c === text) ?? rules.choiceValues.find((c) => c.toLowerCase() === text.toLowerCase());
+  };
+  const choices = () => (rules.choiceValues?.length ? `one of: ${rules.choiceValues.join(', ')}` : 'one of its choices (it has none yet)');
+  switch (rules.type) {
+    case 'NUMBER': {
+      const num = typeof value === 'number' ? value : typeof value === 'string' && value.trim() ? Number(value.trim()) : NaN;
+      return Number.isFinite(num) ? { value: num } : { problem: 'a number' };
+    }
+    case 'CHECKBOX': {
+      if (typeof value === 'boolean') return { value };
+      const text = typeof value === 'string' ? value.trim().toLowerCase() : '';
+      if (TRUE_STRINGS.has(text)) return { value: true };
+      if (FALSE_STRINGS.has(text)) return { value: false };
+      return { problem: 'true or false' };
+    }
+    case 'DATE': {
+      const text = typeof value === 'string' ? value.trim() : '';
+      return ISO_DATE.test(text) && !Number.isNaN(Date.parse(text)) ? { value: text } : { problem: 'a date as YYYY-MM-DD' };
+    }
+    case 'SELECT': {
+      const match = choice(value);
+      return match ? { value: match } : { problem: choices() };
+    }
+    case 'MULTI_SELECT': {
+      const items = Array.isArray(value) ? value : typeof value === 'string' ? value.split(',') : [value];
+      const matched = items.map(choice);
+      return matched.every(Boolean) ? { value: [...new Set(matched)] } : { problem: `a list, each ${choices()}` };
+    }
+    case 'PERSON': {
+      const list = Array.isArray(value) ? value : [value];
+      if (!list.every((item) => typeof item === 'string' && isUuid(item.trim()))) return { problem: "people's user ids" };
+      return { value: [...new Set(list.map((item: string) => item.trim()))] };
+    }
+    case 'RELATION': {
+      // Every entry a row id, not just some of them
+      const multiple = rules.allowMultiple !== false;
+      const coerced = coerceRelationValue(value, multiple);
+      const given = Array.isArray(value) ? value.length : 1;
+      const kept = Array.isArray(coerced) ? coerced.length : coerced ? 1 : 0;
+      if (!kept || kept !== given || (!multiple && Array.isArray(value) && value.length > 1)) return { problem: 'row ids from the linked database' };
+      return { value: coerced };
+    }
+    default:
+      return typeof value === 'string' || (typeof value === 'number' && Number.isFinite(value)) ? { value } : { problem: 'text' };
+  }
+};
+
 /**
  * A row's cells as they're saved: each value that fits its column, and beside it what doesn't
  * fit, a value kept when the column's type changed or one left in the cell, rather than losing it.

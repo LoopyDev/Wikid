@@ -266,6 +266,66 @@ describe('relations', () => {
     expect(JSON.stringify(backlinks.body.backlinks)).toContain(task.body.id);
   });
 
+  it("deleting a row of a wiki's page list deletes the page, so it doesn't come back", async () => {
+    const home = await createPage(alice, workspaceId, { title: unique('Handbook') });
+    const { databasePage } = (await alice.post(`/pages/${home.id}/wiki`, {})).body;
+    const child = await createPage(alice, workspaceId, { title: unique('Onboarding'), parentId: home.id });
+    const rowFor = async () => (await alice.get(`/pages/${databasePage.id}/database`)).body.rows.find((r: any) => r.pageId === child.id);
+    const row = await rowFor();
+    expect(row).toBeTruthy();
+    expect((await alice.delete(`/database-rows/${row.id}`)).status).toBe(200);
+    expect(await rowFor()).toBeUndefined();
+    const all = (await alice.get(`/pages?workspaceId=${workspaceId}&includeDeleted=true`)).body;
+    expect(all.find((p: any) => p.id === child.id)).toMatchObject({ isDeleted: true });
+  });
+
+  it('deleting two linked rows at once takes both out of the rows linking to them', async () => {
+    const people = await createDatabase(unique('People'));
+    const tasks = await createDatabase(unique('Tasks'));
+    const [a, b] = await Promise.all(['A', 'B'].map(async (title) => (await alice.post(`/pages/${people.pageId}/database/rows`, { data: { [people.titleFieldId]: title } })).body));
+    const many = await addField(tasks.pageId, { name: 'Helpers', type: 'RELATION', options: { relation: { pageId: people.pageId, allowMultiple: true } } });
+    const task = (await alice.post(`/pages/${tasks.pageId}/database/rows`, { data: { [many.id]: [a.id, b.id] } })).body;
+    await Promise.all([a, b].map((row) => alice.delete(`/database-rows/${row.id}`)));
+    const after = (await alice.get(`/pages/${tasks.pageId}/database`)).body.rows.find((r: any) => r.id === task.id);
+    expect(after.data[many.id]).toBeUndefined();
+  });
+
+  it('strict writes refuse a link to something that isn\'t a row, and take a person given twice', async () => {
+    const people = await createDatabase(unique('People'));
+    const tasks = await createDatabase(unique('Tasks'));
+    const ada = (await alice.post(`/pages/${people.pageId}/database/rows`, { data: { [people.titleFieldId]: 'Ada' } })).body;
+    const many = await addField(tasks.pageId, { name: 'Helpers', type: 'RELATION', options: { relation: { pageId: people.pageId, allowMultiple: true } } });
+    const owner = await addField(tasks.pageId, { name: 'Owner', type: 'PERSON' });
+    const bad = await alice.post(`/pages/${tasks.pageId}/database/rows`, { data: { [many.id]: [ada.id, 'Acme'] }, strict: true });
+    expect(bad.status).toBe(400);
+    expect(bad.body.message).toMatch(/Helpers/);
+    const twice = await alice.post(`/pages/${tasks.pageId}/database/rows`, { data: { [owner.id]: [USERS.alice.id, USERS.alice.id] }, strict: true });
+    expect(twice.status).toBe(201);
+  });
+
+  it('deleting a row puts its page in the Bin and takes it out of rows linking to it', async () => {
+    const people = await createDatabase(unique('People'));
+    const tasks = await createDatabase(unique('Tasks'));
+    const name = unique('Grace');
+    const [grace, ada] = await Promise.all([name, 'Ada'].map(async (title) => (await alice.post(`/pages/${people.pageId}/database/rows`, { data: { [people.titleFieldId]: title } })).body));
+    const page = (await alice.post(`/database-rows/${grace.id}/page`, {})).body.page;
+    const one = await addField(tasks.pageId, { name: 'Owner', type: 'RELATION', options: { relation: { pageId: people.pageId } } });
+    const many = await addField(tasks.pageId, { name: 'Helpers', type: 'RELATION', options: { relation: { pageId: people.pageId, allowMultiple: true } } });
+    const task = (await alice.post(`/pages/${tasks.pageId}/database/rows`, {
+      data: { [tasks.titleFieldId]: 'Ship it', [one.id]: grace.id, [many.id]: [grace.id, ada.id] },
+    })).body;
+
+    expect((await alice.delete(`/database-rows/${grace.id}`)).status).toBe(200);
+
+    const all = (await alice.get(`/pages?workspaceId=${workspaceId}&includeDeleted=true`)).body;
+    expect(all.find((p: any) => p.id === page.id)).toMatchObject({ isDeleted: true });
+    const found = (await alice.get(`/search?q=${encodeURIComponent(name)}`)).body;
+    expect(JSON.stringify(found)).not.toContain(page.id);
+    const after = (await alice.get(`/pages/${tasks.pageId}/database`)).body.rows.find((r: any) => r.id === task.id);
+    expect(after.data[one.id]).toBeUndefined();
+    expect(after.data[many.id]).toEqual([expect.objectContaining({ id: ada.id })]);
+  });
+
   it('works out a "Linked from" column from relations pointing here, leaving out databases the user cannot open', async () => {
     const people = await createDatabase(unique('People'));
     const tasks = await createDatabase(unique('Tasks'));
@@ -600,5 +660,31 @@ describe('compliance mode', () => {
     const res = await alice.patch(`/pages/${pageId}/database`, { complianceMode: true });
     expect(res.status).toBe(200);
     expect((await alice.get(`/pages/${pageId}/database`)).body.complianceMode).toBe(true);
+  });
+
+  it('changes a record from the table only with a reason, kept as an amendment; deleting archives it', async () => {
+    const { pageId, titleFieldId } = await createDatabase();
+    await alice.patch(`/pages/${pageId}/database`, { complianceMode: true });
+    const count = await addField(pageId, { name: 'Count', type: 'NUMBER' });
+    const row = (await alice.post(`/pages/${pageId}/database/rows`, { data: { [titleFieldId]: 'Gloves', [count.id]: 1 } })).body;
+    const recordId = row.data.__complianceRecordId;
+    expect(recordId).toBeTruthy();
+    const record = async () => (await alice.get(`/compliance/records/${recordId}`)).body;
+
+    const unexplained = await alice.patch(`/database-rows/${row.id}`, { data: { ...row.data, [count.id]: 2 } });
+    expect(unexplained.status).toBe(400);
+    expect(unexplained.body.message).toMatch(/reason/i);
+    expect((await record()).latestRevision.data[count.id]).toBe(1);
+
+    const explained = await alice.patch(`/database-rows/${row.id}`, { data: { ...row.data, [count.id]: 2 }, reason: 'Recount' });
+    expect(explained.status).toBe(200);
+    expect((await record()).latestRevision).toMatchObject({ kind: 'AMEND', reason: 'Recount', data: expect.objectContaining({ [count.id]: 2 }) });
+    // Moving a row changes no record
+    expect((await alice.patch(`/database-rows/${row.id}`, { position: 5 })).status).toBe(200);
+
+    expect((await alice.delete(`/database-rows/${row.id}`)).status).toBe(400);
+    expect((await alice.delete(`/database-rows/${row.id}`, { reason: 'Entered twice' })).status).toBe(200);
+    expect((await alice.get(`/pages/${pageId}/database`)).body.rows.find((r: any) => r.id === row.id)).toBeUndefined();
+    expect((await record()).status).toBe('ARCHIVED');
   });
 });

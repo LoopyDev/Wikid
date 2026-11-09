@@ -559,7 +559,7 @@ export class DatabaseFormsService {
           : sanitized;
         await this.compliance.amendRecord(recordId, { data: dataForAmend, reason, schemaVersionId }, user);
         const mergedData = { ...existing, ...sanitized, [COMPLIANCE_RECORD_KEY]: recordId };
-        const updated = await this.databases.updateDatabaseRow(row.id, { data: mergedData }, user);
+        const updated = await this.databases.updateDatabaseRow(row.id, { data: mergedData }, user, { amended: true });
         let complianceStatus: string | null = null;
         let transitionError = '';
         if (transitionStatus) {

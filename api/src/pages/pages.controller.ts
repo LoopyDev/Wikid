@@ -468,7 +468,9 @@ export class PagesController {
     @CurrentUserId() userId?: string,
     @CurrentUserName() userName?: string,
   ) {
-    return this.databases.updateDatabaseRow(id, pickDefined(body, ['data', 'position']), { userId, userName });
+    // strict: refuse cells that don't fit their columns rather than keep them aside (the MCP server)
+    // reason: why a compliance record changes (required for that)
+    return this.databases.updateDatabaseRow(id, pickDefined(body, ['data', 'position', 'strict', 'reason']), { userId, userName });
   }
 
   // Relation columns elsewhere that point at this database, for a "Linked from" column to follow
@@ -527,8 +529,9 @@ export class PagesController {
   }
 
   @Delete('database-rows/:id')
-  deleteDatabaseRow(@Param('id') id: string, @CurrentUserId() userId?: string, @CurrentUserName() userName?: string) {
-    return this.databases.deleteDatabaseRow(id, { userId, userName });
+  deleteDatabaseRow(@Param('id') id: string, @Body() body: any, @CurrentUserId() userId?: string, @CurrentUserName() userName?: string) {
+    // reason: why a compliance record goes (required for that)
+    return this.databases.deleteDatabaseRow(id, { userId, userName }, typeof body?.reason === 'string' ? body.reason : undefined);
   }
 
   @Delete('pages/:id')

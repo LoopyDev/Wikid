@@ -337,9 +337,11 @@ export const api = {
       body: JSON.stringify(payload || {}),
     });
   },
-  async deleteDatabaseRow(rowId, { userId, userName } = {}) {
+  // reason: why a compliance record is archived (required for those)
+  async deleteDatabaseRow(rowId, { userId, userName, reason } = {}) {
     return request(`/database-rows/${rowId}${buildQs({ userId, userName })}`, {
       method: 'DELETE',
+      ...(reason ? { body: JSON.stringify({ reason }) } : {}),
     });
   },
   async deletePage(pageId, { userId, userName } = {}) {

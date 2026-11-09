@@ -146,7 +146,11 @@ const isPeopleField = (field) => isPersonField(field) || isMembersField(field);
 const isOnePerson = (field) => isPersonField(field) && normalizeFieldOptions(field).allowMultiple !== true;
 const isPageField = (field) => getFieldSource(field) === 'page';
 const isLastEditedField = (field) => getFieldSource(field) === 'lastEdited';
+// A compliance record changes only from its database's table or form, with a reason
+const complianceMode = ref(false);
+
 const isFieldReadOnly = (field) => {
+  if (complianceMode.value) return true;
   const options = normalizeFieldOptions(field);
   if (options.source === 'lastEdited' || options.source === 'createdBy') return true;
   if (options.source === 'page') return !!options.readonly;
@@ -1192,6 +1196,7 @@ const { loading, error, execute: loadProperties } = useApiMutation(async () => {
     options: normalizeFieldOptions(field),
   }));
   const nextRows = (res?.rows || []).map(hydrateRow);
+  complianceMode.value = res?.complianceMode === true;
   fields.value = nextFields;
   primeRelationOptions(nextFields);
   row.value = nextRows.find((item) => item.pageId === props.pageId) || null;
@@ -1274,6 +1279,7 @@ onBeforeUnmount(() => {
     <div v-if="membersLoading" class="page-properties__header">
       <span class="muted">Loading members...</span>
     </div>
+    <div v-if="complianceMode && !readonly" class="muted page-properties__status">A compliance record: change it from its database, with a reason.</div>
     <div v-if="error" class="alert page-properties__alert">{{ error }}</div>
     <div v-else-if="loading" class="muted page-properties__status">Loading properties...</div>
     <div v-else-if="row && properties.length" class="page-properties__grid">

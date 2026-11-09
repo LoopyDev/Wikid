@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Injectable, BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { Prisma, WorkspaceRole, DatabaseFieldType, PageKind, PageVisibility, PageSetupStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -856,11 +856,14 @@ export class DatabasesService {
 
   async createDatabaseRow(
     pageId: string,
-    payload: { data?: Prisma.InputJsonValue; position?: Prisma.Decimal },
+    payload: { data?: Prisma.InputJsonValue; position?: Prisma.Decimal; strict?: boolean },
     user?: { userId?: string; userName?: string },
     options: { rowId?: string } = {}
   ) {
     const database = await this.getDatabaseForPage(pageId, user, { requireWrite: true });
+    if (payload.strict === true && payload.data !== undefined) {
+      payload = { ...payload, data: await this.databaseValues.checkCells(database.id, database.workspaceId, payload.data, null) };
+    }
     const databasePage = await this.prisma.page.findUnique({
       where: { id: database.pageId },
       select: { id: true, workspaceId: true, visibility: true, wikiHomeId: true },
@@ -973,8 +976,10 @@ export class DatabasesService {
 
   async updateDatabaseRow(
     id: string,
-    data: { data?: Prisma.InputJsonValue; position?: Prisma.Decimal },
-    user?: { userId?: string; userName?: string }
+    data: { data?: Prisma.InputJsonValue; position?: Prisma.Decimal; strict?: boolean; reason?: string },
+    user?: { userId?: string; userName?: string },
+    // amended: the change is already in the compliance record (a form's amendment)
+    options: { amended?: boolean } = {}
   ) {
     const updateData: Prisma.DatabaseRowUncheckedUpdateInput = {};
     const row = await this.prisma.databaseRow.findUnique({
@@ -988,6 +993,9 @@ export class DatabasesService {
     });
     if (!database) throw new NotFoundException('Database not found');
     await this.access.requirePageAccess(database.pageId, user, { requireWrite: true });
+    if (data.strict === true && data.data !== undefined) {
+      data = { ...data, data: await this.databaseValues.checkCells(database.id, database.workspaceId, data.data, row.data) };
+    }
     const databasePage = await this.prisma.page.findUnique({
       where: { id: database.pageId },
       select: { id: true, workspaceId: true, visibility: true, wikiHomeId: true },
@@ -1018,6 +1026,16 @@ export class DatabasesService {
         const recordId = typeof existingData[COMPLIANCE_RECORD_KEY] === 'string' ? existingData[COMPLIANCE_RECORD_KEY] : '';
         if (isUuid(recordId) && !Object.prototype.hasOwnProperty.call(updatedData, COMPLIANCE_RECORD_KEY)) {
           updatedData[COMPLIANCE_RECORD_KEY] = recordId;
+        }
+        // A change to the record's cells is an amendment, with a reason, kept in its history
+        const cells = (source: Record<string, any>) =>
+          Object.fromEntries(fields.filter((field) => source[field.id] !== undefined).map((field) => [field.id, source[field.id]]));
+        const changed = JSON.stringify(cells(existingData)) !== JSON.stringify(cells(updatedData));
+        if (changed && isUuid(recordId) && !options.amended) {
+          const reason = typeof data.reason === 'string' ? data.reason.trim() : '';
+          if (!reason) throw new BadRequestException('A reason is required to change a compliance record');
+          const { schemaVersionId } = await this.ensureComplianceVersions(database, fields, user);
+          await this.compliance.amendRecord(recordId, { data: cells(updatedData), reason, schemaVersionId }, user);
         }
       }
       updateData.data = updatedData;
@@ -1161,8 +1179,12 @@ export class DatabasesService {
     return { row: updatedRow, page };
   }
 
-  async deleteDatabaseRow(id: string, user?: { userId?: string; userName?: string }) {
-    const row = await this.prisma.databaseRow.findUnique({ where: { id }, select: { databaseId: true } });
+  /**
+   * Deletes a row. Its page goes to the Bin with it (out of search and the wiki's page list), and
+   * rows elsewhere linking to it stop linking to it, rather than showing it as "Untitled page".
+   */
+  async deleteDatabaseRow(id: string, user?: { userId?: string; userName?: string }, reason?: string) {
+    const row = await this.prisma.databaseRow.findUnique({ where: { id }, select: { databaseId: true, pageId: true, data: true } });
     if (!row) throw new NotFoundException('Row not found');
     const database = await this.prisma.database.findUnique({
       where: { id: row.databaseId },
@@ -1170,11 +1192,87 @@ export class DatabasesService {
     });
     if (!database) throw new NotFoundException('Database not found');
     await this.access.requirePageAccess(database.pageId, user, { requireWrite: true });
+    // A compliance record isn't deleted: it's archived, with a reason, and stays in the audit trail
+    const recordId = database.complianceMode ? (row.data as Record<string, any> | null)?.[COMPLIANCE_RECORD_KEY] : null;
+    if (isUuid(recordId)) {
+      const why = typeof reason === 'string' ? reason.trim() : '';
+      if (!why) throw new BadRequestException('A reason is required to delete a compliance record');
+      await this.compliance.archiveRecord(recordId, user, why);
+    }
+    if (row.pageId) {
+      const page = await this.prisma.page.findUnique({ where: { id: row.pageId }, select: { isDeleted: true } });
+      // A page this person can't delete (someone else's private one) stays; the row still goes
+      if (page && !page.isDeleted) await this.pages.deletePage(row.pageId, user).catch((err) => {
+        if (!(err instanceof ForbiddenException)) throw err;
+      });
+    }
     const deleted = await this.prisma.databaseRow.delete({ where: { id } });
     if (!database.complianceMode) {
       await this.collabSync.deleteCollabDatabaseRowForPage({ pageId: database.pageId, workspaceId: database.workspaceId }, id);
       await this.collabSync.pushCollabDatabaseRowDelete({ pageId: database.pageId, workspaceId: database.workspaceId }, id);
     }
+    await this.unlinkRow(database.pageId, database.workspaceId, id, user);
     return deleted;
+  }
+
+  // Takes a deleted row out of the relation cells pointing at its database. Each linking row is
+  // changed under a lock (two deletes at once would otherwise each put back the other's link); in a
+  // compliance database the change is an amendment, so the record's history shows it.
+  private async unlinkRow(databasePageId: string, workspaceId: string, rowId: string, user?: { userId?: string; userName?: string }) {
+    const fields = (
+      await this.prisma.databaseField.findMany({
+        where: { type: DatabaseFieldType.RELATION, database: { workspaceId } },
+        select: { id: true, options: true, databaseId: true },
+      })
+    ).filter((field) => this.databaseSetup.normalizeRelationOptions(field.options ?? null)?.pageId === databasePageId);
+    if (!fields.length) return;
+    const linksTo = (value: unknown) => [value].flat().some((entry: any) => entry === rowId || entry?.id === rowId);
+    const databaseIds = [...new Set(fields.map((field) => field.databaseId))];
+    // Only rows that mention the id at all, rather than every row of every linking database
+    const candidates = await this.prisma.$queryRaw<{ id: string; databaseId: string }[]>(Prisma.sql`
+      SELECT id, "databaseId" FROM "DatabaseRow"
+      WHERE "databaseId" IN (${Prisma.join(databaseIds.map((id) => Prisma.sql`${id}::uuid`))})
+        AND data::text LIKE ${`%${rowId}%`}
+    `);
+    for (const candidate of candidates) {
+      const fieldIds = fields.filter((field) => field.databaseId === candidate.databaseId).map((field) => field.id);
+      const updated = await this.prisma.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT id FROM "DatabaseRow" WHERE id = ${candidate.id}::uuid FOR UPDATE`;
+        const other = await tx.databaseRow.findUnique({ where: { id: candidate.id } });
+        const data = other?.data && typeof other.data === 'object' && !Array.isArray(other.data) ? { ...(other.data as Record<string, any>) } : null;
+        if (!data || !fieldIds.some((fieldId) => linksTo(data[fieldId]))) return null;
+        for (const fieldId of fieldIds) {
+          if (!linksTo(data[fieldId])) continue;
+          const rest = Array.isArray(data[fieldId]) ? data[fieldId].filter((entry: any) => !linksTo(entry)) : [];
+          if (rest.length) data[fieldId] = rest;
+          else delete data[fieldId];
+        }
+        return tx.databaseRow.update({ where: { id: candidate.id }, data: { data } });
+      });
+      if (!updated) continue;
+      const linking = await this.prisma.database.findUnique({
+        where: { id: candidate.databaseId },
+        select: { id: true, pageId: true, workspaceId: true, complianceMode: true },
+      });
+      if (!linking) continue;
+      if (linking.complianceMode) {
+        const recordId = (updated.data as Record<string, any>)?.[COMPLIANCE_RECORD_KEY];
+        if (isUuid(recordId)) {
+          const linkingFields = await this.prisma.databaseField.findMany({
+            where: { databaseId: linking.id },
+            select: { id: true, name: true, type: true, options: true },
+          });
+          const { schemaVersionId } = await this.ensureComplianceVersions(linking, linkingFields, user);
+          const cells = Object.fromEntries(
+            linkingFields.filter((field) => (updated.data as Record<string, any>)[field.id] !== undefined).map((field) => [field.id, (updated.data as Record<string, any>)[field.id]])
+          );
+          await this.compliance.amendRecord(recordId, { data: cells, reason: 'A linked row was deleted', schemaVersionId }, user);
+        }
+        continue;
+      }
+      const target = { pageId: linking.pageId, workspaceId };
+      await this.collabSync.updateCollabDatabaseRowForPage(target, updated);
+      await this.collabSync.pushCollabDatabaseRowUpdate(target, updated);
+    }
   }
 }
