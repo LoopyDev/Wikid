@@ -27,11 +27,14 @@ type WorkspaceDoc = {
 
 type AuthContext = {
   userId: string;
+  sessionId?: string;
   workspaceIds: string[];
 };
 
 type TokenClaims = {
   sub?: string;
+  // The signed-in session it was issued in: ended (logged out, password changed), it opens nothing
+  sid?: string;
   name?: string;
   workspaceIds?: string[];
 };
@@ -95,7 +98,7 @@ const verifyToken = (token: string | undefined | null, doc: WorkspaceDoc): AuthC
   if (doc.scope === 'ws' && doc.workspaceId && !workspaceIds.includes(doc.workspaceId)) {
     throw new Error('Workspace access denied');
   }
-  return { userId, workspaceIds };
+  return { userId, sessionId: typeof claims.sid === 'string' ? claims.sid : undefined, workspaceIds };
 };
 
 const requireApiSecret = () => {
@@ -125,12 +128,12 @@ const collabApiFetch = async (path: string, options: FetchOptions = {}) => {
 // Asks the API whether this person may open this document: the page really is in the workspace the
 // document's name says, and they may edit it, private pages included. The token only says which
 // workspaces they could edit when it was issued. Refused if the API says no or can't be asked.
-const authorizeDocument = async (userId: string, documentName: string) => {
+const authorizeDocument = async (userId: string, sessionId: string | undefined, documentName: string) => {
   let res: Response;
   try {
     res = await collabApiFetch('/collab/authorize', {
       method: 'POST',
-      body: JSON.stringify({ userId, documentName }),
+      body: JSON.stringify({ userId, sessionId, documentName }),
       // An API that doesn't answer refuses, rather than leaving every open waiting
       signal: AbortSignal.timeout(10_000),
     });
@@ -382,7 +385,7 @@ const server = new Server({
       throw new Error('Invalid document name');
     }
     const ctx = verifyToken(token, doc);
-    await authorizeDocument(ctx.userId, documentName);
+    await authorizeDocument(ctx.userId, ctx.sessionId, documentName);
     console.log('[auth ok]', { documentName, userId: ctx.userId, workspaceIds: ctx.workspaceIds });
     return ctx;
   },

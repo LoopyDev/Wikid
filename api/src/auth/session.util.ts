@@ -2,7 +2,7 @@ import { randomBytes } from 'crypto';
 import * as jwt from 'jsonwebtoken';
 
 export const SESSION_COOKIE = 'wikid_session';
-const SESSION_TTL_SECONDS = 60 * 60 * 24 * 14; // 14 days
+export const SESSION_TTL_SECONDS = 60 * 60 * 24 * 14; // 14 days
 
 let devSecret: string | null = null;
 
@@ -20,14 +20,17 @@ function getSessionSecret(): string {
   return devSecret;
 }
 
-export function signSession(userId: string): string {
-  return jwt.sign({ sub: userId }, getSessionSecret(), { expiresIn: SESSION_TTL_SECONDS });
+/** The cookie's value for a session (see SessionsService, which records it). */
+export function signSession(userId: string, sessionId: string, ttlSeconds = SESSION_TTL_SECONDS): string {
+  return jwt.sign({ sub: userId, sid: sessionId }, getSessionSecret(), { expiresIn: ttlSeconds });
 }
 
-export function verifySession(token: string): string | null {
+/** Who a cookie is for, and which session. Cookies from before sessions were recorded have none. */
+export function verifySession(token: string): { userId: string; sessionId: string } | null {
   try {
     const payload = jwt.verify(token, getSessionSecret());
-    return typeof payload === 'object' && typeof payload.sub === 'string' ? payload.sub : null;
+    if (typeof payload !== 'object' || typeof payload.sub !== 'string' || typeof payload.sid !== 'string') return null;
+    return { userId: payload.sub, sessionId: payload.sid };
   } catch {
     return null;
   }

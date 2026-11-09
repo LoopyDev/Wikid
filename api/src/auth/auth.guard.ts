@@ -7,7 +7,7 @@ import { SESSION_COOKIE, readCookie, verifySession } from './session.util';
 
 export type AuthUser = { id: string; displayName: string; email: string | null };
 
-type AuthedRequest = Request & { authUser?: AuthUser };
+type AuthedRequest = Request & { authUser?: AuthUser; authSessionId?: string };
 
 /**
  * Global guard: every route requires a valid session cookie unless marked @Public().
@@ -31,20 +31,23 @@ export class SessionGuard implements CanActivate {
 
     const req = context.switchToHttp().getRequest<AuthedRequest>();
     const token = readCookie(req.headers.cookie, SESSION_COOKIE);
-    const userId = token ? verifySession(token) : null;
-    if (!userId) throw new UnauthorizedException('Not logged in');
+    const claims = token ? verifySession(token) : null;
+    if (!claims) throw new UnauthorizedException('Not logged in');
 
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: { id: true, displayName: true, email: true, mustChangePassword: true },
+    // The session must still be there (not logged out, nor ended by a password change), and theirs
+    const session = await this.prisma.userSession.findUnique({
+      where: { id: claims.sessionId },
+      select: { userId: true, expiresAt: true, user: { select: { id: true, displayName: true, email: true, mustChangePassword: true } } },
     });
-    if (!user) throw new UnauthorizedException('Not logged in');
+    if (!session || session.userId !== claims.userId || session.expiresAt < new Date()) throw new UnauthorizedException('Not logged in');
+    const user = session.user;
     const allowPending = this.reflector.getAllAndOverride<boolean>(ALLOW_PENDING_PASSWORD_KEY, [context.getHandler(), context.getClass()]);
     if (user.mustChangePassword && !allowPending) {
       throw new ForbiddenException({ message: 'Choose a new password first', code: 'PASSWORD_CHANGE_REQUIRED' });
     }
 
     req.authUser = { id: user.id, displayName: user.displayName, email: user.email };
+    req.authSessionId = claims.sessionId;
     return true;
   }
 }
@@ -52,6 +55,11 @@ export class SessionGuard implements CanActivate {
 /** The logged-in user, as resolved by SessionGuard. */
 export const CurrentUser = createParamDecorator((_data: unknown, context: ExecutionContext): AuthUser => {
   return context.switchToHttp().getRequest<AuthedRequest>().authUser as AuthUser;
+});
+
+/** The session the request is made in (so changing a password can keep this one). */
+export const CurrentSessionId = createParamDecorator((_data: unknown, context: ExecutionContext): string | undefined => {
+  return context.switchToHttp().getRequest<AuthedRequest>().authSessionId;
 });
 
 /** The logged-in user's id. Routes take who's acting from here, never from the request. */

@@ -9,6 +9,10 @@ import { WorkspacesService } from './workspaces.service';
 import { isSystemAdmin } from './pages.shared';
 import { hashPassword, verifyPassword } from './password.util';
 import { loginLookup, normalizeUsername } from './username.util';
+import { SessionsService } from '../auth/sessions.service';
+
+export const WRONG_CURRENT_PASSWORD = 'Current password is incorrect';
+const MIN_PASSWORD_LENGTH = 8;
 
 // Users: login, profiles and preferences, password changes, and admin user management.
 @Injectable()
@@ -18,6 +22,7 @@ export class UsersService {
     private readonly access: PageAccessService,
     private readonly pages: PagesService,
     private readonly workspaces: WorkspacesService,
+    private readonly sessions: SessionsService,
   ) {}
 
   private sanitizeUserPreferences(payload: any) {
@@ -153,13 +158,16 @@ export class UsersService {
     if (clash && clash.id !== exceptUserId) throw new BadRequestException('That username is taken');
   }
 
-  async adminResetPassword(adminId: string, userId: string, newPassword: string, mustChangePassword = true) {
+  async adminResetPassword(adminId: string, userId: string, newPassword: string, mustChangePassword = true, adminSessionId?: string) {
     assertSystemAdmin(adminId);
     if (!newPassword) throw new BadRequestException('newPassword is required');
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new NotFoundException('User not found');
     const passwordHash = await hashPassword(newPassword);
     await this.prisma.user.update({ where: { id: userId }, data: { passwordHash, mustChangePassword: mustChangePassword !== false } });
+    // Signed out everywhere: whoever had the old password is out (an admin resetting their own
+    // keeps the session they're doing it in)
+    await this.sessions.endAllFor(userId, userId === adminId ? adminSessionId : undefined);
     return { ok: true };
   }
 
@@ -209,7 +217,8 @@ export class UsersService {
     return { ok: true };
   }
 
-  async changePassword(userId: string, currentPassword: string, newPassword: string) {
+  /** Their own password; their other sessions end, the one they're using (keepSessionId) stays. */
+  async changePassword(userId: string, currentPassword: string, newPassword: string, keepSessionId?: string) {
     if (!currentPassword || !newPassword) {
       throw new BadRequestException('currentPassword and newPassword are required');
     }
@@ -217,10 +226,14 @@ export class UsersService {
     if (!user || !user.passwordHash) throw new NotFoundException('User not found');
     const valid = await verifyPassword(currentPassword, user.passwordHash);
     // Not 401: the web app treats 401 as an expired session and logs the user out.
-    if (!valid) throw new BadRequestException('Current password is incorrect');
+    if (!valid) throw new BadRequestException(WRONG_CURRENT_PASSWORD);
     if (newPassword === currentPassword) throw new BadRequestException('Choose a password different from the current one');
+    if (newPassword.length < MIN_PASSWORD_LENGTH) {
+      throw new BadRequestException(`Choose a password of at least ${MIN_PASSWORD_LENGTH} characters`);
+    }
     const passwordHash = await hashPassword(newPassword);
     await this.prisma.user.update({ where: { id: userId }, data: { passwordHash, mustChangePassword: false } });
+    await this.sessions.endAllFor(userId, keepSessionId);
     return { ok: true };
   }
 }
