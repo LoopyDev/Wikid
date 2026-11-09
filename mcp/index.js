@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { readFile } from 'node:fs/promises';
+import { basename, extname } from 'node:path';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
@@ -38,17 +40,18 @@ async function errorMessage(res) {
   }
 }
 
-async function api(path, { method = 'GET', body } = {}, retried = false) {
+// A JSON body, or `form` (FormData) for a file upload
+async function api(path, { method = 'GET', body, form } = {}, retried = false) {
   if (!sessionCookie) await login();
   const res = await fetch(`${API_BASE}${path}`, {
     method,
-    headers: { 'Content-Type': 'application/json', Cookie: sessionCookie },
-    body: body === undefined ? undefined : JSON.stringify(body),
+    headers: form ? { Cookie: sessionCookie } : { 'Content-Type': 'application/json', Cookie: sessionCookie },
+    body: form ?? (body === undefined ? undefined : JSON.stringify(body)),
   });
   // The session ran out: log in again, once
   if (res.status === 401 && !retried) {
     sessionCookie = '';
-    return api(path, { method, body }, true);
+    return api(path, { method, body, form }, true);
   }
   if (!res.ok) throw new Error(`${await errorMessage(res)} (${res.status})`);
   const text = await res.text();
@@ -105,6 +108,45 @@ function pageTree(pages) {
   };
   walk(null, 0);
   return lines.join('\n') || 'No pages.';
+}
+
+// ---- Images ----
+
+const IMAGE_TYPES = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.avif': 'image/avif',
+  '.svg': 'image/svg+xml',
+  '.heic': 'image/heic',
+};
+
+/**
+ * Uploads an image to a page, from a file on this computer or a web address (fetched by Wikid's
+ * server, which takes public addresses only). Answers the address to show it at.
+ */
+async function uploadImage(pageId, { file, url }) {
+  if (url) return (await api('/uploads/by-url', { method: 'POST', body: { url, pageId } })).file.url;
+  const type = IMAGE_TYPES[extname(file).toLowerCase()];
+  if (!type) throw new Error(`Not an image Wikid takes: ${basename(file)} (${Object.keys(IMAGE_TYPES).join(', ')})`);
+  let data;
+  try {
+    data = await readFile(file);
+  } catch (err) {
+    throw new Error(`Can't read ${file}: ${err.code === 'ENOENT' ? 'no such file' : err.message}`);
+  }
+  const form = new FormData();
+  form.append('image', new Blob([data], { type }), basename(file));
+  form.append('pageId', pageId);
+  return (await api('/uploads', { method: 'POST', form })).file.url;
+}
+
+/** Markdown for an image: brackets and backslashes in its text escaped, an address with spaces in <>. */
+function imageMarkdown(src, alt) {
+  const text = (alt || '').replace(/\\/g, '\\\\').replace(/[[\]]/g, '\\$&');
+  return `![${text}](${/[\s()]/.test(src) ? `<${src}>` : src})`;
 }
 
 // ---- Databases ----
@@ -223,6 +265,38 @@ tool(
   `Rewrite a whole page from Markdown. Refused when the page has things Markdown can’t hold (database views, colours, image sizes, column widths): change it block by block then. ${SECTIONS}`,
   { pageId: z.string().describe('Page id'), markdown: z.string().describe('The whole page, as Markdown') },
   async ({ pageId, markdown }) => formatPage(await api(`/pages/${pageId}/markdown`, { method: 'PUT', body: { markdown } })),
+);
+
+tool(
+  'add_image',
+  'Put an image on a page, from a file on this computer or a public web address. It is uploaded to Wikid and served from there. ' +
+    'It goes after or before a block (by id), in place of one, or at the end. To fill an image placeholder (shown by get_page as "[Image to add: …]"), give its id as replaceId: what it said becomes the image\'s description, unless you give one.',
+  {
+    pageId: z.string().describe('Page id'),
+    file: z.string().optional().describe('Full path of an image file on this computer (PNG, JPEG, GIF, WebP, AVIF, SVG or HEIC)'),
+    url: z.string().optional().describe('Or a public web address of an image'),
+    alt: z.string().optional().describe('What the image shows, for people who can’t see it'),
+    afterId: z.string().optional().describe('Put it after this block'),
+    beforeId: z.string().optional().describe('Put it before this block'),
+    replaceId: z.string().optional().describe('Put it in place of this block, such as an image placeholder'),
+  },
+  async ({ pageId, file, url, alt, afterId, beforeId, replaceId }) => {
+    if (!file === !url) throw new Error('Give either file or url');
+    if ([afterId, beforeId, replaceId].filter(Boolean).length > 1) throw new Error('Give at most one of afterId, beforeId and replaceId');
+    let description = alt;
+    if (replaceId && description === undefined) {
+      // Filling an image placeholder: what it said goes in
+      const block = (await getPage(pageId)).blocks?.find((b) => b.id === replaceId);
+      if (!block) throw new Error(`No block ${replaceId} on this page`);
+      if (block.type === 'imagePlaceholder') description = block.markdown.replace(/^\[Image to add:?\s*/, '').replace(/\]$/, '').replace(/\\([\\[\]])/g, '$1').trim();
+    }
+    const src = await uploadImage(pageId, { file, url });
+    const markdown = imageMarkdown(src, description);
+    const page = replaceId
+      ? await api(`/pages/${pageId}/markdown/blocks/${encodeURIComponent(replaceId)}`, { method: 'PUT', body: { markdown } })
+      : await api(`/pages/${pageId}/markdown/blocks`, { method: 'POST', body: { markdown, afterId, beforeId } });
+    return `Added the image.\n\n${formatPage(page)}`;
+  },
 );
 
 tool('rename_page', 'Rename a page.', { pageId: z.string().describe('Page id'), title: z.string().describe('New title') }, async ({ pageId, title }) => {

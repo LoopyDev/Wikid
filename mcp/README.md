@@ -49,9 +49,14 @@ Then ask Claude about your wiki ("what's on the onboarding page?", "add a page o
 | `update_block` | Rewrites one block from Markdown |
 | `delete_block` | Deletes one block |
 | `replace_page` | Rewrites a whole page from Markdown, only when Markdown would lose nothing |
+| `add_image` | Puts an image on a page, from a file on your computer or a public web address: after or before a block, in place of one (an image placeholder), or at the end |
 | `rename_page` | Renames a page |
 | `get_database` | A database's columns and rows |
 | `add_database_row`, `update_database_row` | Rows, with cells by column name |
+
+### Images
+
+`add_image` uploads the image to Wikid, so it's stored and served there like one pasted into the editor, and only people who can see the page can see it. A file is read from the computer the MCP server runs on (yours, for Claude Code); a web address is fetched by Wikid's server, which only fetches public addresses. To fill an image placeholder (`get_page` shows one as `[Image to add: …]`), pass its block id as `replaceId`: what the placeholder said becomes the image's description, unless you give one.
 
 ### Columns and toggles
 
