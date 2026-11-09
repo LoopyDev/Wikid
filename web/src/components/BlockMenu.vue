@@ -1,5 +1,6 @@
 <script setup>
 import { computed, ref, toRef, watch } from 'vue';
+import { Selection } from '@tiptap/pm/state';
 import { useWorkspaceStore } from '../stores/workspace';
 import { SYNCED_FROM_ATTR } from '../tiptap/editorShared';
 import { codeBlockLanguages, dividerAlignOptions, dividerSizeOptions, highlightOptions, textColorOptions } from '../tiptap/editorMenuOptions';
@@ -188,12 +189,17 @@ const currentCodeLanguage = computed(() => {
   return typeof selectionLang === 'string' ? selectionLang.trim() : '';
 });
 
+// The menu acts on the block its handle is on, which needn't be where the text cursor was. So the
+// editor takes focus back without scrolling: focus() on its own scrolls to that old cursor first,
+// which jumped the page (often to the top) on Delete, Turn into and colours.
+const focusInPlace = () => editor.value.chain().focus(undefined, { scrollIntoView: false });
+
 const withHandleSelection = (fn) => {
   if (!editor.value) return false;
   const { pos } = handleState.value;
   if (pos == null || pos < 0) return false;
   const safePos = Math.max(1, Math.min(pos + 1, editor.value.state.doc.content.size - 1));
-  return fn(editor.value.chain().focus().setTextSelection(safePos));
+  return fn(focusInPlace().setTextSelection(safePos));
 };
 
 const withHandleRangeTransaction = (fn) => {
@@ -321,7 +327,7 @@ const turnInto = (kind) => {
   });
   if (textPos == null) return;
   const toList = kind in LIST_TYPES;
-  let chain = editor.value.chain().focus().setTextSelection(textPos);
+  let chain = focusInPlace().setTextSelection(textPos);
   // An item turning into text leaves its list first, all the way out of a nested one
   if (LIST_ITEM_TYPES.has(node.type.name) && !toList) {
     const $text = editor.value.state.doc.resolve(textPos);
@@ -466,11 +472,11 @@ const deleteBlock = () => {
   if (!editor.value) return;
   const { node, pos } = handleState.value;
   if (!node || pos == null || pos < 0) return;
-  editor.value
-    .chain()
-    .focus()
+  focusInPlace()
     .command(({ tr }) => {
       tr.delete(pos, pos + node.nodeSize);
+      // The cursor where the block was: the start of the next block, or the end of the one before
+      tr.setSelection(Selection.near(tr.doc.resolve(Math.min(pos, tr.doc.content.size))));
       return true;
     })
     .run();
