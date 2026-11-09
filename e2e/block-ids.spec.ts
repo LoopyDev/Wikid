@@ -43,6 +43,13 @@ test.describe('block ids', () => {
     const id = await createPage(alice, workspaceId);
     const content = { type: 'doc', content: [para('Top', 'block-k3x9q2m7ab'), para('Linked to', 'block-zz12')] };
     expect((await alice.request.put(`/api/pages/${id}/content`, { data: { content } })).status()).toBe(200);
+    // On a slow connection too, where the page's content (from the live connection) comes in well
+    // after the page itself
+    await alice.routeWebSocket(/\/collab/, (ws) => {
+      const server = ws.connectToServer();
+      ws.onMessage((message) => setTimeout(() => server.send(message), 1000));
+      server.onMessage((message) => setTimeout(() => ws.send(message), 1000));
+    });
     await alice.goto(`/doc/${id}#block-zz12`);
     await expect(editor(alice).locator('[data-block-id="block-zz12"]')).toHaveClass(/block-link-focus/);
   });

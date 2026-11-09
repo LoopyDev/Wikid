@@ -939,6 +939,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleEmojiKeydown);
   window.removeEventListener('keydown', handleSearchShortcut);
   window.removeEventListener('hashchange', focusBlockFromHash);
+  clearInterval(focusBlockRetry);
   window.removeEventListener('wikid:api-status', handleApiStatus);
   window.removeEventListener(AUTH_EXPIRED_EVENT, handleAuthExpired);
   window.removeEventListener(PASSWORD_CHANGE_REQUIRED_EVENT, handlePasswordChangeRequired);
@@ -1820,12 +1821,21 @@ const updateUrlForForm = (formId) => {
   }
 };
 
+// Opens a link to a block (#block-…) at that block, trying for a few seconds while the page loads
+let focusBlockRetry = null;
 const focusBlockFromHash = () => {
   if (typeof window === 'undefined') return;
+  clearInterval(focusBlockRetry);
   const match = window.location.hash.match(/^#(block-[A-Za-z0-9_-]+)/);
   if (!match) return;
   const blockId = match[1].replace(/^block-block-/, 'block-'); // older links had the prefix twice
-  tiptapEditorRef.value?.focusBlockById?.(blockId);
+  const hash = window.location.hash;
+  const started = Date.now();
+  const attempt = () => window.location.hash !== hash || Date.now() - started > 5000 || tiptapEditorRef.value?.focusBlockById?.(blockId);
+  if (attempt()) return;
+  focusBlockRetry = setInterval(() => {
+    if (attempt()) clearInterval(focusBlockRetry);
+  }, 150);
 };
 
 const updateCollabPresence = () => {
