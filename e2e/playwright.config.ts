@@ -4,7 +4,7 @@ import { defineConfig, devices } from '@playwright/test';
 //
 // Each test signs in afresh and works in a workspace of its own, so they run side by side. The few
 // that change something every session sees (an admin setting, or a user's own saved setting) are
-// tagged @shared-state and run on their own, once the rest have finished.
+// tagged @shared-state and run on their own, one at a time, once the rest have finished.
 const SHARED_STATE = /@shared-state/;
 
 export default defineConfig({
@@ -25,6 +25,7 @@ export default defineConfig({
   },
   projects: [
     { name: 'chromium', use: { ...devices['Desktop Chrome'] }, grepInvert: SHARED_STATE },
-    { name: 'shared-state', use: { ...devices['Desktop Chrome'] }, grep: SHARED_STATE, dependencies: ['chromium'] },
+    // One at a time: one of them pauses the live-editing server
+    { name: 'shared-state', use: { ...devices['Desktop Chrome'] }, grep: SHARED_STATE, dependencies: ['chromium'], workers: 1 },
   ],
 });

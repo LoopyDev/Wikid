@@ -9,7 +9,15 @@ const bootstrapIconsDir = dirname(createRequire(import.meta.url).resolve('bootst
 // Fix from y-tiptap PR #59 (ueberdosis/y-tiptap#58, tiptap#8594): without it, your cursor jumps to
 // the wrong place when someone else types in the same line. Remove once a y-tiptap release
 // includes the fix; the build fails if the code it replaces changes, so an upgrade can't skip it.
+//
+// And: y-tiptap's position tracking expects every text in a block to have its own text item in the
+// live document. An empty block made by replacing everything at once (select all and delete, deleting
+// the only block) has none, so the first letter typed into it threw ("Position tracking requires
+// synchronized editor text") and nothing typed there went in, for anyone, even after a reload. Text
+// with no text item yet is new (nothing to track), so it's counted and stepped over. Remove once
+// a y-tiptap release handles it; the build fails if the code it replaces changes.
 let yTiptapFixApplied = false
+let yTiptapEmptyBlockFixApplied = false
 const yTiptapSelectionFix = {
   name: 'y-tiptap-selection-fix',
   enforce: 'pre',
@@ -22,11 +30,25 @@ const yTiptapSelectionFix = {
     const after =
       'const textOnlyChange = events.every((event) => event.target instanceof Y.XmlText);\n' +
       'restoreRelativeSelection(tr, this.beforeTransactionSelection, this, textOnlyChange ? undefined : oldDoc);'
+    // In getPositionContent: text with no text item is stepped over (its length counted), and the
+    // block's later children are still matched to their own items (one fewer to skip past)
+    const loopBefore =
+      'content.forEach((child, index) => {\n\t\t\tconst shared = children[index];\n\t\t\tif (!Array.isArray(child)) {\n\t\t\t\tif (!(shared instanceof Y.XmlElement) || !shared._item) throw new Error("Position tracking requires synchronized editor content");'
+    const loopAfter =
+      'let untracked = 0;\n\t\tcontent.forEach((child, index) => {\n\t\t\tconst shared = children[index - untracked];\n\t\t\tif (!Array.isArray(child)) {\n\t\t\t\tif (!(shared instanceof Y.XmlElement) || !shared._item) throw new Error("Position tracking requires synchronized editor content");'
+    const emptyBlockBefore = 'if (!(shared instanceof Y.XmlText)) throw new Error("Position tracking requires synchronized editor text");'
+    if (!code.includes(loopBefore) || !code.includes(emptyBlockBefore)) {
+      throw new Error('y-tiptap changed: check whether the empty block fix is still needed')
+    }
+    const emptyBlockAfter =
+      'if (!(shared instanceof Y.XmlText)) { untracked += 1; offset += child.reduce((size, node) => size + node.nodeSize, 0); return; }'
     yTiptapFixApplied = true
-    return { code: code.replace(before, after), map: null }
+    yTiptapEmptyBlockFixApplied = true
+    return { code: code.replace(before, after).replace(loopBefore, loopAfter).replace(emptyBlockBefore, emptyBlockAfter), map: null }
   },
   generateBundle() {
     if (!yTiptapFixApplied) throw new Error('The y-tiptap selection fix was not applied: was y-tiptap moved or renamed?')
+    if (!yTiptapEmptyBlockFixApplied) throw new Error('The y-tiptap empty block fix was not applied: was y-tiptap moved or renamed?')
   },
 }
 

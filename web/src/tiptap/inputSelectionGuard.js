@@ -61,11 +61,23 @@ export const describeSelection = (state) => {
   };
 };
 
-export const createInputSelectionGuardExtension = ({ lastTextInputAt, lastTextInputInfo }) => Extension.create({
+export const createInputSelectionGuardExtension = ({ lastTextInputAt, lastTextInputInfo, lastPointerDownAt }) => Extension.create({
   name: 'input-selection-guard',
   addProseMirrorPlugins() {
     return [
       new Plugin({
+        props: {
+          handleDOMEvents: {
+            mousedown() {
+              lastPointerDownAt.value = Date.now();
+              return false;
+            },
+            touchstart() {
+              lastPointerDownAt.value = Date.now();
+              return false;
+            },
+          },
+        },
         appendTransaction(transactions, oldState, newState) {
           const hasDocChange = transactions.some((tr) => tr.docChanged);
           if (!hasDocChange) return null;
@@ -128,6 +140,14 @@ export const createInputSelectionGuardExtension = ({ lastTextInputAt, lastTextIn
           if (!(oldState.selection instanceof TextSelection) || !oldState.selection.empty) {
             if (debug && selectionShifted) {
               logSelectionDebug('guard-skip', { reason: 'non-text-selection' });
+            }
+            return null;
+          }
+          // A click in the editor just now moved the cursor on purpose (into a table cell, say, then
+          // typing straight away): not the browser moving it
+          if (lastPointerDownAt.value && Date.now() - lastPointerDownAt.value < 1000) {
+            if (debug && selectionShifted) {
+              logSelectionDebug('guard-skip', { reason: 'pointer-down' });
             }
             return null;
           }

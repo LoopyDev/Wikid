@@ -40,12 +40,15 @@ export function useCollabSeeding({ props, isCollabEnabled, collabDoc, collabFiel
     initialAutoBlockId.value = null;
   };
   // If the collab doc is empty (fresh room), seed it with the latest page content so reloads don't start blank.
+  // Text that isn't blank, a block that holds no text (a divider, an image...), or a table, even an
+  // empty one
   const hasTiptapContent = (node) => {
     if (!node) return false;
     if (node.type === 'text') return typeof node.text === 'string' && node.text.trim().length > 0;
+    if (node.type === 'table') return true;
     const content = Array.isArray(node.content) ? node.content : [];
     if (content.length > 0) return content.some(hasTiptapContent);
-    return node.type && node.type !== 'doc' && node.type !== 'paragraph';
+    return !!node.type && node.type !== 'doc' && node.type !== 'paragraph';
   };
   const getCollabDocSnapshot = () => {
     if (!collabDoc.value) return null;

@@ -1,6 +1,22 @@
 import { createDatabaseViewConfig } from './blockPayloads';
 import { normalizeLinkHref } from '../utils/editorLinks';
 
+/**
+ * A whole block (a divider, a table of contents...) put in where the "/" was, with the cursor on an
+ * empty line after it (the one there, or a new one): left selected, the block was replaced by the
+ * next key, and the cursor at the start of a line with text would type in front of it.
+ */
+export const insertBlock = (editor, range, content) => {
+  if (!editor.chain().focus().deleteRange(range).insertContent(content).run()) return false;
+  const { state } = editor;
+  const after = state.selection.to;
+  const next = state.doc.resolve(after).nodeAfter;
+  if (next?.type.name === 'paragraph' && next.content.size === 0) {
+    return editor.chain().setTextSelection(after + 1).run();
+  }
+  return editor.chain().insertContentAt(after, { type: 'paragraph' }).setTextSelection(after + 1).run();
+};
+
 // The slash menu's items: each has a title, search keywords, an icon and the command it runs.
 export function createSlashItems({ insertToggleHeading, insertColumns, insertImageFromUpload, props, getResolvedPage, workspace, showAiPrompt }) {
   return [
@@ -15,14 +31,14 @@ export function createSlashItems({ insertToggleHeading, insertColumns, insertIma
     { title: 'To-do list', icon: '[ ]', hint: 'Task list', search: ['todo', 'task', 'checkbox'], command: ({ editor, range }) => editor.chain().focus().deleteRange(range).toggleTaskList().run() },
     { title: 'Bulleted list', icon: '*', hint: 'Bullet points', search: ['bullet', 'ul', 'list'], command: ({ editor, range }) => editor.chain().focus().deleteRange(range).toggleBulletList().run() },
     { title: 'Numbered list', icon: '1.', hint: 'Ordered list', search: ['number', 'ol', 'list'], command: ({ editor, range }) => editor.chain().focus().deleteRange(range).toggleOrderedList().run() },
-    { title: 'Divider', icon: '---', hint: 'Horizontal rule', search: ['divider', 'hr', 'rule'], command: ({ editor, range }) => editor.chain().focus().deleteRange(range).setHorizontalRule().run() },
+    { title: 'Divider', icon: '---', hint: 'Horizontal rule', search: ['divider', 'hr', 'rule'], command: ({ editor, range }) => insertBlock(editor, range, { type: 'horizontalRule' }) },
     {
       title: 'Table of contents',
       icon: 'toc',
       hint: 'Outline headings on this page',
       search: ['toc', 'table of contents', 'outline', 'contents'],
       command: ({ editor, range }) => {
-        editor.chain().focus().deleteRange(range).insertContent({ type: 'tableOfContents' }).run();
+        insertBlock(editor, range, { type: 'tableOfContents' });
       },
     },
     {
@@ -107,7 +123,7 @@ export function createSlashItems({ insertToggleHeading, insertColumns, insertIma
       hint: 'draw.io diagram',
       search: ['diagram', 'drawio', 'draw', 'chart', 'flow', 'flowchart'],
       command: ({ editor, range }) => {
-        editor.chain().focus().deleteRange(range).insertContent({ type: 'drawio', attrs: { xml: '', svg: '' } }).run();
+        insertBlock(editor, range, { type: 'drawio', attrs: { xml: '', svg: '' } });
       },
     },
     {
@@ -116,7 +132,7 @@ export function createSlashItems({ insertToggleHeading, insertColumns, insertIma
       hint: '3D Gaussian splat viewer',
       search: ['3d', 'splat', 'gaussian', 'spz', '3dgs', 'point cloud'],
       command: ({ editor, range }) => {
-        editor.chain().focus().deleteRange(range).insertContent({ type: 'gaussianSplat', attrs: { src: '' } }).run();
+        insertBlock(editor, range, { type: 'gaussianSplat', attrs: { src: '' } });
       },
     },
     {
@@ -163,12 +179,7 @@ export function createSlashItems({ insertToggleHeading, insertColumns, insertIma
       hint: 'Link another page',
       search: ['page', 'link', 'subpage'],
       command: ({ editor, range }) => {
-        editor
-          .chain()
-          .focus()
-          .deleteRange(range)
-          .insertContent({ type: 'pageLink', attrs: { pageId: '', title: '', icon: '' } })
-          .run();
+        insertBlock(editor, range, { type: 'pageLink', attrs: { pageId: '', title: '', icon: '' } });
       },
     },
     {
