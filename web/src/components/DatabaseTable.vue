@@ -866,6 +866,24 @@ const applyLocalPageTitleUpdate = (pageId, title) => {
   emitPageTitleUpdated(pageId, nextTitle);
 };
 
+// The answer to a row page's title save, sent from its Name cell: everywhere gets it (the sidebar,
+// an open page, other tables). Not if the Name has changed since it was sent (newer typing, perhaps
+// someone else's arriving live): by then it's an older name, which would go back over the newer one
+// everywhere, the live table included. The newer one is saved in its turn.
+const applyTitleSaveAnswer = (pageId, sent, res) => {
+  if (!res) return;
+  const fieldId = pageTitleFieldId.value;
+  const row = fieldId ? rows.value.find((item) => rowPageId(item) === pageId) : null;
+  const now = row ? String(row.data?.[fieldId] ?? '') : null;
+  if (now !== null && now !== sent) {
+    workspace.clearPendingTitle(pageId, sent);
+    return;
+  }
+  workspace.upsertPage(res);
+  workspace.clearPendingTitle(pageId, res.title ?? sent);
+  emitPageTitleUpdated(pageId, res.title ?? sent);
+};
+
 const schedulePageTitleUpdate = (pageId, title) => {
   if (!pageId) return;
   if (!hasApi.value) return;
@@ -885,11 +903,7 @@ const schedulePageTitleUpdate = (pageId, title) => {
         nextTitle,
         { userId: activeUser.value?.id, userName: activeUser.value?.name }
       );
-      if (res) {
-        workspace.upsertPage(res);
-        workspace.clearPendingTitle(pageId, res.title ?? nextTitle);
-        emitPageTitleUpdated(pageId, res.title ?? nextTitle);
-      }
+      applyTitleSaveAnswer(pageId, nextTitle, res);
     } catch (err) {
       console.warn('Update page title failed', err);
     } finally {
@@ -916,13 +930,7 @@ const flushPageTitleUpdates = () => {
         nextTitle,
         { userId: activeUser.value?.id, userName: activeUser.value?.name }
       )
-      .then((res) => {
-        if (res) {
-          workspace.upsertPage(res);
-          workspace.clearPendingTitle(pageId, res.title ?? nextTitle);
-          emitPageTitleUpdated(pageId, res.title ?? nextTitle);
-        }
-      })
+      .then((res) => applyTitleSaveAnswer(pageId, nextTitle, res))
       .catch((err) => {
         console.warn('Update page title failed', err);
       })
