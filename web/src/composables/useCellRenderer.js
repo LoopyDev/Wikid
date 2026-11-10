@@ -12,7 +12,7 @@ import { linkHref } from '../utils/database/links';
 // Draws a table cell for its field type: text, number, date, checkbox, select and multi-select
 // pills, relations, members, asset tags, page titles (with their page link) and read-only values,
 // with the editing caret and who-is-here presence.
-export function useCellRenderer({ choiceColorForValue, getChoiceLabel, isReadonly, markCellFocus, markCellBlur, openMultiSelectMenu, getCellPresence, caretLeftForCell, openAssetTagPreview, rowPageId, getRowPageTitle, openRowPageOverlay, pageMap, workspace, resolveRowPage, ensureRowPage, applyLocalPageTitleUpdate, schedulePageTitleUpdate, tableWrapRef, pendingEnsureRowPages, scheduleSortRefresh, handleCaretNavigate, handleCaretMouse, markCellTyping, updateCell, setCellInputRef, resolveRowLastEdited, relationOptionsByPageId, relationOptionsLoading, loadRelationOptions, relationOptionsForPage, relationOptionsLoadingForPage, relationOptionsErrorForPage, getFieldChoices, linkedRowsFor, getRelationLabel, getRelationColor, openRelatedRow }) {
+export function useCellRenderer({ choiceColorForValue, getChoiceLabel, isReadonly, markCellFocus, markCellBlur, openMultiSelectMenu, isChoiceMenuOpen, getCellPresence, cellEditor, caretLeftForCell, openAssetTagPreview, rowPageId, getRowPageTitle, openRowPageOverlay, pageMap, workspace, resolveRowPage, ensureRowPage, applyLocalPageTitleUpdate, schedulePageTitleUpdate, tableWrapRef, pendingEnsureRowPages, scheduleSortRefresh, handleCaretNavigate, handleCaretMouse, markCellTyping, updateCell, setCellInputRef, resolveRowLastEdited, relationOptionsByPageId, relationOptionsLoading, loadRelationOptions, relationOptionsForPage, relationOptionsLoadingForPage, relationOptionsErrorForPage, getFieldChoices, linkedRowsFor, getRelationLabel, getRelationColor, openRelatedRow }) {
   const renderMultiSelectCell = (row, field) => {
     const values = getMultiSelectValues(row, field);
     const placeholder =
@@ -39,9 +39,10 @@ export function useCellRenderer({ choiceColorForValue, getChoiceLabel, isReadonl
       {
         class: 'db-multi-cell',
         type: 'button',
-        disabled: isReadonly.value || isFieldReadOnly(field),
+        disabled: isReadonly.value || isFieldReadOnly(field) || !!cellEditor(row.id, field.id),
         onFocus: (event) => markCellFocus(row.id, field.id, event.target),
-        onBlur: () => markCellBlur(),
+        // Still in the cell while its menu is open (focus goes into the menu): left when it closes
+        onBlur: () => !isChoiceMenuOpen(row.id, field.id) && markCellBlur(),
         onClick: (event) => openMultiSelectMenu(row, field, event),
       },
       pills
@@ -71,7 +72,7 @@ export function useCellRenderer({ choiceColorForValue, getChoiceLabel, isReadonl
           type: 'button',
           disabled: !canChange,
           onFocus: (event) => markCellFocus(row.id, field.id, event.target),
-          onBlur: () => markCellBlur(),
+          onBlur: () => !isChoiceMenuOpen(row.id, field.id) && markCellBlur(),
           onClick: choose,
           ref: setCellInputRef(row.id, field.id),
         },
@@ -106,7 +107,7 @@ export function useCellRenderer({ choiceColorForValue, getChoiceLabel, isReadonl
               'aria-label': `Change ${field.name || 'relation'}`,
               title: 'Change',
               onFocus: (event) => markCellFocus(row.id, field.id, event.target),
-              onBlur: () => markCellBlur(),
+              onBlur: () => !isChoiceMenuOpen(row.id, field.id) && markCellBlur(),
               onClick: choose,
               ref: setCellInputRef(row.id, field.id),
             },
@@ -134,7 +135,9 @@ export function useCellRenderer({ choiceColorForValue, getChoiceLabel, isReadonl
           ? targetPresence.caretLeft
           : null;
     const isReadOnlyCell = isFieldReadOnly(field);
-    const cellDisabled = isReadonly.value || isReadOnlyCell;
+    // Someone else is in this cell: locked until they leave it
+    const lockedBy = cellEditor(row.id, field.id);
+    const cellDisabled = isReadonly.value || isReadOnlyCell || !!lockedBy;
     // What the cell held before its column's type changed, when it doesn't fit the new type:
     // shown greyed until a new value replaces it
     const kept = isReadOnlyCell || isLinkedFromField(field) ? undefined : keptValueFor(row, field);
@@ -147,11 +150,13 @@ export function useCellRenderer({ choiceColorForValue, getChoiceLabel, isReadonl
             presence.length ? 'db-cell--presence' : '',
             typing ? 'db-cell--typing' : '',
             isReadOnlyCell ? 'db-cell--readonly' : '',
+            lockedBy ? 'db-cell--locked' : '',
             kept !== undefined ? `db-cell--kept db-cell--kept-${field.type.toLowerCase()}` : '',
           ],
-          title:
-            kept !== undefined
-              ? `${notFitText(field.type)}: kept from before this column's type changed. ${cellDisabled ? '' : 'Enter a new value to replace it.'}`.trim()
+          title: lockedBy
+            ? `${lockedBy.name} is editing this cell`
+            : kept !== undefined
+              ? `${notFitText(field.type)}: kept from before this column changed. ${cellDisabled ? '' : 'Enter a new value to replace it.'}`.trim()
               : undefined,
           style: primary
             ? {

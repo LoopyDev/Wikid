@@ -15,12 +15,13 @@ import PageIcon from './PageIcon.vue';
 import FormBuilder from './FormBuilder.vue';
 import { keptValueKey, notFitText, planTypeChange } from '../utils/database/typeChange';
 import { linkHref } from '../utils/database/links';
-import { getAssetTagValue, getMultiSelectValues, getMultiSelectValuesFromRaw, getRelationEntries, getRowIdValue, normalizeCellValue, normalizeFilterValues, normalizeRelationEntry, pruneMultiSelectValues, renderRowIdCell, shouldClearCell, stringifyValue, valueForField } from '../utils/database/cellValues';
+import { settleChoiceCell } from '../utils/database/choiceChange';
+import { getAssetTagValue, getMultiSelectValues, getRelationEntries, getRowIdValue, normalizeCellValue, normalizeFilterValues, normalizeRelationEntry, renderRowIdCell, shouldClearCell, stringifyValue, valueForField } from '../utils/database/cellValues';
 import { clearYMap, cloneForSeed, ensureCollabRowDataMap, generateId, hydrateRow, readCollabOrder } from '../utils/database/collabRows';
 import { ROW_COLORS, ROW_COLOR_KEY, rowColor, multiSelectDotStyle, multiSelectPillStyle } from '../utils/database/colors';
 import { ADD_COLUMN_ID, ADD_COLUMN_LABEL, ADD_COLUMN_SIZE, ASSET_TAG_COLUMN_SIZE, AUTO_SIZE_BASE, AUTO_SIZE_BUFFER, AUTO_SIZE_CHAR_LIMIT, AUTO_SIZE_CHAR_WIDTH, AUTO_SIZE_FIRST_EXTRA, AUTO_SIZE_MULTI_MEMBERS_PLACEHOLDER, AUTO_SIZE_MULTI_PILL_GAP, AUTO_SIZE_MULTI_PILL_PADDING, AUTO_SIZE_MULTI_PLACEHOLDER, AUTO_SIZE_PAGE_ICON_EXTRA, AUTO_SIZE_RELATION_PLACEHOLDER, AUTO_SIZE_SELECT_EXTRA, AUTO_SIZE_SELECT_PLACEHOLDER, COLUMN_DEFAULT_SIZE, COLUMN_MAX_SIZE, COLUMN_MIN_SIZE, FIRST_COLUMN_MIN_SIZE, ROW_ID_COLUMN_ID, ROW_ID_COLUMN_LABEL, ROW_ID_COLUMN_MIN_SIZE, ROW_ID_COLUMN_SIZE } from '../utils/database/columnLayout';
 import { AUDIT_VIEW_ID, DEFAULT_INITIAL_STATUS, GOVERNANCE_FILTER_ID, auditStatusOptions, getAuditStatusClass, getComplianceRecordId } from '../utils/database/compliance';
-import { fieldTypeIcons, fieldTypes, getFieldSource, getLinkedFromConfig, getMultiSelectChoiceValues, getRelationConfig, isAssetTagField, isLinkedFromField, isFieldDeleteLocked, isFieldOptionsLocked, isFieldReadOnly, isFieldTypeLocked, isLastEditedField, isMembersField, isPageField, isPeopleField, isPersonField, isCreatedByField, CREATED_BY_OPTIONS, isRelationField, isSelectField, normalizeFieldOptions } from '../utils/database/fieldOptions';
+import { fieldTypeIcons, fieldTypes, getFieldSource, getLinkedFromConfig, getRelationConfig, isAssetTagField, isLinkedFromField, isFieldDeleteLocked, isFieldOptionsLocked, isFieldReadOnly, isFieldTypeLocked, isLastEditedField, isMembersField, isPageField, isPeopleField, isPersonField, isCreatedByField, CREATED_BY_OPTIONS, isRelationField, isSelectField, normalizeFieldOptions } from '../utils/database/fieldOptions';
 import { DEFAULT_FORM_ICON, buildFormField, conditionValues, normalizeFormIcon } from '../utils/database/forms';
 import { OPERATOR_LABELS, operatorNeedsValue, operatorsForFieldType, sortByType } from '../utils/database/views';
 import { colorFromId } from '../utils/presenceColor';
@@ -1048,55 +1049,51 @@ const displayValueForField = (row, field) => {
   return valueForField(row, field);
 };
 
-const cleanupMultiSelectOptions = (field, nextOptions, options = {}) => {
-  if (!field || field.type !== 'MULTI_SELECT') return;
+// After a select's choices change, each cell follows: a renamed choice to its new name, a removed
+// one kept aside (greyed until replaced) rather than lost. See settleChoiceCell.
+const settleChoiceCells = (field, nextOptions, renames = new Map(), options = {}) => {
+  if (!field || !isSelectField(field)) return;
   if (isMembersField(field)) return;
-  const allowedValues = new Set(getMultiSelectChoiceValues(nextOptions || {}));
+  const allowed = new Set(normalizeFieldOptions({ options: nextOptions || {} }).choices.map((choice) => choice.value));
+  const keptKey = keptValueKey(field.id);
   let changed = false;
-  if (rows.value.length) {
-    rows.value.forEach((row) => {
-      const current = getMultiSelectValues(row, field);
-      if (!current.length) return;
-      const next = pruneMultiSelectValues(current, allowedValues);
-      if (next.length === current.length) return;
-      changed = true;
-      const data = row?.data && typeof row.data === 'object' ? { ...row.data } : {};
-      if (!next.length) {
-        delete data[field.id];
-      } else {
-        data[field.id] = next;
-      }
-      row.data = data;
-      if (!isCollabEnabled.value && !options.skipSave) {
-        scheduleRowUpdate(row, data);
-      }
-    });
-  }
+  rows.value.forEach((row) => {
+    const data = row?.data && typeof row.data === 'object' ? row.data : {};
+    const next = settleChoiceCell(field.type, data[field.id], data[keptKey], allowed, renames);
+    if (!next) return;
+    changed = true;
+    const nextData = { ...data };
+    if (next.value === undefined) delete nextData[field.id];
+    else nextData[field.id] = next.value;
+    if (next.kept === undefined) delete nextData[keptKey];
+    else nextData[keptKey] = next.kept;
+    row.data = nextData;
+    if (!isCollabEnabled.value && !options.skipSave) {
+      scheduleRowUpdate(row, nextData);
+    }
+  });
   if (changed) {
     scheduleSortRefresh();
   }
-  if (!isCollabEnabled.value || options.skipCollab) return;
-  whenCollabSynced(() => {
-    const doc = ensureCollabDoc();
-    const rowsMap = collabRowsMap.value || doc.getMap('rows');
-    collabRowsMap.value = rowsMap;
-    doc.transact(() => {
-      rowsMap.forEach((entry) => {
-        if (!(entry instanceof Y.Map)) return;
-        const dataMap = ensureCollabRowDataMap(entry);
-        if (!dataMap) return;
-        const raw = dataMap.get(field.id);
-        const current = getMultiSelectValuesFromRaw(raw);
-        if (!current.length) return;
-        const next = pruneMultiSelectValues(current, allowedValues);
-        if (next.length === current.length) return;
-        if (!next.length) {
-          dataMap.delete(field.id);
-        } else {
-          dataMap.set(field.id, next);
-        }
-      });
-    }, 'db-option-cleanup');
+};
+
+// The same in the live document, within the caller's transaction (the field's new choices go in
+// the same change, so no one sees one without the other)
+const settleDocChoiceCells = (rowsMap, field, nextOptions, renames = new Map()) => {
+  const allowed = new Set(normalizeFieldOptions({ options: nextOptions || {} }).choices.map((choice) => choice.value));
+  const keptKey = keptValueKey(field.id);
+  rowsMap.forEach((entry) => {
+    if (!(entry instanceof Y.Map)) return;
+    const dataMap = ensureCollabRowDataMap(entry);
+    if (!dataMap) return;
+    const raw = dataMap.get(field.id);
+    const kept = dataMap.get(keptKey);
+    const next = settleChoiceCell(field.type, raw instanceof Y.Array ? raw.toArray() : raw, kept instanceof Y.Array ? kept.toArray() : kept, allowed, renames);
+    if (!next) return;
+    if (next.value === undefined) dataMap.delete(field.id);
+    else dataMap.set(field.id, next.value);
+    if (next.kept === undefined) dataMap.delete(keptKey);
+    else dataMap.set(keptKey, next.kept);
   });
 };
 
@@ -1378,7 +1375,7 @@ watch(
   { immediate: true }
 );
 onBeforeUnmount(() => clearTimeout(connectionNoticeTimer));
-const { attachAwarenessListener, caretLeftForCell, clearLocalCellCursor, getCellPresence, handleCaretMouse, handleCaretNavigate, markCellBlur, markCellFocus, markCellTyping, onTableFocusOut, presenceUser, setCellInputRef, updateAwarenessUser } = useCellPresence({ emit, activeUser, collabProvider, isCollabEnabled, tableWrapRef, flushPendingEnsureRowPages, scheduleSortRefresh });
+const { attachAwarenessListener, caretLeftForCell, cellEditor, releaseCell, clearLocalCellCursor, getCellPresence, handleCaretMouse, handleCaretNavigate, markCellBlur, markCellFocus, markCellTyping, onTableFocusOut, presenceUser, setCellInputRef, updateAwarenessUser } = useCellPresence({ emit, activeUser, collabProvider, isCollabEnabled, tableWrapRef, flushPendingEnsureRowPages, scheduleSortRefresh });
 
 const { savedViews, normalizeSavedView, createSavedView, deleteSavedView, renameSavedView, patchActiveViewConfig, activeViewFilters, activeViewSorts, activeFilterCount, setFilterMatch, addFilterRule, updateFilterRule, changeFilterRuleField, removeFilterRule, addSortRule, updateSortRule, removeSortRule, setBoardGroupField, setGalleryCardField, setGalleryCardFields, setGalleryCoverMax, setGalleryShowColors, setListOpenField, fieldChoices, filterMenu, filterMenuRef, filterMenuStyle, openFilterMenu, closeFilterMenu, sortMenu, sortMenuRef, sortMenuStyle, openSortMenu, closeSortMenu } = useSavedViews({ props, workspace, fields, fieldById, activeViewId, activeSavedView, hasApi, activeUser, error, canCreateForms, runWithSavingIndicator, closeFormMenu, closeColumnsMenu, getChoiceLabel, databaseRootRef });
 
@@ -1405,9 +1402,11 @@ watch(
 
 const setOptionsDraftForField = (field) => {
   if (isFieldOptionsLocked(field) || isFieldReadOnly(field)) return;
+  // was: the choice's name when the panel opened, so a rename can follow into the cells
   optionsDraft.value = normalizeFieldOptions(field).choices.map((choice) => ({
     value: choice.value,
     color: choice.color || null,
+    was: choice.value,
   }));
   optionsDraftFieldId.value = field.id;
 };
@@ -1526,6 +1525,16 @@ const dropPendingAmendments = (rowIds) => {
   const next = new Map(pendingAmendments.value);
   rowIds.forEach((id) => next.delete(id));
   pendingAmendments.value = next;
+};
+
+// Away from the tab or the app: out of the cell, so it isn't locked for everyone else meanwhile
+const leaveCellWhenAway = () => {
+  if (typeof document === 'undefined') return;
+  if (document.visibilityState === 'visible' && document.hasFocus()) return;
+  const active = document.activeElement;
+  if (active instanceof HTMLElement && tableWrapRef.value?.contains(active)) active.blur();
+  if (multiSelectMenu.value.open) closeMultiSelectMenu();
+  clearLocalCellCursor();
 };
 
 // Leaving with record changes not yet saved asks first
@@ -1665,8 +1674,14 @@ const closeAddFieldMenu = () => {
   addFieldName.value = '';
 };
 
+const isChoiceMenuOpen = (rowId, fieldId) =>
+  multiSelectMenu.value.open && multiSelectMenu.value.rowId === rowId && multiSelectMenu.value.fieldId === fieldId;
+
 const closeMultiSelectMenu = () => {
+  const { open, rowId, fieldId } = multiSelectMenu.value;
   multiSelectMenu.value = { open: false, fieldId: null, rowId: null, x: 0, y: 0 };
+  // Done with the cell its menu was for, unless focus is back in it
+  if (open && rowId && fieldId && !tableWrapRef.value?.contains(document.activeElement)) releaseCell(rowId, fieldId);
 };
 
 const closeRowMenu = () => {
@@ -2043,7 +2058,7 @@ const choiceColorForValue = (field, value) => {
   return match?.color || null;
 };
 
-const { renderCellInput } = useCellRenderer({ choiceColorForValue, getChoiceLabel, isReadonly, markCellFocus, markCellBlur, openMultiSelectMenu, getCellPresence, caretLeftForCell, openAssetTagPreview, rowPageId, getRowPageTitle, openRowPageOverlay, pageMap, workspace, resolveRowPage, ensureRowPage, applyLocalPageTitleUpdate, schedulePageTitleUpdate, tableWrapRef, pendingEnsureRowPages, scheduleSortRefresh, handleCaretNavigate, handleCaretMouse, markCellTyping, updateCell, setCellInputRef, resolveRowLastEdited, relationOptionsByPageId, relationOptionsLoading, loadRelationOptions, relationOptionsForPage, relationOptionsLoadingForPage, relationOptionsErrorForPage, getFieldChoices, linkedRowsFor, getRelationLabel, getRelationColor, openRelatedRow: (field, rowId) => openRelatedRow(field, rowId) });
+const { renderCellInput } = useCellRenderer({ choiceColorForValue, getChoiceLabel, isReadonly, markCellFocus, markCellBlur, openMultiSelectMenu, isChoiceMenuOpen, getCellPresence, cellEditor, caretLeftForCell, openAssetTagPreview, rowPageId, getRowPageTitle, openRowPageOverlay, pageMap, workspace, resolveRowPage, ensureRowPage, applyLocalPageTitleUpdate, schedulePageTitleUpdate, tableWrapRef, pendingEnsureRowPages, scheduleSortRefresh, handleCaretNavigate, handleCaretMouse, markCellTyping, updateCell, setCellInputRef, resolveRowLastEdited, relationOptionsByPageId, relationOptionsLoading, loadRelationOptions, relationOptionsForPage, relationOptionsLoadingForPage, relationOptionsErrorForPage, getFieldChoices, linkedRowsFor, getRelationLabel, getRelationColor, openRelatedRow: (field, rowId) => openRelatedRow(field, rowId) });
 
 const getColumnSizeForField = (fieldId) => {
   const raw = columnSizing.value?.[fieldId] ?? COLUMN_DEFAULT_SIZE;
@@ -2367,9 +2382,17 @@ const commitFieldOptions = async () => {
     color: choice.color || null,
   }));
   if (JSON.stringify(cleaned) === JSON.stringify(current)) return;
+  const renames = new Map(
+    optionsDraft.value
+      .map((choice) => [choice?.was, String(choice?.value ?? '').trim()])
+      .filter(([was, value]) => was && value && was !== value)
+  );
   const nextOptions = { ...normalizeFieldOptions(field), choices: cleaned };
-  await updateField(field, { options: nextOptions });
-  optionsDraft.value = cleaned;
+  const saved = await updateField(field, { options: nextOptions }, { renames });
+  // Only this field's draft, if it's still open, and only once saved (or the renames are kept to retry)
+  if (saved && optionsDraftFieldId.value === field.id) {
+    optionsDraft.value = cleaned.map((choice) => ({ ...choice, was: choice.value }));
+  }
 };
 
 const commitRelationOptions = async () => {
@@ -2426,7 +2449,7 @@ const updateOptionColor = (index, color) => {
 };
 
 const addOption = () => {
-  optionsDraft.value = [...optionsDraft.value, { value: '', color: null }];
+  optionsDraft.value = [...optionsDraft.value, { value: '', color: null, was: null }];
   nextTick(() => {
     const inputs = optionInputRefs.value;
     const last = inputs?.[inputs.length - 1];
@@ -2960,7 +2983,7 @@ const buildPlainRows = (rowsMap) => {
 
 // convertCells: for a type change, plans the cells' new values from the rows in the live document,
 // written in the same change as the type so no one sees one without the other
-const updateField = async (field, changes, { convertCells = null } = {}) => {
+const updateField = async (field, changes, { convertCells = null, renames = new Map() } = {}) => {
   if (isReadonly.value) return;
   if (isFieldReadOnly(field) && ('name' in changes || 'type' in changes || 'options' in changes)) {
     return;
@@ -2975,7 +2998,7 @@ const updateField = async (field, changes, { convertCells = null } = {}) => {
   if (!Object.keys(nextChanges).length) return;
   const nextType = nextChanges.type || field?.type;
   // A type change's conversion settles each cell itself
-  const shouldCleanupMultiSelect = 'options' in nextChanges && nextType === 'MULTI_SELECT' && !isMembersField(field) && !convertCells;
+  const shouldSettleChoices = 'options' in nextChanges && (nextType === 'SELECT' || nextType === 'MULTI_SELECT') && nextType === field?.type && !isMembersField(field) && !convertCells;
   if (isCollabEnabled.value) {
     if (!field?.id) return;
     let nextOptions = null;
@@ -3006,6 +3029,7 @@ const updateField = async (field, changes, { convertCells = null } = {}) => {
         if ('options' in nextChanges) {
           fieldMap.set('options', nextOptions || {});
         }
+        if (shouldSettleChoices) settleDocChoiceCells(rowsMap, { ...field, type: nextType }, nextOptions, renames);
         conversion?.cells.forEach(({ rowId, value, kept }) => {
           const rowMap = rowsMap.get(rowId);
           if (!(rowMap instanceof Y.Map)) return;
@@ -3026,10 +3050,10 @@ const updateField = async (field, changes, { convertCells = null } = {}) => {
           : normalizeFieldOptions(field),
     };
     emitFieldUpdated(updatedField);
-    if (shouldCleanupMultiSelect) {
-      cleanupMultiSelectOptions({ ...field, type: nextType }, nextOptions || {});
+    if (shouldSettleChoices) {
+      settleChoiceCells({ ...field, type: nextType }, nextOptions || {}, renames, { skipSave: true });
     }
-    return;
+    return true;
   }
   try {
     const updated = await runWithSavingIndicator(() =>
@@ -3037,12 +3061,14 @@ const updateField = async (field, changes, { convertCells = null } = {}) => {
     );
     Object.assign(field, updated, { options: normalizeFieldOptions(updated) });
     emitFieldUpdated(field);
-    if (shouldCleanupMultiSelect) {
-      cleanupMultiSelectOptions({ ...field, type: nextType }, updated?.options || nextChanges.options || {});
+    if (shouldSettleChoices) {
+      settleChoiceCells({ ...field, type: nextType }, updated?.options || nextChanges.options || {}, renames);
     }
+    return true;
   } catch (err) {
     console.warn('Update field failed', err);
     error.value = err?.message || 'Failed to update field';
+    return false;
   }
 };
 
@@ -3324,6 +3350,8 @@ onMounted(() => {
   if (typeof window !== 'undefined') {
     window.addEventListener('wikid:page-title-updated', handlePageTitleUpdated);
     window.addEventListener('beforeunload', warnOfUnsavedAmendments);
+    document.addEventListener('visibilitychange', leaveCellWhenAway);
+    window.addEventListener('blur', leaveCellWhenAway);
     window.addEventListener('wikid:db-row-updated', handleRowPropertiesUpdated);
   }
 });
@@ -3344,6 +3372,8 @@ onBeforeUnmount(() => {
   if (typeof window !== 'undefined') {
     window.removeEventListener('wikid:page-title-updated', handlePageTitleUpdated);
     window.removeEventListener('beforeunload', warnOfUnsavedAmendments);
+    document.removeEventListener('visibilitychange', leaveCellWhenAway);
+    window.removeEventListener('blur', leaveCellWhenAway);
     window.removeEventListener('wikid:db-row-updated', handleRowPropertiesUpdated);
   }
   teardownCollabProvider();

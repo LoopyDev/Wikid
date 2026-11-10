@@ -2639,6 +2639,15 @@ button {
   color: var(--text-muted);
 }
 
+/* Someone else is editing this cell: locked until they leave it */
+.db-cell--locked {
+  cursor: not-allowed;
+}
+
+.db-cell--locked :disabled {
+  cursor: not-allowed;
+}
+
 .db-readonly-cell {
   display: inline-flex;
   align-items: center;
