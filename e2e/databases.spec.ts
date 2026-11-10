@@ -145,6 +145,51 @@ test.describe('databases', () => {
     await expect(bobsCell).toHaveCount(0);
   });
 
+  test("a cell someone else is editing is locked until they leave it, so neither overwrites the other", async ({ alice, bob, workspaceId }) => {
+    await openPage(alice, await createPage(alice, workspaceId));
+    const id = await newDatabaseFromSidebar(alice, unique('Shared cell'));
+    await addNamedRow(alice, id, 'Row one');
+    await bob.goto(`/doc/${id}`);
+    await expect(rowNames(bob).nth(0)).toHaveValue('Row one');
+
+    await rowNames(alice).nth(0).focus();
+    await alice.keyboard.press('End');
+    await alice.keyboard.type(' by Alice', { delay: 30 });
+    const bobsCell = main(bob).locator('tbody .db-cell--locked');
+    await expect(bobsCell).toHaveAttribute('title', 'Alice is editing this cell');
+    await expect(rowNames(bob).nth(0)).toBeDisabled();
+
+    // Free again once she's left it, and Bob's change goes on hers
+    await rowNames(alice).nth(0).blur();
+    await expect(rowNames(bob).nth(0)).toBeEnabled();
+    await expect(rowNames(bob).nth(0)).toHaveValue('Row one by Alice');
+    await rowNames(bob).nth(0).focus();
+    await bob.keyboard.press('End');
+    await bob.keyboard.type(' and Bob', { delay: 30 });
+    await expect(rowNames(alice).nth(0)).toBeDisabled();
+    await rowNames(bob).nth(0).blur();
+    await expect.poll(() => nameFieldValues(alice, id)).toEqual(['Row one by Alice and Bob']);
+  });
+
+  test('a choice cell stays locked for others while its menu is open', async ({ alice, bob, workspaceId }) => {
+    await openPage(alice, await createPage(alice, workspaceId));
+    const id = await newDatabaseFromSidebar(alice, unique('Tagged'));
+    await addNamedRow(alice, id, 'Row one');
+    await alice.request.post(`/api/pages/${id}/database/fields`, { data: { name: 'Tags', type: 'MULTI_SELECT', options: { choices: [{ value: 'Red' }] } } });
+    await alice.reload();
+    await bob.goto(`/doc/${id}`);
+    const tags = (page: typeof alice) => main(page).locator('tbody tr').first().locator('.db-multi-cell');
+    await tags(alice).click();
+    await expect(alice.locator('.db-multi-select-menu')).toBeVisible();
+    await expect(tags(bob)).toBeDisabled();
+    await alice.keyboard.press('Escape');
+    await expect(alice.locator('.db-multi-select-menu')).toBeHidden();
+    // Back in the cell itself, so still hers until she leaves it
+    await expect(tags(bob)).toBeDisabled();
+    await tags(alice).blur();
+    await expect(tags(bob)).toBeEnabled();
+  });
+
   test('select, checkbox and number cells show and save their values', async ({ alice: page, workspaceId }) => {
     await openPage(page, await createPage(page, workspaceId));
     const id = await newDatabaseFromSidebar(page, unique('Typed'));

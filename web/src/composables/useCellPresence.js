@@ -17,6 +17,9 @@ export function useCellPresence({ emit, activeUser, collabProvider, isCollabEnab
   const collabAwarenessHandler = ref(null);
   let localTypingTimer = null;
   let lastLocalCursor = null;
+  // The cell this person is in ("rowId:fieldId"), or null, and since when
+  const localCell = ref(null);
+  let localSince = 0;
   const cellInputRefs = new Map();
   let caretMeasureCanvas = null;
   const updateAwarenessUser = () => {
@@ -26,6 +29,11 @@ export function useCellPresence({ emit, activeUser, collabProvider, isCollabEnab
   };
   const setLocalCellCursor = (rowId, fieldId, mode = 'focus', offset = null, value = null, caretLeft = null) => {
     const awareness = collabProvider.value?.awareness;
+    const key = rowId && fieldId ? `${rowId}:${fieldId}` : null;
+    if (localCell.value !== key) {
+      localCell.value = key;
+      localSince = Date.now();
+    }
     if (!awareness) return;
     if (!rowId || !fieldId) {
       lastLocalCursor = null;
@@ -47,6 +55,7 @@ export function useCellPresence({ emit, activeUser, collabProvider, isCollabEnab
       value: typeof value === 'string' ? value : null,
       caretLeft: Number.isFinite(caretLeft) ? caretLeft : null,
       ts: Date.now(),
+      since: localSince,
     });
   };
   const clearLocalCellCursor = () => {
@@ -179,6 +188,7 @@ export function useCellPresence({ emit, activeUser, collabProvider, isCollabEnab
         value: typeof cursor.value === 'string' ? cursor.value : null,
         caretLeft: Number.isFinite(cursor.caretLeft) ? cursor.caretLeft : null,
         ts: typeof cursor.ts === 'number' ? cursor.ts : 0,
+        since: typeof cursor.since === 'number' ? cursor.since : 0,
       });
     });
     collabCellPresence.value = cellEntries;
@@ -273,6 +283,19 @@ export function useCellPresence({ emit, activeUser, collabProvider, isCollabEnab
   });
   const getCellPresence = (rowId, fieldId) =>
     cellPresenceMap.value.get(`${rowId}:${fieldId}`) || [];
+  // Who else is editing a cell this person isn't in, so it's locked for them (like a spreadsheet):
+  // two people typing in one cell would otherwise overwrite each other. Null if no one.
+  // Two who went in at nearly the same time: whoever was first keeps it.
+  const cellEditor = (rowId, fieldId) => {
+    const key = `${rowId}:${fieldId}`;
+    const others = cellPresenceMap.value.get(key) || [];
+    if (localCell.value !== key) return others[0] || null;
+    return others.find((entry) => entry.since && entry.since < localSince) || null;
+  };
+  // Leaves a cell, if this person is still in it (a choice menu closing, say)
+  const releaseCell = (rowId, fieldId) => {
+    if (localCell.value === `${rowId}:${fieldId}`) clearLocalCellCursor();
+  };
 
-  return { attachAwarenessListener, caretLeftForCell, clearLocalCellCursor, getCellPresence, handleCaretMouse, handleCaretNavigate, markCellBlur, markCellFocus, markCellTyping, onTableFocusOut, presenceUser, setCellInputRef, updateAwarenessUser };
+  return { attachAwarenessListener, caretLeftForCell, cellEditor, releaseCell, clearLocalCellCursor, getCellPresence, handleCaretMouse, handleCaretNavigate, markCellBlur, markCellFocus, markCellTyping, onTableFocusOut, presenceUser, setCellInputRef, updateAwarenessUser };
 }
