@@ -1115,29 +1115,10 @@ export const useWorkspaceStore = defineStore('workspace', {
       if (!this.hasApi || !this.activeUser) return;
       if (!this.canEditActiveWorkspace) return;
       try {
-        const original = await api.getPage(page.id, {
-          userId: this.activeUser.id,
-          userName: this.activeUser.name,
-        });
-        const kind = original?.kind === 'DATABASE' ? 'DATABASE' : 'DOC';
-        const newPage = await api.createPage({
-          workspaceId: page.workspaceId,
-          title: `${page.title || 'Untitled'} copy`,
-          kind,
-          visibility: page.visibility || 'PUBLIC',
-          userId: this.activeUser.id,
-          userName: this.activeUser.name,
-        });
-        if (kind !== 'DATABASE') {
-          await api.updatePageContent(newPage.id, original.content, {
-            userId: this.activeUser.id,
-            userName: this.activeUser.name,
-          });
-          this.upsertPage({ ...newPage, content: original.content });
-        } else {
-          this.upsertPage(newPage);
-        }
-        this.selectPage(newPage);
+        const copy = await api.duplicatePage(page.id, { userId: this.activeUser.id, userName: this.activeUser.name });
+        // The copy's subpages come with it
+        await this.loadPageList(copy.workspaceId || this.activeWorkspaceId, { keepBin: true });
+        this.selectPage(this.pages.find((p) => p.id === copy.id) || copy);
       } catch (err) {
         console.warn('Duplicate page failed', err);
         this.error = err?.message || 'Failed to duplicate page';
@@ -1174,9 +1155,11 @@ export const useWorkspaceStore = defineStore('workspace', {
         await api.updatePageTitle(page.id, nextTitle, {
           userId: this.activeUser?.id,
           userName: this.activeUser?.name,
+          rename: true,
         });
         this.updatePageInLists(page.id, (p) => ({ ...p, title: nextTitle }));
-        this.titleDraft = nextTitle;
+        // The title box is the open page's: only its own rename goes there
+        if (page.id === this.currentPage?.id) this.titleDraft = nextTitle;
       } catch (err) {
         console.warn('Rename page failed', err);
         this.error = err?.message || 'Failed to rename page';

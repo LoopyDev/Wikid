@@ -217,6 +217,14 @@ describe('bin, restore and permanent delete', () => {
     expect((await alice.delete('/pages', { ids: [] })).body).toEqual({ count: 0 });
   });
 
+  it('deletes for good only for the workspace owner; editors can bin and restore', async () => {
+    const page = await createPage(bob, workspaceId);
+    expect((await bob.delete(`/pages/${page.id}`)).status).toBe(200);
+    expect((await bob.delete('/pages', { ids: [page.id] })).status).toBe(403);
+    expect(await listIds(alice, '&includeDeleted=true')).toContain(page.id);
+    expect((await alice.delete('/pages', { ids: [page.id] })).status).toBe(200);
+  });
+
   it('deletes a database page permanently', async () => {
     const db = await createPage(alice, workspaceId, { kind: 'DATABASE' });
     await alice.post(`/pages/${db.id}/database/rows`, { data: {} });

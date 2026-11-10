@@ -167,8 +167,15 @@ export class PagesController {
   }
 
   @Put('pages/:id/markdown')
-  replacePageMarkdown(@Param('id') id: string, @Body('markdown') markdown: unknown, @CurrentUserId() userId?: string, @CurrentUserName() userName?: string) {
-    return this.pageContent.replaceMarkdown(id, requireMarkdown(markdown), { userId, userName });
+  replacePageMarkdown(
+    @Param('id') id: string,
+    @Body('markdown') markdown: unknown,
+    // The revision the writer read (from GET .../markdown): refused if the page has changed since
+    @Body('revision') revision: unknown,
+    @CurrentUserId() userId?: string,
+    @CurrentUserName() userName?: string,
+  ) {
+    return this.pageContent.replaceMarkdown(id, requireMarkdown(markdown), { userId, userName }, typeof revision === 'string' ? revision : undefined);
   }
 
   @Post('pages/:id/markdown/blocks')
@@ -240,13 +247,15 @@ export class PagesController {
     @Body('title') title: string,
     @Body('icon') icon?: string,
     @Body('fullWidth') fullWidth?: boolean,
+    // A rename from outside the page (the sidebar): into its live document too, for everyone with it open
+    @Body('rename') rename?: boolean,
     @CurrentUserId() userId?: string,
     @CurrentUserName() userName?: string,
   ) {
     const nextTitle = typeof title === 'string' ? title : undefined;
     const nextIcon = typeof icon === 'string' ? icon : undefined;
     const nextFullWidth = typeof fullWidth === 'boolean' ? fullWidth : undefined;
-    return this.pages.updatePage(id, { title: nextTitle, icon: nextIcon, fullWidth: nextFullWidth }, { userId, userName });
+    return this.pages.updatePage(id, { title: nextTitle, icon: nextIcon, fullWidth: nextFullWidth, rename: rename === true }, { userId, userName });
   }
 
   @Patch('pages/:id/workspace')
@@ -532,6 +541,12 @@ export class PagesController {
   deleteDatabaseRow(@Param('id') id: string, @Body() body: any, @CurrentUserId() userId?: string, @CurrentUserName() userName?: string) {
     // reason: why a compliance record goes (required for that)
     return this.databases.deleteDatabaseRow(id, { userId, userName }, typeof body?.reason === 'string' ? body.reason : undefined);
+  }
+
+  // A copy of the page and its subpages, next to it
+  @Post('pages/:id/duplicate')
+  duplicatePage(@Param('id') id: string, @CurrentUserId() userId?: string, @CurrentUserName() userName?: string) {
+    return this.pages.duplicatePage(id, { userId, userName });
   }
 
   @Delete('pages/:id')

@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test';
-import { test, expect, createPage, openPage, unique } from './fixtures';
+import { test, expect, createPage, openPage, unique, editor } from './fixtures';
 
 const sidebar = (page: Page) => page.getByRole('complementary');
 const main = (page: Page) => page.getByRole('main');
@@ -22,6 +22,27 @@ async function openItemMenu(page: Page, title: string) {
 }
 
 test.describe('sidebar', () => {
+  test('duplicates a page with what it has now, its icon and its subpages, next to it', async ({ alice: page, workspaceId }) => {
+    const title = unique('Original');
+    const id = await createPage(page, workspaceId, { title });
+    await page.request.patch(`/api/pages/${id}`, { data: { icon: '📘' } });
+    await createPage(page, workspaceId, { title: 'Child page', parentId: id });
+    await openPage(page, id);
+    await editor(page).click();
+    await page.keyboard.type('Typed a moment ago', { delay: 20 });
+
+    await openItemMenu(page, title);
+    await page.locator('.page-menu').getByRole('button', { name: 'Duplicate' }).click();
+    await expect(main(page).getByRole('textbox', { name: 'Untitled page' })).toHaveValue(`${title} copy`);
+    await expect(editor(page)).toContainText('Typed a moment ago');
+    const copy = sidebarItem(page, `${title} copy`);
+    await expect(copy).toBeVisible();
+    await expect(copy.locator('.page-icon').first()).toContainText('📘');
+    const copyId = currentPageId(page);
+    const pages = await (await page.request.get(`/api/pages?workspaceId=${workspaceId}`)).json();
+    expect(pages.filter((p: any) => p.parentId === copyId).map((p: any) => p.title)).toEqual(['Child page']);
+  });
+
   test('drags a page into the Private or Public section when that section is empty', async ({ alice: page, workspaceId }) => {
     const title = unique('Movable');
     const id = await createPage(page, workspaceId, { title });
@@ -276,5 +297,62 @@ test.describe('sidebar', () => {
     await expect(bin).toBeInViewport();
     await last.click();
     await expect(main(page).getByRole('textbox', { name: 'Untitled page' })).toHaveValue(titles[titles.length - 1]);
+  });
+});
+
+test.describe('renaming from the sidebar', () => {
+  test('reaches people with the page open, and leaves the page you are on alone', async ({ alice, bob, workspaceId }) => {
+    const here = unique('Here');
+    const there = unique('There');
+    const hereId = await createPage(alice, workspaceId, { title: here });
+    const thereId = await createPage(alice, workspaceId, { title: there });
+    await openPage(alice, hereId);
+    await openPage(bob, thereId);
+    const titleBox = (page: Page) => main(page).getByRole('textbox', { name: 'Untitled page' });
+    await expect(titleBox(bob)).toHaveValue(there);
+
+    const renamed = `${there} renamed`;
+    alice.once('dialog', (dialog) => dialog.accept(renamed));
+    await openItemMenu(alice, there);
+    await alice.locator('.page-menu').getByRole('button', { name: 'Rename' }).click();
+    await expect(sidebarItem(alice, renamed)).toBeVisible();
+    // Alice's own page keeps its title
+    await expect(titleBox(alice)).toHaveValue(here);
+    await alice.waitForTimeout(1500);
+    expect((await (await alice.request.get(`/api/pages/${hereId}`)).json()).title).toBe(here);
+
+    // Bob sees the new title, and his next edit to it builds on it
+    await expect(titleBox(bob)).toHaveValue(renamed);
+    await titleBox(bob).click();
+    await bob.keyboard.press('End');
+    await bob.keyboard.type('!', { delay: 30 });
+    await expect.poll(async () => (await (await bob.request.get(`/api/pages/${thereId}`)).json()).title).toBe(`${renamed}!`);
+  });
+});
+
+test.describe('the Bin', () => {
+  test('"Delete all" asks first, and only the workspace owner gets it', async ({ alice, bob, workspaceId }) => {
+    const title = unique('Binned');
+    const id = await createPage(alice, workspaceId, { title });
+    await alice.request.delete(`/api/pages/${id}`);
+    const openBin = async (page: Page) => {
+      await openPage(page, await createPage(alice, workspaceId));
+      await sidebar(page).getByRole('button', { name: /Bin/ }).click();
+      await expect(page.getByRole('heading', { name: 'Rubbish bin' })).toBeVisible();
+    };
+
+    // An editor can restore, but not delete for good
+    await openBin(bob);
+    await expect(bob.getByText(title)).toBeVisible();
+    await expect(bob.getByRole('button', { name: 'Delete all' })).toHaveCount(0);
+
+    await openBin(alice);
+    await alice.getByRole('button', { name: 'Delete all' }).click();
+    await expect(alice.getByText(/Delete 1 page for good\? This can't be undone\./)).toBeVisible();
+    await alice.getByRole('button', { name: 'Cancel' }).click();
+    expect((await alice.request.get(`/api/pages?workspaceId=${workspaceId}&includeDeleted=true`).then((r) => r.json())).some((p: any) => p.id === id)).toBe(true);
+    await alice.getByRole('button', { name: 'Delete all' }).click();
+    await alice.getByRole('button', { name: 'Delete for good' }).click();
+    await expect.poll(async () => (await alice.request.get(`/api/pages?workspaceId=${workspaceId}&includeDeleted=true`).then((r) => r.json())).some((p: any) => p.id === id)).toBe(false);
   });
 });

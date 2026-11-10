@@ -1,7 +1,8 @@
 import { Injectable, BadRequestException, NotFoundException, ForbiddenException, ConflictException } from '@nestjs/common';
-import { Prisma, BlockType, WorkspaceRole, DatabaseFieldType, PageKind, PageVisibility, PageSetupStatus } from '@prisma/client';
+import { Prisma, BlockType, WorkspaceRole, type Page, DatabaseFieldType, PageKind, PageVisibility, PageSetupStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { normalizeEditorContent } from './editor-doc.util';
+import { withoutBlockIds } from './block-id.util';
 import { deleteDatabasesWithContents } from '../utils/delete-databases.util';
 import { isUuid } from '../utils/uuid.util';
 import { PageAccessService } from './page-access.service';
@@ -161,8 +162,17 @@ export class PagesService {
     return tx.page.deleteMany({ where: { id: { in: ids } } });
   }
 
-  async updatePage(id: string, data: { title?: string; icon?: string; fullWidth?: boolean }, user?: { userId?: string; userName?: string }) {
-    await this.access.requirePageAccess(id, user, { requireWrite: true });
+  // rename: a rename made from outside the page (the sidebar), put into its live document so everyone
+  // with it open sees it, and their next title edit builds on it rather than putting the old one back.
+  // Not for the page's own title saves: those come from its live document, typed there.
+  async updatePage(id: string, data: { title?: string; icon?: string; fullWidth?: boolean; rename?: boolean }, user?: { userId?: string; userName?: string }) {
+    const { page } = await this.access.requirePageAccess(id, user, { requireWrite: true });
+    if (data.rename && typeof data.title === 'string' && page.kind === PageKind.DOC) {
+      // Best done, but the rename stands without it (the stored title, below, is the page's title)
+      await this.pageContent.replaceTitle(id, data.title, user ?? {}).catch((err) => {
+        console.warn('Rename: live title not updated', { pageId: id, error: err });
+      });
+    }
     const updateData: Prisma.PageUpdateInput = {};
     if (typeof data.title === 'string') {
       updateData.title = data.title;
@@ -578,6 +588,62 @@ export class PagesService {
     return updated;
   }
 
+  /**
+   * A copy of a page next to it: what it has now (its live document, not the stored copy, which can
+   * be minutes behind), its icon and width, and its subpages (those this person can see), each with
+   * block ids of its own. A database page in it is copied as a new, empty database.
+   */
+  async duplicatePage(id: string, user?: { userId?: string; userName?: string }) {
+    await this.access.requirePageAccess(id, user, { requireWrite: true });
+    const page = await this.prisma.page.findUniqueOrThrow({ where: { id } });
+    const made: string[] = [];
+    const copyTree = async (source: Page, parentId: string | null, title?: string) => {
+      const content = source.kind === PageKind.DOC ? { type: 'doc', content: withoutBlockIds(await this.pageContent.readContent(source.id, user ?? {})) } : null;
+      const created = await this.createPage({
+        workspaceId: source.workspaceId,
+        title: title ?? source.title,
+        userId: user?.userId,
+        userName: user?.userName,
+        parentId: parentId ?? undefined,
+        kind: source.kind,
+        visibility: source.visibility,
+        icon: source.icon,
+        content,
+        fullWidth: source.fullWidth,
+      });
+      made.push(created.id);
+      const subpages = await this.prisma.page.findMany({
+        where: { parentId: source.id, isDeleted: false, isHidden: false },
+        orderBy: { position: 'asc' },
+      });
+      for (const subpage of subpages) {
+        // Only the subpages this person can see (not someone else's private ones)
+        if (subpage.visibility === PageVisibility.PRIVATE && subpage.authorId !== user?.userId) continue;
+        await copyTree(subpage, created.id);
+      }
+      return created;
+    };
+    let copy: Page;
+    try {
+      copy = await copyTree(page, page.parentId ?? null, `${page.title || 'Untitled'} copy`);
+    } catch (err) {
+      // Not half a copy: what was made goes again
+      if (made.length) await this.prisma.$transaction((tx) => this.removePages(tx, made)).catch(() => undefined);
+      this.collabSync.announcePagesChanged(page.workspaceId, made);
+      throw err;
+    }
+    // Right after the original, rather than at the end
+    const next = await this.prisma.page.findFirst({
+      where: { workspaceId: page.workspaceId, parentId: page.parentId ?? null, isDeleted: false, position: { gt: page.position }, id: { not: copy.id } },
+      orderBy: { position: 'asc' },
+      select: { position: true },
+    });
+    const position = next ? page.position.add(next.position).div(2) : page.position.add(1);
+    const placed = await this.prisma.page.update({ where: { id: copy.id }, data: { position } });
+    this.collabSync.announcePagesChanged(page.workspaceId, [placed.id]);
+    return placed;
+  }
+
   async deletePage(id: string, user?: { userId?: string; userName?: string }) {
     const { page } = await this.access.requirePageAccess(id, user, { requireWrite: true });
     const descendantIds = await this.access.collectDescendantIds(id);
@@ -600,7 +666,11 @@ export class PagesService {
 
   async destroyPages(ids: string[], user?: { userId?: string; userName?: string }) {
     if (!ids?.length) return { count: 0 };
-    await Promise.all(ids.map((pageId) => this.access.requirePageAccess(pageId, user, { requireWrite: true, allowDeleted: true })));
+    const access = await Promise.all(ids.map((pageId) => this.access.requirePageAccess(pageId, user, { requireWrite: true, allowDeleted: true })));
+    // For good only by a workspace's owner: an editor binning and restoring is undoable, this isn't
+    if (access.some(({ membership }) => membership.role !== WorkspaceRole.OWNER)) {
+      throw new ForbiddenException("Only the workspace's owner can delete pages for good");
+    }
     // For good only from the Bin: a page in use goes there first. One restored meanwhile (someone
     // else's Bin list was out of date) is left alone; the rest still go.
     const pages = await this.prisma.page.findMany({ where: { id: { in: ids }, isDeleted: true }, select: { id: true, workspaceId: true } });

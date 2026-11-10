@@ -136,7 +136,8 @@ describe('MCP server', () => {
     const content = { type: 'doc', content: [{ type: 'databaseView', attrs: { id: 'block-1', pageId, title: 'Stock' } }] };
     await alice.put(`/pages/${pageId}/content`, { content });
     expect((await call('get_page', { pageId })).text).toContain('[Database view: Stock]');
-    const refused = await call('replace_page', { pageId, markdown: 'Everything' });
+    const revision = (await call('get_page', { pageId })).text.match(/Revision ([0-9a-f]+)/)?.[1];
+    const refused = await call('replace_page', { pageId, markdown: 'Everything', revision });
     expect(refused.isError).toBe(true);
     expect(refused.text).toMatch(/block by block/);
   });
