@@ -1,3 +1,4 @@
+import { Selection } from 'prosemirror-state';
 import { selectionSyncedReferenceId } from './syncedBlocks';
 import { parseBlockUrl } from '../utils/editorLinks';
 import { shouldHandleMarkdownPaste } from '../utils/markdownPaste';
@@ -150,9 +151,13 @@ export function createEditorProps({ lastTextInputAt, lastTextInputInfo, props, i
             && selection.$from.node(1) === first
             && selection.$from.parentOffset === 0
           ) {
+            // The empty first line goes; the cursor stays, at the start of the line now first (it was
+            // taken out of the editor, so the next key went nowhere)
             event.preventDefault();
-            view.dispatch(state.tr.delete(0, first.nodeSize));
-            getEditor()?.commands?.blur?.();
+            const tr = state.tr.delete(0, first.nodeSize);
+            // A text position (not an image or divider now first, which the next key would delete)
+            const start = Selection.findFrom(tr.doc.resolve(0), 1, true) ?? Selection.atStart(tr.doc);
+            view.dispatch(tr.setSelection(start).scrollIntoView());
             return true;
           }
         }
