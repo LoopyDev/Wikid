@@ -14,6 +14,7 @@ import { useWorkspaceStore } from '../stores/workspace';
 import PageIcon from './PageIcon.vue';
 import FormBuilder from './FormBuilder.vue';
 import { keptValueKey, notFitText, planTypeChange } from '../utils/database/typeChange';
+import { linkHref } from '../utils/database/links';
 import { getAssetTagValue, getMultiSelectValues, getMultiSelectValuesFromRaw, getRelationEntries, getRowIdValue, normalizeCellValue, normalizeFilterValues, normalizeRelationEntry, pruneMultiSelectValues, renderRowIdCell, shouldClearCell, stringifyValue, valueForField } from '../utils/database/cellValues';
 import { clearYMap, cloneForSeed, ensureCollabRowDataMap, generateId, hydrateRow, readCollabOrder } from '../utils/database/collabRows';
 import { ROW_COLORS, ROW_COLOR_KEY, rowColor, multiSelectDotStyle, multiSelectPillStyle } from '../utils/database/colors';
@@ -1379,7 +1380,7 @@ watch(
 onBeforeUnmount(() => clearTimeout(connectionNoticeTimer));
 const { attachAwarenessListener, caretLeftForCell, clearLocalCellCursor, getCellPresence, handleCaretMouse, handleCaretNavigate, markCellBlur, markCellFocus, markCellTyping, onTableFocusOut, presenceUser, setCellInputRef, updateAwarenessUser } = useCellPresence({ emit, activeUser, collabProvider, isCollabEnabled, tableWrapRef, flushPendingEnsureRowPages, scheduleSortRefresh });
 
-const { savedViews, normalizeSavedView, createSavedView, deleteSavedView, renameSavedView, patchActiveViewConfig, activeViewFilters, activeViewSorts, activeFilterCount, setFilterMatch, addFilterRule, updateFilterRule, changeFilterRuleField, removeFilterRule, addSortRule, updateSortRule, removeSortRule, setBoardGroupField, setGalleryCardField, setGalleryCardFields, setGalleryCoverMax, setGalleryShowColors, fieldChoices, filterMenu, filterMenuRef, filterMenuStyle, openFilterMenu, closeFilterMenu, sortMenu, sortMenuRef, sortMenuStyle, openSortMenu, closeSortMenu } = useSavedViews({ props, workspace, fields, fieldById, activeViewId, activeSavedView, hasApi, activeUser, error, canCreateForms, runWithSavingIndicator, closeFormMenu, closeColumnsMenu, getChoiceLabel, databaseRootRef });
+const { savedViews, normalizeSavedView, createSavedView, deleteSavedView, renameSavedView, patchActiveViewConfig, activeViewFilters, activeViewSorts, activeFilterCount, setFilterMatch, addFilterRule, updateFilterRule, changeFilterRuleField, removeFilterRule, addSortRule, updateSortRule, removeSortRule, setBoardGroupField, setGalleryCardField, setGalleryCardFields, setGalleryCoverMax, setGalleryShowColors, setListOpenField, fieldChoices, filterMenu, filterMenuRef, filterMenuStyle, openFilterMenu, closeFilterMenu, sortMenu, sortMenuRef, sortMenuStyle, openSortMenu, closeSortMenu } = useSavedViews({ props, workspace, fields, fieldById, activeViewId, activeSavedView, hasApi, activeUser, error, canCreateForms, runWithSavingIndicator, closeFormMenu, closeColumnsMenu, getChoiceLabel, databaseRootRef });
 
 watch(
   () => [fieldMenu.value.open, fieldMenu.value.fieldId],
@@ -2194,6 +2195,14 @@ const isLinkField = (field) => isLinkedFromField(field) || field?.type === 'RELA
 const listFields = computed(() => {
   const chosen = activeSavedView.value?.config?.cardFieldIds;
   return Array.isArray(chosen) ? cardFieldCandidates.value.filter((field) => chosen.includes(field.id)) : [];
+});
+// A URL cell's link, when it has one safe to open (see linkHref)
+const urlHref = (row, field) => (field?.type === 'URL' ? linkHref(valueForField(row, field)) : null);
+// A list view can open each row's link (a URL column) rather than its page
+const urlFields = computed(() => fields.value.filter((field) => field.type === 'URL'));
+const listOpenField = computed(() => {
+  const field = fieldById.value.get(activeSavedView.value?.config?.openFieldId);
+  return field?.type === 'URL' ? field : null;
 });
 const listFieldShown = (fieldId) => listFields.value.some((field) => field.id === fieldId);
 const toggleListField = (fieldId) => {
@@ -3882,7 +3891,10 @@ onBeforeUnmount(() => {
               <div
                 v-else-if="galleryCardField"
                 class="db-gallery__cover"
-              >{{ galleryCardValue(row, galleryCardField) }}</div>
+              >
+                <a v-if="urlHref(row, galleryCardField)" class="db-url-link" :href="urlHref(row, galleryCardField)" target="_blank" rel="noopener noreferrer" @click.stop>{{ galleryCardValue(row, galleryCardField) }}</a>
+                <template v-else>{{ galleryCardValue(row, galleryCardField) }}</template>
+              </div>
               <div class="db-gallery__fields">
                 <div v-for="field in cardBodyFields" :key="field.id" class="db-gallery__field">
                   <span class="db-gallery__field-name">{{ field.name }}</span>
@@ -3899,6 +3911,7 @@ onBeforeUnmount(() => {
                       <span v-else class="db-multi-pill" :style="multiSelectPillStyle(item.color)">{{ item.label }}</span>
                     </template>
                   </span>
+                  <a v-else-if="urlHref(row, field)" class="db-gallery__field-value db-url-link" :href="urlHref(row, field)" target="_blank" rel="noopener noreferrer" @click.stop>{{ galleryCardValue(row, field) }}</a>
                   <span v-else class="db-gallery__field-value">{{ galleryCardValue(row, field) }}</span>
                 </div>
               </div>
@@ -3907,6 +3920,16 @@ onBeforeUnmount(() => {
         </div>
         <div v-else-if="isListView" class="db-list">
           <div v-if="!embedded" class="db-view-config-bar">
+            <label class="db-view-config-bar__label" for="db-list-open">Clicking a row opens</label>
+            <select
+              id="db-list-open"
+              class="db-view-config__select"
+              :value="listOpenField?.id || ''"
+              @change="setListOpenField($event.target.value)"
+            >
+              <option value="">Its page</option>
+              <option v-for="field in urlFields" :key="field.id" :value="field.id">{{ field.name || 'Link' }}</option>
+            </select>
             <details class="db-card-fields">
               <summary class="db-card-fields__toggle">Properties</summary>
               <div class="db-card-fields__menu">
@@ -3921,7 +3944,14 @@ onBeforeUnmount(() => {
           <div v-if="!shownRows.length" class="database-table__empty muted">No matching rows.</div>
           <ul v-else class="db-list__rows">
             <li v-for="row in shownRows" :key="row.id" class="db-list__row">
-              <button class="db-list__title" type="button" @click="openRowCard(row)">
+              <template v-if="listOpenField && urlHref(row, listOpenField)">
+                <a class="db-list__title" :href="urlHref(row, listOpenField)" target="_blank" rel="noopener noreferrer">
+                  <PageIcon class="db-list__icon" :icon="rowIcon(row)" fallback="📄" aria-hidden="true" />
+                  <span class="db-list__name">{{ rowTitle(row) }}</span>
+                </a>
+                <button class="db-list__page" type="button" title="Open page" aria-label="Open page" @click="openRowCard(row)">📄</button>
+              </template>
+              <button v-else class="db-list__title" type="button" @click="openRowCard(row)">
                 <PageIcon class="db-list__icon" :icon="rowIcon(row)" fallback="📄" aria-hidden="true" />
                 <span class="db-list__name">{{ rowTitle(row) }}</span>
               </button>
@@ -3940,6 +3970,7 @@ onBeforeUnmount(() => {
                       <span v-else class="db-multi-pill" :style="multiSelectPillStyle(item.color)">{{ item.label }}</span>
                     </template>
                   </template>
+                  <a v-else-if="urlHref(row, field)" class="db-url-link" :href="urlHref(row, field)" target="_blank" rel="noopener noreferrer">{{ galleryCardValue(row, field) }}</a>
                   <template v-else>{{ galleryCardValue(row, field) }}</template>
                 </span>
               </span>

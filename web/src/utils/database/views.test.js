@@ -77,6 +77,7 @@ describe('view settings', () => {
       cardFieldIds: ['f2'],
       coverMaxItems: null,
       showColors: false,
+      openFieldId: null,
     });
   });
 
@@ -90,6 +91,7 @@ describe('view settings', () => {
       cardFieldIds: null,
       coverMaxItems: null,
       showColors: false,
+      openFieldId: null,
     });
   });
 });

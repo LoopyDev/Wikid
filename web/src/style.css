@@ -11043,6 +11043,25 @@ button.db-gallery__cover-item:focus-visible {
   text-align: left;
   cursor: pointer;
 }
+a.db-list__title {
+  text-decoration: none;
+}
+/* A row that opens its link: its page is still a click away */
+.db-list__page {
+  flex: 0 0 auto;
+  border: none;
+  background: transparent;
+  padding: 2px 4px;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  opacity: 0.6;
+}
+.db-list__page:hover,
+.db-list__page:focus-visible {
+  opacity: 1;
+  background: var(--surface-hover, rgba(127, 127, 127, 0.12));
+}
 .db-list__title:hover .db-list__name,
 .db-list__title:focus-visible .db-list__name {
   text-decoration: underline;
@@ -11452,3 +11471,32 @@ button.db-gallery__cover-item:focus-visible {
   color: var(--text-muted);
 }
 
+
+/* URL cells: the text edits the link; the arrow beside it opens it */
+.db-url-cell {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.db-url-cell .db-cell-input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.db-url-open {
+  flex: 0 0 auto;
+  padding: 0 6px;
+  color: var(--text-muted);
+  text-decoration: none;
+  border-radius: 4px;
+}
+.db-url-open:hover,
+.db-url-open:focus-visible {
+  color: var(--accent, var(--text-primary));
+  background: var(--surface-hover, rgba(127, 127, 127, 0.12));
+}
+.db-url-link {
+  color: var(--accent, inherit);
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+  overflow-wrap: anywhere;
+}

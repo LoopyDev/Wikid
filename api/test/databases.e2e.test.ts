@@ -438,6 +438,18 @@ describe('views', () => {
     const chosen = await alice.patch(`/database-views/${view.body.id}`, { config: { cardFieldIds: [], coverMaxItems: 4, cardFieldId: titleFieldId } });
     expect(chosen.body.config).toMatchObject({ cardFieldIds: [], coverMaxItems: 4, cardFieldId: titleFieldId });
   });
+
+  it("keeps the column whose link a list view's rows open, if it's one of the database's", async () => {
+    const { pageId } = await createDatabase();
+    const site = await addField(pageId, { name: 'Site', type: 'URL' });
+    const view = await alice.post(`/pages/${pageId}/database/views`, { name: 'Links', type: 'LIST', config: { openFieldId: site.id } });
+    expect(view.body.config.openFieldId).toBe(site.id);
+    const missing = await alice.patch(`/database-views/${view.body.id}`, { config: { openFieldId: MISSING_ID } });
+    expect(missing.body.config.openFieldId).toBeNull();
+    const notes = await addField(pageId, { name: 'Notes', type: 'TEXT' });
+    const notLink = await alice.patch(`/database-views/${view.body.id}`, { config: { openFieldId: notes.id } });
+    expect(notLink.body.config.openFieldId).toBeNull();
+  });
 });
 
 describe('forms', () => {
