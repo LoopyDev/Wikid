@@ -161,8 +161,10 @@ export class PagesController {
 
   // A page's content as Markdown, block by block, for tools working outside the editor (the MCP
   // server). Blocks are changed one at a time, so what Markdown can't hold is left as it is.
+  // for=export: plain Markdown for an export file (see PageContentService.getExportMarkdown)
   @Get('pages/:id/markdown')
-  getPageMarkdown(@Param('id') id: string, @CurrentUserId() userId?: string, @CurrentUserName() userName?: string) {
+  getPageMarkdown(@Param('id') id: string, @Query('for') purpose?: string, @CurrentUserId() userId?: string, @CurrentUserName() userName?: string) {
+    if (purpose === 'export') return this.pageContent.getExportMarkdown(id, { userId, userName });
     return this.pageContent.getMarkdown(id, { userId, userName });
   }
 

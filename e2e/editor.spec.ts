@@ -40,6 +40,18 @@ test.describe('editor', () => {
     ]);
   });
 
+  test('pastes Markdown with an image in a heading or a table cell, keeping the image', async ({ alice: page, workspaceId }) => {
+    const id = await createPage(page, workspaceId);
+    await openPage(page, id);
+    await editor(page).click();
+    await pastePlainText(page, '# Plans ![map](https://example.com/map.png)\n\n| A | B |\n| --- | --- |\n| Before ![dot](https://example.com/dot.png) | Text |\n\nAfter');
+    await expect(editor(page)).toContainText('After');
+    await expect(editor(page).locator('h1')).toHaveText('Plans');
+    await expect(editor(page).locator('img[src="https://example.com/map.png"]')).toHaveCount(1);
+    // In a table cell, as a link to it (a cell's row can't hold an image block in Markdown)
+    await expect(editor(page).locator('td a[href="https://example.com/dot.png"]')).toHaveText('dot');
+  });
+
   test('turns a single pasted to-do line into a to-do, but leaves a single bullet line as text', async ({ alice: page, workspaceId }) => {
     const id = await createPage(page, workspaceId);
     await openPage(page, id);

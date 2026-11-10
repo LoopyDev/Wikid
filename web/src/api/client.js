@@ -344,6 +344,10 @@ export const api = {
       ...(reason ? { body: JSON.stringify({ reason }) } : {}),
     });
   },
+  // A page as plain Markdown for an export file, from what it has now (see markdownExport.js)
+  async getPageExportMarkdown(pageId, { userId, userName } = {}) {
+    return request(`/pages/${pageId}/markdown${buildQs({ userId, userName, for: 'export' })}`);
+  },
   async deletePage(pageId, { userId, userName } = {}) {
     return request(`/pages/${pageId}${buildQs({ userId, userName })}`, {
       method: 'DELETE',

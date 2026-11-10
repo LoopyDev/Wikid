@@ -257,12 +257,11 @@ export const renderDatabaseAsMarkdownTable = (db, fallbackTitle) => {
   return [`**${title}**`, header, separator, ...dataRows].join('\n');
 };
 
-// Where an image or splat points in Markdown. An export that puts uploads in its zip gives
-// fileLink, which returns the upload's path in the zip (or null to keep its address).
-// Otherwise it's this site's full address: Markdown is read outside Wikid.
-const renderFileBlock = (block, fileLink) => {
+// Where an image or splat points in Markdown: this site's full address, as Markdown is read outside
+// Wikid. (Exports, which put uploads in their zip, are markdownExport.js.)
+const renderFileBlock = (block) => {
   const src = block.data?.file?.url || block.data?.url || '';
-  const url = fileLink?.(src) || absoluteUploadSrc(src);
+  const url = absoluteUploadSrc(src);
   if (!url) return '';
   // Markdown can't show a splat, so it's a link to the file
   if (block.type === 'splat') return `[Gaussian splat](${url})`;
@@ -272,16 +271,9 @@ const renderFileBlock = (block, fileLink) => {
 // Every block, those inside callouts and quotes too
 const allBlocks = (blocks) => blocks.flatMap((block) => (block.type === 'quote' ? [block, ...allBlocks(block.data.blocks)] : [block]));
 
-/** The addresses of the images and splats a page shows, as saved in it. */
-export const fileSrcsInDoc = (raw) =>
-  allBlocks(tiptapContentToBlocks(normalizeEditorDoc(raw).content))
-    .filter((block) => block.type === 'image' || block.type === 'splat')
-    .map((block) => block.data.file.url);
-
-// One block as Markdown. `fileLink` is where an upload goes in an export's zip; `databases` holds
-// the rows of database views, by page id, to show as tables.
+// One block as Markdown. `databases` holds the rows of database views, by page id, to show as tables.
 const renderBlock = (block, options) => {
-  const { fileLink, databases } = options;
+  const { databases } = options;
   if (block.type === 'header') {
     const level = Math.min(Math.max(block.data.level || 2, 1), 6);
     return `${'#'.repeat(level)} ${normalizeSpaces(block.data.text)}`;
@@ -307,7 +299,7 @@ const renderBlock = (block, options) => {
   if (block.type === 'delimiter') {
     return block.data?.style === 'stars' ? '***' : '---';
   }
-  if (block.type === 'image' || block.type === 'splat') return renderFileBlock(block, fileLink);
+  if (block.type === 'image' || block.type === 'splat') return renderFileBlock(block);
   if (block.type === 'databaseView') {
     const db = databases?.[block.data.pageId];
     return db ? renderDatabaseAsMarkdownTable(db, block.data.title) : `[Database: ${block.data.title || 'Untitled'}]`;
@@ -338,10 +330,9 @@ export const editorDocToMarkdown = (raw) => renderBlocks(tiptapContentToBlocks(n
  *
  * @param {*} raw - raw doc JSON
  * @param {(pageId: string) => Promise<{fields: any[], rows: any[]}>} fetchDatabase
- * @param {{ fileLink?: (src: string) => string | null }} [options]
  * @returns {Promise<string>}
  */
-export const editorDocToMarkdownAsync = async (raw, fetchDatabase, { fileLink } = {}) => {
+export const editorDocToMarkdownAsync = async (raw, fetchDatabase) => {
   const blocks = tiptapContentToBlocks(normalizeEditorDoc(raw).content);
   const databases = {};
   const dbViews = allBlocks(blocks).filter((b) => b.type === 'databaseView');
@@ -356,7 +347,7 @@ export const editorDocToMarkdownAsync = async (raw, fetchDatabase, { fileLink } 
       }),
     );
   }
-  return renderBlocks(blocks, { fileLink, databases });
+  return renderBlocks(blocks, { databases });
 };
 
 export const editorDocToTiptap = (raw) => {

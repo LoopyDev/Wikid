@@ -33,3 +33,27 @@ export const shouldHandleMarkdownPaste = (text, html, state) => {
   if (parentType === 'codeBlock') return false;
   return true;
 };
+
+// Markdown images where the editor can't hold them inline. The editor reads pasted Markdown with
+// images as blocks: an image in a heading made the whole paste fail, and one in a table cell too.
+// A heading's image goes on a line of its own after it; a table cell's becomes a link to it (a
+// table row is one line, with no room for a block).
+const IMAGE = /!\[([^\]]*)\]\((<[^>\n]*>|[^)\s]+)(\s+"[^"]*")?\)/g;
+export const liftImagesForPaste = (text) => {
+  let fence = false;
+  return String(text)
+    .split('\n')
+    .flatMap((line) => {
+      if (/^\s*(```|~~~)/.test(line)) fence = !fence;
+      if (fence || !line.includes('![')) return [line];
+      if (/^\s{0,3}#{1,6}\s/.test(line)) {
+        const images = [...line.matchAll(IMAGE)].map((match) => match[0]);
+        if (!images.length) return [line];
+        return [line.replace(IMAGE, '').replace(/\s+$/, ''), '', ...images.flatMap((image) => [image, ''])].slice(0, -1);
+      }
+      if (/^\s*\|/.test(line)) return [line.replace(IMAGE, (_, alt, target, title = '') => `[${alt || 'image'}](${target}${title})`)];
+      return [line];
+    })
+    .join('\n');
+};
+

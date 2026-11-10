@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { looksLikeMarkdown, shouldHandleMarkdownPaste } from './markdownPaste';
+import { liftImagesForPaste, looksLikeMarkdown, shouldHandleMarkdownPaste } from './markdownPaste';
 
 const stateIn = (parentType) => ({ selection: { $from: { parent: { type: { name: parentType } } } } });
 
@@ -36,5 +36,15 @@ describe('shouldHandleMarkdownPaste', () => {
     expect(shouldHandleMarkdownPaste('# Title\n- item', '<h1>Title</h1><ul><li>item</li></ul>', stateIn('paragraph'))).toBe(false);
     expect(shouldHandleMarkdownPaste('# Title\n- item', '', stateIn('codeBlock'))).toBe(false);
     expect(shouldHandleMarkdownPaste('plain text', '', stateIn('paragraph'))).toBe(false);
+  });
+});
+
+describe('liftImagesForPaste', () => {
+  it("moves a heading's image after it, and makes a table cell's a link", () => {
+    expect(liftImagesForPaste('# Plans ![map](map.png)\nText')).toBe('# Plans\n\n![map](map.png)\nText');
+    expect(liftImagesForPaste('| ![dot](dot.png) | B |')).toBe('| [dot](dot.png) | B |');
+    expect(liftImagesForPaste('![alone](a.png)')).toBe('![alone](a.png)');
+    expect(liftImagesForPaste('# Plan ![m](<my map.png>)')).toBe('# Plan\n\n![m](<my map.png>)');
+    expect(liftImagesForPaste('```\n# ![x](x.png)\n```')).toBe('```\n# ![x](x.png)\n```');
   });
 });
