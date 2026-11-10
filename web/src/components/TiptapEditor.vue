@@ -710,6 +710,12 @@ editor = useEditor({
     captureInitialAutoBlock(ed.state.doc);
     nextTick(() => syncTableDomAttributes());
   },
+  // Blocks remembered by where they are (the one the handle and its menu are on, the code block or
+  // image under the mouse) follow the page as it changes, here or by someone else: a menu acting on
+  // a stale position changed the wrong block, and one past the end of a shrunk page took the editor down
+  onTransaction({ transaction }) {
+    if (transaction.docChanged) followDocChange(transaction);
+  },
   onSelectionUpdate({ editor: ed }) {
     clearClickPlaceholderIfNeeded(ed?.view);
     updateActiveTable();
@@ -774,15 +780,21 @@ editor = useEditor({
 // a per-block context cache that makes AI edit requests 60–85% cheaper on large pages
 const { pending: summarizationPending, stats: summarizationStats, summarize: summarizeForAi } = useBlockSummarizer(editor);
 
+// Enter in the title: the cursor to a new empty first line of the page (an empty one already there
+// does). At once, not a frame later as the editor's own focus is, or a key typed straight after
+// Enter went into the title.
 const insertParagraphAtTop = () => {
   if (!editor.value || editor.value.isDestroyed) return false;
-  if (!editor.value.schema?.nodes?.paragraph) return false;
-  editor.value
-    .chain()
-    .focus()
-    .insertContentAt(0, { type: 'paragraph' })
-    .focus('start')
-    .run();
+  const paragraph = editor.value.schema?.nodes?.paragraph;
+  if (!paragraph) return false;
+  const { view } = editor.value;
+  view.focus();
+  // Read after focusing, which can itself change the state
+  const state = editor.value.state;
+  const first = state.doc.firstChild;
+  const tr = state.tr;
+  if (!(first?.type === paragraph && first.content.size === 0)) tr.insert(0, paragraph.create());
+  view.dispatch(tr.setSelection(TextSelection.create(tr.doc, 1)).scrollIntoView());
   return true;
 };
 
@@ -837,7 +849,7 @@ const handleDragHandleChange = ({ node, pos }) => {
 const hoveredCodeBlock = ref(null);
 const hoveredCodeLanguage = computed(() => {
   if (!hoveredCodeBlock.value || !editor.value?.state) return '';
-  const node = editor.value.state.doc.nodeAt(hoveredCodeBlock.value.pos);
+  const node = nodeAtSafe(hoveredCodeBlock.value.pos);
   const lang = node?.attrs?.language;
   return typeof lang === 'string' ? lang.trim() : '';
 });
@@ -852,11 +864,108 @@ const tableCellBubblePos = ref({ top: 0, left: 0, width: 0, clamped: false });
 const tableAddRowPos = ref({ top: 0, left: 0 });
 const hoveredSyncedSourceId = computed(() => {
   if (!hoveredSyncedSource.value || !editor.value?.state) return null;
-  const node = editor.value.state.doc.nodeAt(hoveredSyncedSource.value.pos);
+  const node = nodeAtSafe(hoveredSyncedSource.value.pos);
   return node?.attrs?.id || null;
 });
 const hoveredSyncedLocked = computed(() => isSyncedLocked(hoveredSyncedSourceId.value));
-const blockBubbleStyle = { position: 'absolute', top: '6px', right: '6px', zIndex: 5 };
+// Bubbles drawn inside a block's own element (a code block's language, an image's buttons): not part
+// of what can be selected or typed over, or a triple-click took them in and typing replaced their
+// text on screen while the page itself didn't change
+const blockBubbleStyle = { position: 'absolute', top: '6px', right: '6px', zIndex: 5, userSelect: 'none' };
+
+// The node at a position kept from earlier, or null if there's none there now
+const nodeAtSafe = (pos) => {
+  const doc = editor.value?.state?.doc;
+  if (!doc || !Number.isInteger(pos) || pos < 0 || pos >= doc.content.size) return null;
+  try {
+    return doc.nodeAt(pos);
+  } catch {
+    return null;
+  }
+};
+
+// Where a remembered block is now: found by its id, as a change to it (its colour, someone typing in
+// it) can replace it whole; by its position mapped through the change if it has none. Null if it's
+// gone, or isn't the kind it was.
+const followBlock = (entry, transaction, type) => {
+  if (!entry || !Number.isInteger(entry.pos) || entry.pos < 0) return entry;
+  const id = entry.id ?? entry.node?.attrs?.id ?? null;
+  let found = null;
+  if (id) {
+    found = findBlockById(transaction.doc, id);
+  } else {
+    const pos = transaction.mapping.map(entry.pos, 1);
+    let node = null;
+    try {
+      node = transaction.doc.nodeAt(pos);
+    } catch {
+      node = null;
+    }
+    found = node ? { node, pos } : null;
+  }
+  if (!found || (type && found.node.type.name !== type)) return null;
+  return { ...entry, pos: found.pos, ...('node' in entry ? { node: found.node } : {}), ...(id ? { id } : {}) };
+};
+
+// A block being dragged by its handle: what's dropped is taken as the drag starts, so it's taken
+// again as the page changes (someone's typing in it meanwhile was lost), from the block itself, by
+// its id. If it's gone (deleted by someone else), there's nothing to drop.
+let blockDrag = null; // { id } while one is under way
+
+const followDrag = (view) => {
+  if (!blockDrag) return;
+  if (!view.dragging) {
+    blockDrag = null;
+    return;
+  }
+  const state = editor.value.state;
+  if (!blockDrag.id) {
+    // Several blocks, or one without an id: the selection follows them
+    const selection = state.selection;
+    if (selection instanceof NodeSelection || selection instanceof NodeRangeSelection) {
+      view.dragging = { slice: selection.content(), move: true };
+    }
+    return;
+  }
+  const found = findBlockById(state.doc, blockDrag.id);
+  if (!found) {
+    view.dragging = null;
+    blockDrag = null;
+    return;
+  }
+  view.dragging = { slice: NodeSelection.create(state.doc, found.pos).content(), move: true };
+  // The drop removes what's selected from where it was: the dragged block, not one the selection
+  // slid onto when the page changed
+  const selected = state.selection;
+  if (!(selected instanceof NodeSelection && selected.from === found.pos)) {
+    queueMicrotask(() => {
+      const current = editor.value?.state;
+      const again = current && blockDrag?.id ? findBlockById(current.doc, blockDrag.id) : null;
+      if (again) view.dispatch(current.tr.setSelection(NodeSelection.create(current.doc, again.pos)));
+    });
+  }
+};
+
+const followDocChange = (transaction) => {
+  const view = editor.value?.view;
+  if (view) followDrag(view);
+  if (handleState.value?.pos >= 0) {
+    const next = followBlock(handleState.value, transaction, handleState.value.node?.type?.name);
+    if (next) {
+      handleState.value = next;
+    } else {
+      handleState.value = { node: null, pos: -1 };
+      // Its block went (deleted, perhaps by someone else): nothing for its menu to act on
+      if (showTuneMenu.value) closeTuneMenu();
+    }
+  }
+  if (hoveredCodeBlock.value) {
+    hoveredCodeBlock.value = followBlock(hoveredCodeBlock.value, transaction, 'codeBlock');
+    if (!hoveredCodeBlock.value) codeLangMenuOpen.value = false;
+  }
+  if (hoveredImage.value) hoveredImage.value = followBlock(hoveredImage.value, transaction, 'image');
+  if (hoveredSyncedSource.value) hoveredSyncedSource.value = followBlock(hoveredSyncedSource.value, transaction);
+};
 
 const clearHoveredCodeBlock = () => {
   if (codeLangMenuOpen.value) return;
@@ -941,7 +1050,7 @@ const setHoveredCodeBlockFromElement = (element) => {
     return;
   }
   if (hoveredCodeBlock.value?.pos === pos && hoveredCodeBlock.value?.element === element) return;
-  hoveredCodeBlock.value = { pos, element };
+  hoveredCodeBlock.value = { pos, element, id: node.attrs?.id ?? null };
 };
 
 const handleHoverMove = (event) => {
@@ -976,7 +1085,7 @@ const handleHoverMove = (event) => {
 const shouldShowCodeBlockBubble = () => {
   if (!editor.value || editor.value.isDestroyed || !editor.value.isEditable) return false;
   if (!hoveredCodeBlock.value) return false;
-  const node = editor.value.state.doc.nodeAt(hoveredCodeBlock.value.pos);
+  const node = nodeAtSafe(hoveredCodeBlock.value.pos);
   return !!node && node.type?.name === 'codeBlock';
 };
 
@@ -1013,7 +1122,7 @@ const setHoveredSyncedSourceFromElement = (element) => {
     };
   }
   if (hoveredSyncedSource.value?.pos === pos && hoveredSyncedSource.value?.element === element) return;
-  hoveredSyncedSource.value = { pos, element };
+  hoveredSyncedSource.value = { pos, element, id: node.attrs?.id ?? null };
 };
 
 const clearHoveredSyncedSource = () => {
@@ -1024,7 +1133,7 @@ const clearHoveredSyncedSource = () => {
 const shouldShowSyncedSourceBubble = () => {
   if (!editor.value || editor.value.isDestroyed || !editor.value.isEditable) return false;
   if (!hoveredSyncedSource.value) return false;
-  const node = editor.value.state.doc.nodeAt(hoveredSyncedSource.value.pos);
+  const node = nodeAtSafe(hoveredSyncedSource.value.pos);
   return !!node && node.isBlock && !node.attrs?.[SYNCED_FROM_ATTR];
 };
 
@@ -1047,7 +1156,7 @@ const setHoveredImageFromElement = (element) => {
     return;
   }
   if (hoveredImage.value?.pos === pos && hoveredImage.value?.element === element) return;
-  hoveredImage.value = { pos, element };
+  hoveredImage.value = { pos, element, id: node.attrs?.id ?? null };
 };
 
 const clearHoveredImage = () => {
@@ -1063,7 +1172,7 @@ const clearAllHoveredBlocks = () => {
 const shouldShowImageBubble = () => {
   if (!editor.value || editor.value.isDestroyed || !editor.value.isEditable) return false;
   if (!hoveredImage.value) return false;
-  const node = editor.value.state.doc.nodeAt(hoveredImage.value.pos);
+  const node = nodeAtSafe(hoveredImage.value.pos);
   return !!node && node.type?.name === 'image';
 };
 
@@ -1399,6 +1508,7 @@ const handleBlockDragStart = (event, options = {}) => {
   event.dataTransfer.effectAllowed = 'move';
   event.dataTransfer.setDragImage(wrapper, 0, 0);
   view.dragging = { slice, move: true };
+  blockDrag = { id: selection instanceof NodeSelection ? selection.node.attrs?.id ?? null : null };
   const selectionTr = state.tr.setSelection(selection);
   if (shouldCleanupColumn && columnInfo && !(selection instanceof NodeRangeSelection)) {
     selectionTr.setMeta(columnCleanupKey, { pending: { pos: columnInfo.pos } });
@@ -1407,6 +1517,7 @@ const handleBlockDragStart = (event, options = {}) => {
   const cleanup = () => removeNode(wrapper);
   document.addEventListener('drop', cleanup, { once: true });
   document.addEventListener('dragend', () => {
+    blockDrag = null;
     cleanup();
     handleLocked.value = false;
     dragScroll.stop();
@@ -1643,7 +1754,7 @@ defineExpose({
     </div>
     <EditorContent :editor="editor" />
     <Teleport v-if="shouldShowCodeBlockBubble() && hoveredCodeBlock?.element" :to="hoveredCodeBlock.element">
-      <div class="bubble-menu codeblock-bubble-menu" :style="blockBubbleStyle">
+      <div class="bubble-menu codeblock-bubble-menu" :style="blockBubbleStyle" contenteditable="false">
         <div class="bubble-menu__group code-lang-dropdown">
           <button
             class="bubble-menu__btn code-lang-trigger"
@@ -1727,7 +1838,7 @@ defineExpose({
       </div>
     </Teleport>
     <Teleport v-if="shouldShowImageBubble() && hoveredImage?.element" :to="hoveredImage.element">
-      <div class="bubble-menu image-bubble-menu" :style="blockBubbleStyle">
+      <div class="bubble-menu image-bubble-menu" :style="blockBubbleStyle" contenteditable="false">
         <button class="bubble-menu__btn" type="button" @mousedown.prevent @click.prevent="replaceHoveredImageSrc">
           Replace image
         </button>

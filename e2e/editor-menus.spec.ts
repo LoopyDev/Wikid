@@ -229,6 +229,71 @@ test.describe('editor menus', () => {
     await expect.poll(() => outline(page)).toEqual(['paragraph: Three', 'paragraph: One', 'paragraph: Two']);
   });
 
+  test("dragging a block keeps what someone else typed in it meanwhile", async ({ alice, bob, workspaceId }) => {
+    const id = await createPage(alice, workspaceId);
+    await openPage(alice, id);
+    await typeParagraphs(alice, ['One', 'Two', 'Three']);
+    await openPage(bob, id);
+    await expect.poll(() => outline(bob)).toEqual(['paragraph: One', 'paragraph: Two', 'paragraph: Three']);
+
+    // Alice picks up "Three" by its handle (the browser's drag events, as above)...
+    const handle = await handleFor(alice, 2);
+    await handle.evaluate((button) => {
+      const data = new DataTransfer();
+      (window as any).__drag = { data, button };
+      button.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: data }));
+    });
+    // ...Bob adds to it...
+    await placeCursor(bob, 2, 'end');
+    await bob.keyboard.type(' and more', { delay: 20 });
+    await expect.poll(() => outline(alice)).toEqual(['paragraph: One', 'paragraph: Two', 'paragraph: Three and more']);
+    // ...and she drops it at the top
+    await alice.evaluate(() => {
+      const { data, button } = (window as any).__drag;
+      const target = document.querySelector('.ProseMirror')!.firstElementChild!.getBoundingClientRect();
+      const at = { clientX: target.left + 10, clientY: target.top + 2, bubbles: true, cancelable: true, dataTransfer: data };
+      const dropTarget = document.elementFromPoint(at.clientX, at.clientY)!;
+      dropTarget.dispatchEvent(new DragEvent('dragover', at));
+      dropTarget.dispatchEvent(new DragEvent('drop', at));
+      button.dispatchEvent(new DragEvent('dragend', { bubbles: true, dataTransfer: data }));
+    });
+    await expect.poll(() => outline(alice)).toEqual(['paragraph: Three and more', 'paragraph: One', 'paragraph: Two']);
+    await expect.poll(() => outline(bob)).toEqual(['paragraph: Three and more', 'paragraph: One', 'paragraph: Two']);
+  });
+
+  test("dragging a block someone else deletes meanwhile moves nothing else", async ({ alice, bob, workspaceId }) => {
+    const id = await createPage(alice, workspaceId);
+    await openPage(alice, id);
+    await typeParagraphs(alice, ['One', 'Two', 'Three']);
+    await openPage(bob, id);
+    await expect.poll(() => outline(bob)).toEqual(['paragraph: One', 'paragraph: Two', 'paragraph: Three']);
+    const handle = await handleFor(alice, 1);
+    await handle.evaluate((button) => {
+      const data = new DataTransfer();
+      (window as any).__drag = { data, button };
+      button.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: data }));
+    });
+    // Bob deletes "Two" while Alice holds it
+    await bob.evaluate(() => {
+      const ed = (document.querySelector('.ProseMirror:not(.page-hold *)') as any).editor;
+      let at = -1;
+      ed.state.doc.forEach((node: any, offset: number) => { if (node.textContent === 'Two') at = offset; });
+      ed.commands.deleteRange({ from: at, to: at + 4 });
+    });
+    await expect.poll(() => outline(alice)).toEqual(['paragraph: One', 'paragraph: Three']);
+    await alice.evaluate(() => {
+      const { data, button } = (window as any).__drag;
+      const target = document.querySelector('.ProseMirror')!.firstElementChild!.getBoundingClientRect();
+      const at = { clientX: target.left + 10, clientY: target.top + 2, bubbles: true, cancelable: true, dataTransfer: data };
+      const dropTarget = document.elementFromPoint(at.clientX, at.clientY)!;
+      dropTarget.dispatchEvent(new DragEvent('dragover', at));
+      dropTarget.dispatchEvent(new DragEvent('drop', at));
+      button.dispatchEvent(new DragEvent('dragend', { bubbles: true, dataTransfer: data }));
+    });
+    await alice.waitForTimeout(500);
+    expect(await outline(alice)).toEqual(['paragraph: One', 'paragraph: Three']);
+  });
+
   test('dragging a table by its handle moves the whole table, leaving nothing behind in its column', async ({ alice: page, workspaceId }) => {
     await openPage(page, await createPage(page, workspaceId));
     await page.evaluate(() => {
@@ -384,5 +449,86 @@ test.describe('editor menus', () => {
       });
     await expect.poll(marks).toEqual(['bold', 'textStyle:var(--text-color-orange)']);
     await waitForSaved(page);
+  });
+
+  test("the block menu changes the block it was opened on, when someone edits above it meanwhile", async ({ alice, bob, workspaceId }) => {
+    const id = await createPage(alice, workspaceId);
+    await openPage(alice, id);
+    await typeParagraphs(alice, ['alpha', 'beta', 'gamma target']);
+    await openPage(bob, id);
+    await expect.poll(() => outline(bob)).toEqual(['paragraph: alpha', 'paragraph: beta', 'paragraph: gamma target']);
+
+    await (await handleFor(alice, 2)).click();
+    await expect(blockMenu(alice)).toBeVisible();
+    // Bob adds a line at the top, which moves everything after it
+    await placeCursor(bob, 0, 'start');
+    await bob.keyboard.press('Enter');
+    await bob.keyboard.press('ArrowUp');
+    await bob.keyboard.type('new top', { delay: 20 });
+    await expect.poll(() => outline(alice)).toEqual(['paragraph: new top', 'paragraph: alpha', 'paragraph: beta', 'paragraph: gamma target']);
+
+    await menuItem(alice, 'Delete').click();
+    await expect.poll(() => outline(alice)).toEqual(['paragraph: new top', 'paragraph: alpha', 'paragraph: beta']);
+  });
+
+  test("the block menu stays open while someone types in its block, and still acts on it", async ({ alice, bob, workspaceId }) => {
+    const id = await createPage(alice, workspaceId);
+    await openPage(alice, id);
+    await typeParagraphs(alice, ['alpha', 'gamma']);
+    await openPage(bob, id);
+    await expect.poll(() => outline(bob)).toEqual(['paragraph: alpha', 'paragraph: gamma']);
+    await (await handleFor(alice, 1)).click();
+    await expect(blockMenu(alice)).toBeVisible();
+    await placeCursor(bob, 1, 'end');
+    await bob.keyboard.type(' and more', { delay: 20 });
+    await expect.poll(() => outline(alice)).toEqual(['paragraph: alpha', 'paragraph: gamma and more']);
+    await expect(blockMenu(alice)).toBeVisible();
+    await menuItem(alice, 'Delete').click();
+    await expect.poll(() => outline(alice)).toEqual(['paragraph: alpha']);
+  });
+
+  test('the page keeps working when it shrinks under the mouse on a code block or an image', async ({ alice: page, workspaceId }) => {
+    const p = (text: string) => ({ type: 'paragraph', content: [{ type: 'text', text }] });
+    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+    const errors: string[] = [];
+    page.on('pageerror', (err) => errors.push(err.message));
+    for (const target of ['.tiptap-image-resizable', '.tiptap-codeblock']) {
+      const pageId = await createPage(page, workspaceId);
+      // The image uploaded to the page that shows it
+      const upload = await page.request.post('/api/uploads', { multipart: { pageId, image: { name: 'dot.png', mimeType: 'image/png', buffer: png } } });
+      const src = (await upload.json()).file.url as string;
+      const content = [p('One'), p('Two'), { type: 'codeBlock', content: [{ type: 'text', text: 'const a = 1;' }] }, { type: 'image', attrs: { src, width: 200 } }, p('After')];
+      expect((await page.request.put(`/api/pages/${pageId}/content`, { data: { content: { type: 'doc', content } } })).status()).toBe(200);
+      await openPage(page, pageId);
+      await editor(page).locator('p').first().click();
+      // The mouse rests on it while the page shrinks to one line under it
+      // (Forced: the block handle can sit over it)
+      await editor(page).locator(target).first().hover({ force: true });
+      await page.keyboard.press('ControlOrMeta+a');
+      await page.keyboard.type('Short now', { delay: 20 });
+      await expect(editor(page)).toHaveText('Short now');
+      await page.keyboard.type(' and more', { delay: 20 });
+      await expect(editor(page)).toHaveText('Short now and more');
+      await waitForSaved(page);
+    }
+    expect(errors.filter((e) => /RangeError|outside of fragment/.test(e))).toEqual([]);
+  });
+
+  test('triple-clicking a line of code and typing over it changes the code, for everyone', async ({ alice, bob, workspaceId }) => {
+    const id = await createPage(alice, workspaceId);
+    const code = { type: 'codeBlock', content: [{ type: 'text', text: 'first line\nsecond line' }] };
+    expect((await alice.request.put(`/api/pages/${id}/content`, { data: { content: { type: 'doc', content: [code] } } })).status()).toBe(200);
+    await openPage(alice, id);
+    await openPage(bob, id);
+    const line = editor(alice).locator('.tiptap-codeblock code').first();
+    // With the mouse on it, its language shows in its corner
+    await line.hover();
+    await expect(alice.locator('.codeblock-bubble-menu')).toBeVisible();
+    await line.click({ clickCount: 3 });
+    await alice.keyboard.type('replacement code', { delay: 20 });
+    await expect.poll(() => outline(bob)).toEqual([expect.stringMatching(/^codeBlock: [\s\S]*replacement code/)]);
+    await waitForSaved(alice);
+    await alice.reload();
+    await expect(editor(alice).locator('.tiptap-codeblock')).toContainText('replacement code');
   });
 });
