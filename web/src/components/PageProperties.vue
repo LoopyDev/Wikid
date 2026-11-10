@@ -6,6 +6,7 @@ import { api } from '../api/client';
 import { formatDateTime } from '../utils/date-format';
 import { useWorkspaceStore } from '../stores/workspace';
 import { useApiMutation } from '../composables/useApiMutation';
+import { linkHref } from '../utils/database/links';
 
 const props = defineProps({
   pageId: {
@@ -1423,6 +1424,15 @@ onBeforeUnmount(() => {
               :disabled="readonly || isFieldReadOnly(field)"
               @input="handleFieldChange(field, $event.target.value)"
             />
+            <a
+              v-if="field.type === 'URL' && linkHref(row.data?.[field.id])"
+              class="db-url-open"
+              :href="linkHref(row.data?.[field.id])"
+              target="_blank"
+              rel="noopener noreferrer"
+              :title="`Open ${linkHref(row.data?.[field.id])}`"
+              aria-label="Open link"
+            >↗</a>
           </template>
         </div>
       </div>

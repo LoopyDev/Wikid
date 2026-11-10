@@ -59,9 +59,10 @@ export class DatabaseViewsService {
   private async databaseFieldIds(databaseId: string) {
     const fields = await this.prisma.databaseField.findMany({
       where: { databaseId },
-      select: { id: true },
+      select: { id: true, type: true },
     });
     const fieldIds = new Set(fields.map((f) => f.id));
+    const urlFieldIds = new Set(fields.filter((f) => f.type === 'URL').map((f) => f.id));
     const database = await this.prisma.database.findUnique({ where: { id: databaseId }, select: { pageId: true, workspaceId: true } });
     if (database) {
       const doc = await this.prisma.collabDoc.findUnique({
@@ -70,17 +71,20 @@ export class DatabaseViewsService {
       });
       if (doc?.state) {
         try {
-          databaseStateFromYjsState(Buffer.from(doc.state)).fields.forEach((field) => fieldIds.add(field.id));
+          databaseStateFromYjsState(Buffer.from(doc.state)).fields.forEach((field) => {
+            fieldIds.add(field.id);
+            if (field.type === 'URL') urlFieldIds.add(field.id);
+          });
         } catch {
           // Saved columns only
         }
       }
     }
-    return fieldIds;
+    return { fieldIds, urlFieldIds };
   }
 
   private async sanitizeDatabaseViewConfig(databaseId: string, config: unknown) {
-    const fieldIds = await this.databaseFieldIds(databaseId);
+    const { fieldIds, urlFieldIds } = await this.databaseFieldIds(databaseId);
     const source = config && typeof config === 'object' && !Array.isArray(config) ? (config as Record<string, any>) : {};
 
     const rawFilters = source.filters && typeof source.filters === 'object' ? source.filters : {};
@@ -123,6 +127,8 @@ export class DatabaseViewsService {
     const coverMaxItems = Number.isInteger(rawMax) && rawMax >= 1 ? Math.min(rawMax, 50) : null;
     // Gallery cards in their colours: select options, linked rows' and their own row's
     const showColors = source.showColors === true;
+    // A list view: the (URL) column whose link a row opens, rather than its page
+    const openFieldId = urlFieldIds.has(source.openFieldId) ? (source.openFieldId as string) : null;
 
     return {
       filters: { match, rules },
@@ -133,6 +139,7 @@ export class DatabaseViewsService {
       cardFieldIds,
       coverMaxItems,
       showColors,
+      openFieldId,
     };
   }
 

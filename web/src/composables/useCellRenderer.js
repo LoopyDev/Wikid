@@ -7,6 +7,7 @@ import { getRelationConfig, isAssetTagField, isFieldReadOnly, isLastEditedField,
 import { handleCellConfirmKeydown, handleNumberKeydown, handleNumberPaste, sanitizeNumberInput } from '../utils/database/cellInput';
 import { multiSelectPillStyle, rowColor } from '../utils/database/colors';
 import { keptValueFor, keptValueText, notFitText } from '../utils/database/typeChange';
+import { linkHref } from '../utils/database/links';
 
 // Draws a table cell for its field type: text, number, date, checkbox, select and multi-select
 // pills, relations, members, asset tags, page titles (with their page link) and read-only values,
@@ -464,8 +465,7 @@ export function useCellRenderer({ choiceColorForValue, getChoiceLabel, isReadonl
     if (field.type === 'MULTI_SELECT' || isPersonField(field)) {
       return presenceWrap(renderMultiSelectCell(row, field));
     }
-    return presenceWrap(
-      h('input', {
+    const input = h('input', {
         class: 'db-cell-input db-cell-input--text',
         type: field.type === 'URL' ? 'url' : 'text',
         value: valueForField(row, field),
@@ -483,7 +483,19 @@ export function useCellRenderer({ choiceColorForValue, getChoiceLabel, isReadonl
           scheduleSortRefresh();
         },
         ref: setCellInputRef(row.id, field.id),
-      })
+      });
+    if (field.type !== 'URL') return presenceWrap(input);
+    // A URL cell: the text edits it, and an arrow beside it opens the link. The same wrapper either
+    // way, so the input isn't remade (losing focus) as what's typed becomes a link. The arrow is
+    // for the mouse: Tab still goes cell to cell.
+    const href = linkHref(valueForField(row, field));
+    return presenceWrap(
+      h('span', { class: 'db-url-cell' }, [
+        input,
+        href
+          ? h('a', { class: 'db-url-open', href, target: '_blank', rel: 'noopener noreferrer', tabindex: -1, title: `Open ${href}`, 'aria-label': 'Open link' }, '↗')
+          : null,
+      ])
     );
   };
 

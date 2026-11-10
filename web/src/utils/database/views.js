@@ -127,5 +127,7 @@ export const normalizeViewConfig = (config) => {
     coverMaxItems: Number.isInteger(src.coverMaxItems) && src.coverMaxItems >= 1 ? src.coverMaxItems : null,
     // Gallery cards in their colours (select options, linked rows', their own row's)
     showColors: src.showColors === true,
+    // A list view: the URL column whose link a row opens, rather than its page
+    openFieldId: typeof src.openFieldId === 'string' ? src.openFieldId : null,
   };
 };
