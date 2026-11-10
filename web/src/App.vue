@@ -35,7 +35,7 @@ import PageTree from './components/PageTree';
 import { usePageSwitchHold } from './composables/usePageSwitchHold';
 import { isInIconBrowser } from './utils/iconSearch';
 import { api, AUTH_EXPIRED_EVENT, PASSWORD_CHANGE_REQUIRED_EVENT } from './api/client';
-import { editorDocToMarkdown, editorDocToMarkdownAsync, fallbackDoc } from './utils/editorDoc';
+import { editorDocToMarkdown, editorDocToMarkdownAsync } from './utils/editorDoc';
 import { exportPagesMarkdownZip } from './utils/markdownExport';
 import { SYSTEM_ADMIN_ID } from './constants/system-admin';
 import { CHEVRON_RIGHT } from './constants/icons';
@@ -1198,74 +1198,13 @@ const restorePageVersion = (content) => {
 const openExportModal = (format) => {
   exportRequest.value = { format: format || 'html', rootPageId: workspace.currentPage?.id || null };
 };
-const exportWorkspaceData = () => {
-  const fileSafeName = (activeWorkspaceName.value || 'workspace')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '') || 'workspace';
-  const payload = {
-    workspaceName: activeWorkspaceName.value,
-    exportedAt: new Date().toISOString(),
-    activePageId: activePageId.value,
-    pages: workspace.pages.filter((page) => !page.isTemplate).map((page) => ({
-      id: page.id,
-      title: page.title,
-      parentId: page.parentId ?? null,
-      workspaceId: page.workspaceId,
-      icon: page.icon ?? null,
-    })),
-    currentPageDoc: doc.value,
-  };
-  const blob = new Blob([JSON.stringify(payload, null, 2)], {
-    type: 'application/json;charset=utf-8',
-  });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = `wikid-workspace-${fileSafeName}.json`;
-  link.click();
-  URL.revokeObjectURL(url);
-};
-
-const sanitizePathSegment = (value, fallback) => {
-  const cleaned = (String(value || '') || '')
-    .trim()
-    .replace(/[\/\\\?\%\*\:\|"<>\.]+/g, '-')
-    .replace(/\s+/g, ' ')
-    .replace(/^-+|-+$/g, '');
-  return cleaned || fallback || 'untitled';
-};
-
-const buildBreadcrumb = (page, pageMap) => {
-  const segments = [];
-  let current = page;
-  while (current) {
-    segments.unshift(sanitizePathSegment(current.title, current.id));
-    const parentId = current.parentId ?? null;
-    current = parentId ? pageMap.get(parentId) : null;
-  }
-  return segments.filter(Boolean).join('/') || sanitizePathSegment(page.title, page.id);
-};
-
 const exportWorkspaceMarkdown = async () => {
   if (!workspace.activeUser || !workspace.pages.length) {
     return;
   }
-  const pageMap = new Map(workspace.pages.map((page) => [page.id, page]));
   const userId = workspace.activeUser.id;
   const userName = workspace.activeUser.name;
-  const fetched = await Promise.all(
-    workspace.pages.filter((page) => !page.isTemplate).map(async (page) => {
-      try {
-        const pageData = await api.getPage(page.id, { userId, userName });
-        return { path: buildBreadcrumb(page, pageMap), doc: pageData?.content ?? fallbackDoc };
-      } catch (err) {
-        console.error('Failed to fetch page for markdown export', err);
-        return null;
-      }
-    })
-  );
-  const pages = fetched.filter(Boolean);
+  const pages = workspace.pages.filter((page) => !page.isTemplate && !page.isDeleted);
   if (!pages.length) {
     return;
   }
@@ -1273,7 +1212,9 @@ const exportWorkspaceMarkdown = async () => {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '') || 'workspace';
+  // Each page from the server, as it is now (see markdownExport.js)
   const blob = await exportPagesMarkdownZip(pages, {
+    getMarkdown: async (pageId) => (await api.getPageExportMarkdown(pageId, { userId, userName })).markdown,
     fetchDatabase: (pageId) => api.getDatabase(pageId, { userId, userName }),
   });
   const url = URL.createObjectURL(blob);
@@ -2815,7 +2756,6 @@ if (typeof window !== 'undefined') {
         :theme-mode-label="themeModeLabel"
         @close="closeSettingsPopup"
         @toggle-theme="toggleThemeMode"
-        @export-json="exportWorkspaceData"
         @export-markdown="exportWorkspaceMarkdown"
       />
       <DeletePageModal

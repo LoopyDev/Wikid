@@ -66,7 +66,16 @@ export type RenderOptions = {
   sections?: boolean;
   /** Each block preceded by a comment with its id and notes, for a tool to change it by id */
   markers?: boolean;
+  /**
+   * For an export, which fills these in: a page link as a link to wikid-page:<id> (the export points
+   * it at that page's file), and a database view as {{wikid-database:<id>}} on a line of its own
+   * (the export puts the database's table there)
+   */
+  forExport?: boolean;
 };
+
+// What an export fills in: see RenderOptions.forExport
+export const EXPORT_DATABASE = (pageId: string) => `{{wikid-database:${pageId}}}`;
 
 const indentLines = (text: string, prefix: string) =>
   text
@@ -93,9 +102,10 @@ function renderListItems(node: ContentNode, options: RenderOptions): string {
     .join('\n');
 }
 
+// A cell on one line: its paragraphs' text, and its images as images (read back as blocks again)
 const tableCellText = (cell: ContentNode) =>
   (cell.content ?? [])
-    .map((block) => renderInline(block.content))
+    .map((block) => (block.type === 'image' ? renderBlock(block) : renderInline(block.content)))
     .join(' ')
     .replace(/\n/g, ' ');
 
@@ -180,6 +190,11 @@ export function renderBlock(node: ContentNode | undefined, options: RenderOption
     case 'table':
       return renderTable(node);
     default:
+      if (options.forExport && node.type === 'databaseView' && node.attrs?.pageId) return EXPORT_DATABASE(String(node.attrs.pageId));
+      if (options.forExport && node.type === 'gaussianSplat' && node.attrs?.src) return `[Gaussian splat](${node.attrs.src})`;
+      if (options.forExport && node.type === 'pageLink' && node.attrs?.pageId) {
+        return `[${escapeText(String(node.attrs.title || 'Untitled'))}](wikid-page:${node.attrs.pageId})`;
+      }
       return EMBEDS.has(node.type) ? embedLabel(node) : renderInline(node.content);
   }
 }

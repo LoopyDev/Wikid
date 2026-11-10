@@ -182,6 +182,17 @@ export class PageContentService {
     return this.view(page, content);
   }
 
+  /**
+   * The page as plain Markdown for an export file, from what it has now (not the stored copy):
+   * columns and toggles flattened, and page links and database views left for the export to fill in
+   * (see RenderOptions.forExport).
+   */
+  async getExportMarkdown(pageId: string, user: User) {
+    const page = await this.docPage(pageId, user, false);
+    const { content } = await this.current(page);
+    return { id: page.id, title: page.title, markdown: contentToMarkdown(content, { forExport: true }) };
+  }
+
   /** Changes the page's content with one of the block operations, as Markdown in and out. */
   async change(pageId: string, user: User, operation: (content: ContentNode[]) => ContentNode[], revision?: string) {
     const page = await this.docPage(pageId, user, true);

@@ -345,6 +345,10 @@ export const api = {
       ...(reason ? { body: JSON.stringify({ reason }) } : {}),
     });
   },
+  // A page as plain Markdown for an export file, from what it has now (see markdownExport.js)
+  async getPageExportMarkdown(pageId, { userId, userName } = {}) {
+    return request(`/pages/${pageId}/markdown${buildQs({ userId, userName, for: 'export' })}`);
+  },
   // A copy of a page and its subpages, next to it (made on the server, from what the page has now)
   async duplicatePage(pageId, { userId, userName } = {}) {
     return request(`/pages/${pageId}/duplicate${buildQs({ userId, userName })}`, { method: 'POST' });

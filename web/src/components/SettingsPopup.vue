@@ -9,7 +9,7 @@ import { api } from '../api/client';
 defineProps({
   themeModeLabel: { type: String, default: '' },
 });
-const emit = defineEmits(['close', 'toggle-theme', 'export-json', 'export-markdown']);
+const emit = defineEmits(['close', 'toggle-theme', 'export-markdown']);
 
 const workspace = useWorkspaceStore();
 const { activeWorkspaceId, activeWorkspaceRole, activeUser } = storeToRefs(workspace);
@@ -352,10 +352,9 @@ watch(settingsTab, (tab) => {
         </div>
         <div v-else-if="settingsTab === 'Export'">
           <h3>Export workspace</h3>
-          <p class="muted">Download a snapshot of every page you can access.</p>
+          <p class="muted">Every page you can open, as Markdown files in folders, with their images and databases' tables.</p>
           <div class="settings-export-panel">
-            <button class="ghost-btn ghost-btn-background export-btn" type="button" @click="emit('export-json')">Download workspace (JSON)</button>
-            <button class="ghost-btn ghost-btn-background export-btn" type="button" @click="emit('export-markdown')">Download markdown ZIP</button>
+            <button class="ghost-btn ghost-btn-background export-btn" type="button" @click="emit('export-markdown')">Download Markdown ZIP</button>
           </div>
         </div>
       </div>

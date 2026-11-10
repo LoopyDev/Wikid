@@ -177,9 +177,11 @@ const exportPdf = () => {
 
 const exportMarkdown = async () => {
   const user = activeUser.value;
+  const page = workspace.currentPage;
+  if (!page?.id) return;
   const { blob, filename } = await exportPageMarkdown({
-    doc: workspace.doc,
-    title: workspace.currentPage?.title?.trim() || 'page',
+    page: { id: page.id, title: page.title?.trim() || 'page', kind: page.kind },
+    getMarkdown: async (pageId) => (await api.getPageExportMarkdown(pageId, { userId: user?.id, userName: user?.name })).markdown,
     fetchDatabase: (pageId) => api.getDatabase(pageId, { userId: user?.id, userName: user?.name }),
   });
   const url = URL.createObjectURL(blob);

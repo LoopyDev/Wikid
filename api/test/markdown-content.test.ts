@@ -59,7 +59,37 @@ describe('Markdown into page content', () => {
   });
 });
 
+describe('images where Markdown allows them but the editor holds them as blocks', () => {
+  it('puts an image in a heading after it, and one in a table cell as a block in the cell', () => {
+    const [heading, image] = markdownToContent('# Plans ![map](map.png)') as any[];
+    expect(heading).toEqual({ type: 'heading', attrs: { level: 1 }, content: [{ type: 'text', text: 'Plans' }] });
+    expect(image).toMatchObject({ type: 'image', attrs: { src: 'map.png', alt: 'map' } });
+    expect((markdownToContent('# ![logo](l.png) Plans') as any[])[0].content).toEqual([{ type: 'text', text: 'Plans' }]);
+
+    const [table] = markdownToContent('| A | B |\n| --- | --- |\n| Before ![dot](dot.png) | Text |') as any[];
+    const cell = table.content[1].content[0];
+    expect(cell.content).toEqual([
+      { type: 'paragraph', content: [{ type: 'text', text: 'Before' }] },
+      expect.objectContaining({ type: 'image', attrs: expect.objectContaining({ src: 'dot.png' }) }),
+    ]);
+    // And it reads back as it was written, image and all
+    expect(contentToMarkdown([table])).toBe('| A | B |\n| --- | --- |\n| Before ![dot](dot.png) | Text |');
+    expect(markdownKeeps([table])).toBe(true);
+  });
+});
+
 describe('page content as Markdown', () => {
+  it('writes a page for an export: sections flattened, page links and database views left to fill in', () => {
+    const content = [
+      { type: 'toggleHeading', content: [{ type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: 'More' }] }, { type: 'paragraph', content: [{ type: 'text', text: 'Hidden' }] }] },
+      { type: 'pageLink', attrs: { pageId: 'aaaaaaaa-0000-4000-8000-000000000001', title: 'Other page' } },
+      { type: 'databaseView', attrs: { pageId: 'aaaaaaaa-0000-4000-8000-000000000002', title: 'Stock' } },
+    ];
+    expect(contentToMarkdown(content as any, { forExport: true })).toBe(
+      '## More\n\nHidden\n\n[Other page](wikid-page:aaaaaaaa-0000-4000-8000-000000000001)\n\n{{wikid-database:aaaaaaaa-0000-4000-8000-000000000002}}',
+    );
+  });
+
   it('reads back as the same content', () => {
     const markdown = [
       '# Plans',

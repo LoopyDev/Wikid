@@ -144,7 +144,8 @@ function quote(token: Tokens.Blockquote): ContentNode {
 }
 
 function table(token: Tokens.Table): ContentNode {
-  const cell = (type: string, value: Tokens.TableCell): ContentNode => ({ type, content: [paragraph(inline(value.tokens))] });
+  // A cell holds blocks: an image in it is one of its own, as in a paragraph
+  const cell = (type: string, value: Tokens.TableCell): ContentNode => ({ type, content: paragraphs(value.tokens) });
   return {
     type: 'table',
     content: [
@@ -161,9 +162,18 @@ function blocks(tokens: Token[]): ContentNode[] {
       case 'space':
       case 'def':
         break;
-      case 'heading':
-        out.push({ type: 'heading', attrs: { level: Math.min(Math.max(token.depth, 1), 6) }, content: inline(token.tokens) });
+      case 'heading': {
+        // A heading holds text only: an image in it goes after it, as a block of its own
+        const content = inline(token.tokens);
+        const text = content.filter((node) => node.type !== 'image');
+        if (text[0]?.type === 'text') text[0] = { ...text[0], text: text[0].text!.trimStart() };
+        const last = text.length - 1;
+        if (text[last]?.type === 'text') text[last] = { ...text[last], text: text[last].text!.trimEnd() };
+        const kept = text.filter((node) => node.type !== 'text' || node.text);
+        out.push({ type: 'heading', attrs: { level: Math.min(Math.max(token.depth, 1), 6) }, ...(kept.length ? { content: kept } : {}) });
+        out.push(...content.filter((node) => node.type === 'image'));
         break;
+      }
       case 'paragraph': {
         // "[Image to add: …]" on a line of its own is an image placeholder (unescaped brackets only:
         // a paragraph that just says it is written with \[ \])

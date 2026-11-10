@@ -79,3 +79,33 @@ test.describe('Markdown export', () => {
     expect((await readFile(await download.path())).toString('utf8')).toBe('Just text');
   });
 });
+
+test.describe('Markdown export of a workspace', () => {
+  test('has every page as it is now, same titles in files of their own, and tables as tables', async ({ alice: page, workspaceId }) => {
+    const first = await createPage(page, workspaceId, { title: 'Notes' });
+    const second = await createPage(page, workspaceId, { title: 'Notes' });
+    const table = (rows: string[][]) => ({
+      type: 'table',
+      content: rows.map((cells) => ({ type: 'tableRow', content: cells.map((text) => ({ type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text }] }] })) })),
+    });
+    await setContent(page, first, [table([['Item', 'Count'], ['Bolts', '4']])]);
+    // Typed just before exporting, so not yet in the stored copy
+    await openPage(page, second);
+    await page.locator('.ProseMirror:not(.page-hold *)').click();
+    await page.keyboard.type('Typed a moment ago', { delay: 20 });
+
+    await page.locator('.user-switch').click();
+    await page.locator('.popover-card').getByRole('button', { name: 'Settings' }).click();
+    const settings = page.locator('.settings-popup-card');
+    await settings.getByRole('button', { name: 'Export', exact: true }).click();
+    await expect(settings.getByRole('button', { name: /JSON/ })).toHaveCount(0);
+    const download = page.waitForEvent('download');
+    await settings.getByRole('button', { name: 'Download Markdown ZIP' }).click();
+    const files = readZip(await readFile(await (await download).path()));
+
+    expect([...files.keys()].sort()).toEqual(['Notes (2).md', 'Notes.md']);
+    const both = [files.get('Notes.md')!.toString('utf8'), files.get('Notes (2).md')!.toString('utf8')];
+    expect(both).toContain('| Item | Count |\n| --- | --- |\n| Bolts | 4 |');
+    expect(both).toContain('Typed a moment ago');
+  });
+});
