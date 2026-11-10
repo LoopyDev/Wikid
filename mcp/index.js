@@ -93,6 +93,7 @@ function formatPage(page) {
     `# ${page.title || 'Untitled page'}`,
     '',
     `Page ${page.id}. Each block is preceded by a comment with its id: rewrite one with update_block, add blocks with insert_blocks, remove one with delete_block. ${SECTIONS}`,
+    `Revision ${page.revision} (give it to replace_page).`,
     '',
     page.annotated || '(empty page)',
   ].join('\n');
@@ -270,9 +271,13 @@ tool('delete_block', 'Delete one block of a page (by id).', { pageId: z.string()
 
 tool(
   'replace_page',
-  `Rewrite a whole page from Markdown. Refused when the page has things Markdown can’t hold (database views, colours, image sizes, column widths): change it block by block then. ${SECTIONS}`,
-  { pageId: z.string().describe('Page id'), markdown: z.string().describe('The whole page, as Markdown') },
-  async ({ pageId, markdown }) => formatPage(await api(`/pages/${id(pageId)}/markdown`, { method: 'PUT', body: { markdown } })),
+  `Rewrite a whole page from Markdown, given the revision get_page showed. Refused when the page has changed since (someone may be typing in it: read it again and rewrite what it has now), or has things Markdown can’t hold (database views, colours, image sizes, column widths): change it block by block then. ${SECTIONS}`,
+  {
+    pageId: z.string().describe('Page id'),
+    markdown: z.string().describe('The whole page, as Markdown'),
+    revision: z.string().describe('The revision get_page showed for the page'),
+  },
+  async ({ pageId, markdown, revision }) => formatPage(await api(`/pages/${id(pageId)}/markdown`, { method: 'PUT', body: { markdown, revision } })),
 );
 
 tool(

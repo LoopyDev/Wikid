@@ -225,6 +225,22 @@ function comparable(node: ContentNode): unknown {
       content.push(next);
     }
   }
+  // Spaces at either end of a block's text: Markdown can't keep them, and they mean nothing (a
+  // paragraph caught mid-typing ends in one)
+  // (Not code, where they're part of it)
+  const isPlainText = (item: unknown): item is { text?: string } => {
+    const node = item as { type?: string; marks?: Array<{ type: string }> } | undefined;
+    return node?.type === 'text' && !(node.marks ?? []).some((mark) => mark.type === 'code');
+  };
+  if (node.type !== 'codeBlock') {
+    if (isPlainText(content[0])) content[0].text = (content[0].text ?? '').replace(/^\s+/, '');
+    const last = content[content.length - 1];
+    if (isPlainText(last)) last.text = (last.text ?? '').replace(/\s+$/, '');
+  }
+  for (let i = content.length - 1; i >= 0; i -= 1) {
+    const item = content[i] as { type?: string; text?: string };
+    if (item.type === 'text' && !item.text) content.splice(i, 1);
+  }
   return {
     type: node.type,
     ...(Object.keys(attrs).length ? { attrs: Object.keys(attrs).sort().reduce((o, k) => ({ ...o, [k]: attrs[k] }), {}) } : {}),

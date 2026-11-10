@@ -1,13 +1,11 @@
-import { HocuspocusProvider, HocuspocusProviderWebsocket } from '@hocuspocus/provider';
 import { beforeAll, describe, expect, it } from 'vitest';
-import * as Y from 'yjs';
-import { API_URL, Session, USERS, addMember, createPage, createWorkspace, loginAs, unique } from './helpers';
+import { Session, USERS, addMember, createPage, createWorkspace, loginAs, unique } from './helpers';
+import { openLiveDocument } from './live';
 
 // A page's live document is filled from its saved content by the server, once, however many people
 // open it at the same moment; and restoring a version is done there too, so two restores at once
 // can't put the content in twice.
 
-const COLLAB_URL = API_URL.replace(/^http/, 'ws').replace(/\/api$/, '/collab');
 const p = (text: string) => ({ type: 'paragraph', content: [{ type: 'text', text }] });
 
 let alice: Session;
@@ -21,36 +19,7 @@ beforeAll(async () => {
   await addMember(alice, workspaceId, USERS.bob.email, 'EDITOR');
 });
 
-/** Opens a page's live document and keeps it open; `paragraphs()` reads what it holds. */
-async function openLive(session: Session, pageId: string) {
-  const token = (await session.post('/collab/token', { workspaceId })).body.token as string;
-  const doc = new Y.Doc();
-  const socket = new HocuspocusProviderWebsocket({ url: COLLAB_URL });
-  const provider = new HocuspocusProvider({ websocketProvider: socket, name: `ws:${workspaceId}:${pageId}`, document: doc, token });
-  provider.attach();
-  await new Promise<void>((resolve) => provider.on('synced', () => resolve()));
-  return {
-    doc,
-    // Each block's text, read from its text items (without the formatting)
-    paragraphs: () =>
-      doc
-        .getXmlFragment('default')
-        .toArray()
-        .map((node) =>
-          node instanceof Y.XmlElement
-            ? node
-                .toArray()
-                .map((child) => (child instanceof Y.XmlText ? child.toDelta().map((op: { insert: unknown }) => (typeof op.insert === 'string' ? op.insert : '')).join('') : ''))
-                .join('')
-            : '',
-        ),
-    title: () => doc.getText('title').toString(),
-    close: () => {
-      provider.destroy();
-      socket.destroy();
-    },
-  };
-}
+const openLive = (session: Session, pageId: string) => openLiveDocument(session, workspaceId, pageId);
 
 const versions = async (pageId: string) => (await alice.get(`/pages/${pageId}/versions`)).body as any[];
 

@@ -86,10 +86,11 @@ describe("someone else's pages", () => {
 
   it('only deletes pages for good from the Bin', async () => {
     const page = await createPage(alice, workspaceId, { title: unique('Still in use') });
-    expect((await bob.delete('/pages', { ids: [page.id] })).status).toBe(400);
+    // (Deleting for good is the owner's: see pages.e2e.test.ts)
+    expect((await alice.delete('/pages', { ids: [page.id] })).status).toBe(400);
     expect((await alice.get(`/pages/${page.id}`)).status).toBe(200);
     expect((await alice.delete(`/pages/${page.id}`)).status).toBe(200);
-    expect((await bob.delete('/pages', { ids: [page.id] })).status).toBe(200);
+    expect((await alice.delete('/pages', { ids: [page.id] })).status).toBe(200);
   });
 
   it("deletes what's still in the Bin when someone else restored one of the pages meanwhile", async () => {
@@ -97,8 +98,8 @@ describe("someone else's pages", () => {
     const back = await createPage(alice, workspaceId, { title: unique('Back') });
     await alice.delete(`/pages/${gone.id}`);
     await alice.delete(`/pages/${back.id}`);
-    expect((await alice.patch(`/pages/${back.id}/restore`, {})).status).toBe(200);
-    expect((await bob.delete('/pages', { ids: [gone.id, back.id] })).status).toBe(200);
+    expect((await bob.patch(`/pages/${back.id}/restore`, {})).status).toBe(200);
+    expect((await alice.delete('/pages', { ids: [gone.id, back.id] })).status).toBe(200);
     expect((await alice.get(`/pages/${gone.id}`)).status).toBe(404);
     expect((await alice.get(`/pages/${back.id}`)).status).toBe(200);
   });

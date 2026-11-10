@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { Session, USERS, addMember, createPage, createWorkspace, loginAs } from './helpers';
+import { appendParagraph, openLiveDocument } from './live';
 
 // A page's content as Markdown, block by block (the MCP server's way in). The conversion itself
 // is unit tested in markdown-content.test.ts; writes reaching a page open in the editor are
@@ -19,6 +20,24 @@ beforeAll(async () => {
 const ids = (body: any) => body.blocks.map((b: any) => b.id);
 
 describe('page content as Markdown', () => {
+  it("rewrites a page whole only from the version the writer read, so typing since isn't lost", async () => {
+    const page = await createPage(alice, workspaceId);
+    const read = (await alice.put(`/pages/${page.id}/markdown`, { markdown: 'First' })).body;
+    expect(read.revision).toMatch(/^[0-9a-f]{16,}$/);
+    const live = await openLiveDocument(alice, workspaceId, page.id);
+    try {
+      appendParagraph(live.doc, 'Typed meanwhile');
+      await expect.poll(async () => (await alice.get(`/pages/${page.id}/markdown`)).body.markdown).toContain('Typed meanwhile');
+      const stale = await alice.put(`/pages/${page.id}/markdown`, { markdown: 'Rewritten', revision: read.revision });
+      expect(stale.status).toBe(409);
+      expect(stale.body.message).toMatch(/changed since/i);
+      const fresh = (await alice.get(`/pages/${page.id}/markdown`)).body;
+      expect((await alice.put(`/pages/${page.id}/markdown`, { markdown: 'Rewritten', revision: fresh.revision })).status).toBe(200);
+    } finally {
+      live.close();
+    }
+  });
+
   it('writes a new page from Markdown, and reads it back block by block', async () => {
     const page = await createPage(alice, workspaceId, { title: 'Notes' });
     const markdown = '# Plans\n\nFirst **step**.\n\n- [ ] Buy milk\n- [x] Call Bob';
