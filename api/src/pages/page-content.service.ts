@@ -1,4 +1,5 @@
 import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
+import { createHash } from 'crypto';
 import type { Prisma } from '@prisma/client';
 import * as Y from 'yjs';
 import { PrismaService } from '../prisma/prisma.service';
@@ -20,6 +21,20 @@ import {
 } from './markdown/content-to-markdown.util';
 
 type User = { userId?: string; userName?: string };
+
+// Of what the content means: not its block ids (a block given one as it's read isn't a change), nor
+// the order of keys or settings left empty (the stored copy and the live document differ in those)
+const canonical = (value: unknown): unknown => {
+  if (Array.isArray(value)) return value.map(canonical);
+  if (!value || typeof value !== 'object') return value;
+  const entries = Object.entries(value as Record<string, unknown>)
+    .filter(([key, item]) => key !== 'id' && item !== null && item !== undefined)
+    .map(([key, item]) => [key, canonical(item)] as const)
+    .filter(([, item]) => !(item && typeof item === 'object' && !Array.isArray(item) && !Object.keys(item).length))
+    .sort(([a], [b]) => a.localeCompare(b));
+  return Object.fromEntries(entries);
+};
+const revisionOf = (content: ContentNode[]) => createHash('sha256').update(JSON.stringify(canonical(content))).digest('hex').slice(0, 16);
 type DocPage = { id: string; workspaceId: string; title: string };
 
 // A page's content from outside the editor: read as it is now, and changed so that everyone with
@@ -110,6 +125,9 @@ export class PageContentService {
     return {
       id: page.id,
       title: page.title,
+      // Which version of the content this is: a whole-page rewrite gives it back, and is refused
+      // if the page has changed since (someone typing), rather than writing over it
+      revision: revisionOf(content),
       markdown: contentToMarkdown(content),
       // The same, each block preceded by a comment with its id, for a tool to change it by id
       annotated: contentToMarkdown(content, { sections: true, markers: true }),
@@ -176,9 +194,12 @@ export class PageContentService {
   }
 
   /** Changes the page's content with one of the block operations, as Markdown in and out. */
-  async change(pageId: string, user: User, operation: (content: ContentNode[]) => ContentNode[]) {
+  async change(pageId: string, user: User, operation: (content: ContentNode[]) => ContentNode[], revision?: string) {
     const page = await this.docPage(pageId, user, true);
     const { content, state } = await this.current(page);
+    if (revision && revision !== revisionOf(content)) {
+      throw new ConflictException('The page has changed since it was read (someone may be editing it): read it again, then make the change to what it has now.');
+    }
     let next: ContentNode[];
     try {
       next = operation(content);
@@ -189,8 +210,8 @@ export class PageContentService {
     return this.view(page, await this.write(page, next, state, user));
   }
 
-  replaceMarkdown(pageId: string, markdown: string, user: User) {
-    return this.change(pageId, user, (content) => replaceAll(content, markdown));
+  replaceMarkdown(pageId: string, markdown: string, user: User, revision?: string) {
+    return this.change(pageId, user, (content) => replaceAll(content, markdown), revision);
   }
 
   insertMarkdown(pageId: string, markdown: string, where: { afterId?: string; beforeId?: string }, user: User) {

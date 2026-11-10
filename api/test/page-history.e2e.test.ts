@@ -56,6 +56,15 @@ describe('page history', () => {
     expect(paragraphTexts(first.content)).toEqual(['Original']);
   });
 
+  it("brings back the version's title with its content", async () => {
+    const page = await createPage(alice, workspaceId, { title: 'Old title' });
+    await save(alice, page.id, 'Old text');
+    const [old] = (await alice.get(`/pages/${page.id}/versions`)).body;
+    await alice.patch(`/pages/${page.id}`, { title: 'New title' });
+    expect((await alice.post(`/pages/${page.id}/versions/${old.id}/restore`, {})).status).toBe(201);
+    expect((await alice.get(`/pages/${page.id}`)).body.title).toBe('Old title');
+  });
+
   it('shows the history to anyone who can read the page, and restores only for editors', async () => {
     const page = await createPage(alice, workspaceId);
     await save(alice, page.id, 'Shared');

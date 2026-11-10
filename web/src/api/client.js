@@ -163,10 +163,11 @@ export const api = {
       body: JSON.stringify({ targetWorkspaceId }),
     });
   },
-  async updatePageTitle(pageId, title, { userId, userName } = {}) {
+  // rename: a rename from outside the page (the sidebar), so it goes to everyone with it open too
+  async updatePageTitle(pageId, title, { userId, userName, rename = false } = {}) {
     return request(`/pages/${pageId}${buildQs({ userId, userName })}`, {
       method: 'PATCH',
-      body: JSON.stringify({ title }),
+      body: JSON.stringify({ title, ...(rename ? { rename: true } : {}) }),
     });
   },
   async updatePageIcon(pageId, icon, { userId, userName } = {}) {
@@ -347,6 +348,10 @@ export const api = {
   // A page as plain Markdown for an export file, from what it has now (see markdownExport.js)
   async getPageExportMarkdown(pageId, { userId, userName } = {}) {
     return request(`/pages/${pageId}/markdown${buildQs({ userId, userName, for: 'export' })}`);
+  },
+  // A copy of a page and its subpages, next to it (made on the server, from what the page has now)
+  async duplicatePage(pageId, { userId, userName } = {}) {
+    return request(`/pages/${pageId}/duplicate${buildQs({ userId, userName })}`, { method: 'POST' });
   },
   async deletePage(pageId, { userId, userName } = {}) {
     return request(`/pages/${pageId}${buildQs({ userId, userName })}`, {

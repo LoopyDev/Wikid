@@ -108,6 +108,11 @@ describe('page content as Markdown', () => {
     expect(markdownKeeps(content)).toBe(true);
   });
 
+  it("counts a space at the end of a paragraph (someone mid-typing) as nothing Markdown would lose", () => {
+    const typing = [{ type: 'paragraph', content: [{ type: 'text', text: 'Half a sentence ' }] }];
+    expect(markdownKeeps(typing as any)).toBe(true);
+  });
+
   it("keeps an image's title and address whole, quotes, backslashes, spaces and brackets included", () => {
     const image = { type: 'image', attrs: { src: 'my files/cat (1).png', alt: 'A cat', title: 'Say \\"hi\\" \\' } };
     const markdown = contentToMarkdown([image]);

@@ -1,8 +1,10 @@
 <script setup>
 import { computed, ref } from 'vue';
 import { useWorkspaceStore } from '../stores/workspace';
+import { SYSTEM_ADMIN_ID } from '../constants/system-admin';
 
-// The workspace's rubbish bin: restore pages, or delete them all for good.
+// The workspace's rubbish bin: restore pages (editors), or delete them all for good (the owner,
+// after saying so: it can't be undone).
 // 'restored-parents': ids of pages brought back with a sub-page, so the sidebar can open them
 const emit = defineEmits(['close', 'restored-parents']);
 const workspace = useWorkspaceStore();
@@ -35,7 +37,13 @@ const restoreFromBin = async (page, placement) => {
   }
   await workspace.loadBinPages();
 };
+const canRestore = computed(() => workspace.canEditActiveWorkspace);
+// The owner (as the server has it, a system admin too)
+const canDestroy = computed(() => workspace.activeWorkspaceRole === 'OWNER' || workspace.activeUser?.id === SYSTEM_ADMIN_ID);
+const confirmingDestroy = ref(false);
+const binCount = computed(() => workspace.binPages.length);
 const destroyBin = async () => {
+  confirmingDestroy.value = false;
   if (workspace.binPages.length) {
     await workspace.destroyBin(workspace.binPages.map((p) => p.id));
   }
@@ -70,21 +78,39 @@ const destroyBin = async () => {
           <li v-for="page in workspace.binPages" :key="page.id">
             <div class="delete-tree-node">
               <span class="delete-tree-title">{{ page.title || 'Untitled page' }}</span>
-              <button class="ghost-btn ghost-btn-background" type="button" @click="restoreFromBin(page)">Restore</button>
+              <button v-if="canRestore" class="ghost-btn ghost-btn-background" type="button" @click="restoreFromBin(page)">Restore</button>
             </div>
           </li>
         </ul>
       </div>
       <div v-else class="muted">Nothing in the bin.</div>
-      <div class="modal-actions">
+      <div v-if="confirmingDestroy" class="bin-choice" role="alertdialog" aria-label="Delete the Bin's pages for good">
+        <p>
+          <strong>Delete {{ binCount === 1 ? '1 page' : `${binCount} pages` }} for good? This can't be undone.</strong>
+        </p>
+        <div class="modal-actions">
+          <button class="ghost-btn" type="button" @click="confirmingDestroy = false">Cancel</button>
+          <button class="ghost-btn ghost-btn-background bin-destroy" type="button" @click="destroyBin">Delete for good</button>
+        </div>
+      </div>
+      <div v-else class="modal-actions">
         <button class="ghost-btn" type="button" @click="emit('close')">Close</button>
-        <button class="ghost-btn ghost-btn-background" type="button" @click="destroyBin" :disabled="!workspace.binPages.length">Delete all</button>
+        <button
+          v-if="canDestroy"
+          class="ghost-btn ghost-btn-background"
+          type="button"
+          :disabled="!workspace.binPages.length"
+          @click="confirmingDestroy = true"
+        >Delete all</button>
       </div>
     </div>
   </div>
 </template>
 
 <style scoped>
+.bin-destroy {
+  color: var(--danger, #dc2626);
+}
 .bin-choice,
 .bin-notice {
   max-width: 34rem;
