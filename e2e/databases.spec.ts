@@ -146,6 +146,10 @@ test.describe('databases', () => {
   });
 
   test("a cell someone else is editing is locked until they leave it, so neither overwrites the other", async ({ alice, bob, workspaceId }) => {
+    // On slow machines (as in CI) the answer to Alice's save of the row's title, sent as she left
+    // the cell, came while Bob was typing, and her table wrote that older name over his. Slowed down
+    // here, so it would again. (Each test has browsers of its own, so this ends with it.)
+    for (const page of [alice, bob]) await (await page.context().newCDPSession(page)).send('Emulation.setCPUThrottlingRate', { rate: 6 });
     await openPage(alice, await createPage(alice, workspaceId));
     const id = await newDatabaseFromSidebar(alice, unique('Shared cell'));
     await addNamedRow(alice, id, 'Row one');
