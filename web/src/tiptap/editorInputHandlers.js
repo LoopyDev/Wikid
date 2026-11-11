@@ -6,7 +6,7 @@ import { describeUndoStacks, logUndoDebug, undoDebugEnabled } from '../utils/edi
 import { INDENT_EXCLUDED_ANCESTORS, applyCodeBlockIndentation, collectIndentTargets, findIndentTarget, hasAncestorOfType } from './indentation';
 import { MAX_INDENT as MAX_TEXT_INDENT } from './indent';
 import { isLocalImageSrc } from './resizableImage';
-import { PLACEHOLDER_TEXT, localImageCount, picturesFromRtf, withPicturePlaceholders } from '../utils/officePaste';
+import { PLACEHOLDER_TEXT, hasOfficePictures, picturesFromPaste, withPicturePlaceholders } from '../utils/officePaste';
 import { newBlockId } from './blockIds';
 
 const imageFiles = (dataTransfer) => Array.from(dataTransfer?.files || []).filter((file) => file.type.startsWith('image/'));
@@ -94,19 +94,18 @@ export function createEditorProps({ lastTextInputAt, lastTextInputInfo, props, i
           return true;
         }
       }
-      // Text and pictures together from Word: its HTML points the pictures at files on the computer,
-      // which a page can't read, so they were dropped. Its RTF copy holds them (officePaste.js). The
-      // paste goes in now, each picture as a placeholder; once uploaded, a picture takes its
-      // placeholder's place (found by its block id, wherever edits have moved it). One that can't be
-      // uploaded leaves its placeholder, to upload by hand. Only when the RTF has a picture for each
-      // of the HTML's, in order; otherwise as before (the text, without them).
-      // Not as plain text (Shift), or into code, which take the text alone as before; nor where
+      // Text and pictures together from Word: it puts each picture in the HTML as the picture
+      // itself (data:), which a page doesn't keep, or as a file on the computer, which a page can't
+      // read (its RTF copy holds those; officePaste.js). The paste goes in now, each picture as a
+      // placeholder; once uploaded, a picture takes its placeholder's place (found by its block id,
+      // wherever edits have moved it). One that can't be uploaded leaves its placeholder, to upload
+      // by hand. Not as plain text (Shift), or into code, which take the text alone; nor where
       // pictures can't be uploaded (an unsaved page), where they're left out as before.
       const rtf = event.clipboardData.getData('text/rtf');
       const plainOnly = view.input?.shiftKey || view.state.selection.$from.parent.type.spec.code;
-      if (html && rtf && uploadPastedImages && canUploadPastedImages?.() && !plainOnly && rtf.includes('\\pict')) {
-        const pictures = picturesFromRtf(rtf);
-        if (pictures.some(Boolean) && pictures.length === localImageCount(html)) {
+      if (html && uploadPastedImages && !plainOnly && hasOfficePictures(html) && canUploadPastedImages?.()) {
+        const pictures = picturesFromPaste(html, rtf);
+        if (pictures.some(Boolean)) {
           event.preventDefault();
           const ids = pictures.map((picture) => (picture ? newBlockId() : null));
           const { html: withPlaceholders, shown } = withPicturePlaceholders(html, ids);
