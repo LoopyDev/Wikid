@@ -1,11 +1,13 @@
 import { Selection } from 'prosemirror-state';
-import { selectionSyncedReferenceId } from './syncedBlocks';
+import { findBlockById, selectionSyncedReferenceId } from './syncedBlocks';
 import { parseBlockUrl } from '../utils/editorLinks';
 import { liftImagesForPaste, shouldHandleMarkdownPaste } from '../utils/markdownPaste';
 import { describeUndoStacks, logUndoDebug, undoDebugEnabled } from '../utils/editorDebug';
 import { INDENT_EXCLUDED_ANCESTORS, applyCodeBlockIndentation, collectIndentTargets, findIndentTarget, hasAncestorOfType } from './indentation';
 import { MAX_INDENT as MAX_TEXT_INDENT } from './indent';
 import { isLocalImageSrc } from './resizableImage';
+import { PLACEHOLDER_TEXT, localImageCount, picturesFromRtf, withPicturePlaceholders } from '../utils/officePaste';
+import { newBlockId } from './blockIds';
 
 const imageFiles = (dataTransfer) => Array.from(dataTransfer?.files || []).filter((file) => file.type.startsWith('image/'));
 
@@ -25,7 +27,24 @@ async function blobImageFiles(srcs) {
 // The page editor's input handling (Tiptap's editorProps): pasting (markdown, block links as
 // synced blocks), typing, dropping, keys (Tab indent, undo in live editing, synced-block locks)
 // and clicks below the last block.
-export function createEditorProps({ lastTextInputAt, lastTextInputInfo, props, isCollabEnabled, isSyncedLocked, notifySyncedBlockLocked, insertSyncedBlockFromUrl, insertImageFiles, shouldInsertClickPlaceholder, insertClickPlaceholder, dragScroll, getEditor }) {
+export function createEditorProps({ lastTextInputAt, lastTextInputInfo, props, isCollabEnabled, isSyncedLocked, notifySyncedBlockLocked, insertSyncedBlockFromUrl, insertImageFiles, uploadPastedImages, canUploadPastedImages, shouldInsertClickPlaceholder, insertClickPlaceholder, dragScroll, getEditor }) {
+  // A pasted picture's placeholder, found by its block id, becomes the picture (unless it's gone),
+  // keeping the id and the size Word showed it at; anything typed in it meanwhile is its
+  // description. Not an undo step of its own: Ctrl+Z after it shouldn't turn it back into a box.
+  const replacePlaceholder = (id, picture, shown) => {
+    const editor = getEditor();
+    if (!editor || editor.isDestroyed) return;
+    editor.commands.command(({ tr, state }) => {
+      const found = findBlockById(tr.doc, id);
+      if (!found || found.node.type.name !== 'imagePlaceholder') return false;
+      const typed = found.node.textContent.trim();
+      const alt = typed && typed !== PLACEHOLDER_TEXT ? typed : shown?.alt;
+      const attrs = { ...picture.attrs, src: picture.src, id, ...(shown?.width ? { width: shown.width } : {}), ...(alt ? { alt } : {}) };
+      tr.replaceWith(found.pos, found.pos + found.node.nodeSize, state.schema.nodes.image.create(attrs));
+      tr.setMeta('addToHistory', false);
+      return true;
+    });
+  };
   return {
     attributes: {
       class: 'tiptap-editor',
@@ -72,6 +91,37 @@ export function createEditorProps({ lastTextInputAt, lastTextInputInfo, props, i
           event.preventDefault();
           const pos = view.state.selection.from;
           (files.length ? Promise.resolve(files) : blobImageFiles(blobSrcs)).then((found) => insertImageFiles(found, pos));
+          return true;
+        }
+      }
+      // Text and pictures together from Word: its HTML points the pictures at files on the computer,
+      // which a page can't read, so they were dropped. Its RTF copy holds them (officePaste.js). The
+      // paste goes in now, each picture as a placeholder; once uploaded, a picture takes its
+      // placeholder's place (found by its block id, wherever edits have moved it). One that can't be
+      // uploaded leaves its placeholder, to upload by hand. Only when the RTF has a picture for each
+      // of the HTML's, in order; otherwise as before (the text, without them).
+      // Not as plain text (Shift), or into code, which take the text alone as before; nor where
+      // pictures can't be uploaded (an unsaved page), where they're left out as before.
+      const rtf = event.clipboardData.getData('text/rtf');
+      const plainOnly = view.input?.shiftKey || view.state.selection.$from.parent.type.spec.code;
+      if (html && rtf && uploadPastedImages && canUploadPastedImages?.() && !plainOnly && rtf.includes('\\pict')) {
+        const pictures = picturesFromRtf(rtf);
+        if (pictures.some(Boolean) && pictures.length === localImageCount(html)) {
+          event.preventDefault();
+          const ids = pictures.map((picture) => (picture ? newBlockId() : null));
+          const { html: withPlaceholders, shown } = withPicturePlaceholders(html, ids);
+          view.pasteHTML(withPlaceholders);
+          const pending = getEditor()?.storage?.imagePlaceholder?.pending;
+          ids.forEach((id) => id && pending?.add(id));
+          const files = pictures.map((picture, i) => (picture ? new File([picture.bytes], `pasted-${i + 1}.${picture.extension}`, { type: picture.type }) : null));
+          // Each picture in its place as soon as it's uploaded, not once they all are
+          uploadPastedImages(files, (i, picture) => {
+            pending?.delete(ids[i]);
+            if (picture) replacePlaceholder(ids[i], picture, shown[ids[i]]);
+          }).catch((err) => {
+            console.warn('Pasted pictures not uploaded', err);
+            ids.forEach((id) => id && pending?.delete(id));
+          });
           return true;
         }
       }

@@ -1,5 +1,6 @@
 import { Node, mergeAttributes } from '@tiptap/core';
 import { VueNodeViewRenderer } from '@tiptap/vue-3';
+import { reactive } from 'vue';
 import ImagePlaceholderNode from './ImagePlaceholderNode.vue';
 
 // A box saying which image goes here ("Upload a photo of the site"), with an Upload button that
@@ -12,8 +13,10 @@ export default Node.create({
   marks: '',
   defining: true,
   addStorage() {
-    // Set by the editor: uploads files to a position, resolving to how many went in
-    return { upload: null };
+    // upload: set by the editor, uploads files to a position, resolving to how many went in.
+    // pending: the ids of placeholders whose picture is being uploaded already (pasted from Word),
+    // which don't offer their own upload meanwhile
+    return { upload: null, pending: reactive(new Set()) };
   },
   parseHTML() {
     return [{ tag: 'div[data-type="image-placeholder"]' }];

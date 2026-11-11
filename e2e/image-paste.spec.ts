@@ -45,6 +45,39 @@ async function expectImagesLoad(page: Page, count: number) {
 }
 
 test.describe('pasted and dropped images', () => {
+  test('text and pictures pasted together from Word keep the pictures', async ({ alice: page, workspaceId }) => {
+    // Word's HTML points each picture at a file on the computer, which the page can't read; its RTF
+    // copy holds the picture (here, a PNG), with the older metafile copy Word adds beside it
+    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+    const hex = png.toString('hex').replace(/(.{64})/g, '$1\n');
+    // First a chart (a metafile, which a browser can't show), then the photo: the photo still goes in its own place
+    const rtf = `{\\rtf1\\ansi {\\pict\\emfblip\\picw100\\pich100 01000000} Before {\\*\\shppict{\\pict{\\*\\picprop}\\picw20\\pich20\\pngblip\\bliptag255{\\*\\blipuid 00112233445566778899aabbccddeeff}${hex}}}{\\nonshppict{\\pict\\wmetafile8\\picw20 0100090000}} After}`;
+    const html = '<p class="MsoNormal"><img width="100" height="100" src="file:///C:/Users/a/AppData/Local/Temp/msohtmlclip1/01/clip_image001.emz"></p><p class="MsoNormal">Before</p><p class="MsoNormal"><span style="mso-no-proof:yes"><img width="20" height="20" src="file:///C:/Users/a/AppData/Local/Temp/msohtmlclip1/01/clip_image002.png" alt="A dot"></span><o:p></o:p></p><p class="MsoNormal">After</p>';
+    await openPage(page, await createPage(page, workspaceId));
+    await editor(page).click();
+    await page.evaluate(({ html, rtf }) => {
+      const data = new DataTransfer();
+      data.setData('text/plain', 'Before\n\nAfter');
+      data.setData('text/html', html);
+      data.setData('text/rtf', rtf);
+      document.querySelector('.ProseMirror')!.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+    }, { html, rtf });
+    const img = editor(page).locator('img');
+    await expect(img).toHaveCount(1);
+    await expect(img).toHaveAttribute('src', /\/uploads\//);
+    // With the description Word had for it
+    await expect(img).toHaveAttribute('alt', 'A dot');
+    await expect(editor(page)).toContainText('Before');
+    await expect(editor(page)).toContainText('After');
+    // It's the picture itself, and it loads
+    await expect.poll(() => img.evaluate((el: HTMLImageElement) => el.complete && el.naturalWidth)).toBe(1);
+    // In its place between the lines (the chart, which can't be shown, left out), its placeholder gone
+    await expect.poll(() => outline(page)).toEqual(['paragraph: Before', 'image', 'paragraph: After']);
+    await waitForSaved(page);
+    await page.reload();
+    await expect(editor(page).locator('img')).toHaveCount(1);
+  });
+
   test('a pasted image file is uploaded, and still loads after a reload', async ({ alice: page, workspaceId }) => {
     await openPage(page, await createPage(page, workspaceId));
     await editor(page).click();
