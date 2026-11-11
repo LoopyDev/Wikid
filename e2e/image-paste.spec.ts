@@ -78,6 +78,37 @@ test.describe('pasted and dropped images', () => {
     await expect(editor(page).locator('img')).toHaveCount(1);
   });
 
+  test('text and pictures pasted together from Word for Windows (the pictures in its HTML) keep the pictures', async ({ alice: page, workspaceId }) => {
+    // Word for Windows puts each picture in its HTML itself (data:), after a VML copy pointing at a
+    // file, and no RTF; the editor doesn't keep a data: picture in a page
+    const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+    const picture = (n: number) => `<p class=MsoNormal style='line-height:normal;mso-outline-level:3'><b><span style='font-size:12.0pt;mso-no-proof:yes'><!--[if gte vml 1]><v:shape id="Picture_x0020_${n}" type="#_x0000_t75" style='width:15pt;height:15pt'>
+ <v:imagedata src="file:///C:/Users/a/AppData/Local/Temp/msohtmlclip1/01/clip_image00${n}.png" o:title=""/>
+</v:shape><![endif]--><![if !vml]><img width=20 height=20
+src="data:image/png;base64,${png}"
+v:shapes="Picture_x0020_${n}"><![endif]></span></b><b><span style='font-size:12.0pt'><o:p></o:p></span></b></p>`;
+    const html = `<html xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office"><body lang=EN-GB><!--StartFragment--><p class=MsoNormal><span>Before<o:p></o:p></span></p>
+${picture(1)}<p class=MsoNormal><span>Between<o:p></o:p></span></p>${picture(2)}<p class=MsoNormal><span>After<o:p></o:p></span></p><!--EndFragment--></body></html>`;
+    await openPage(page, await createPage(page, workspaceId));
+    await editor(page).click();
+    await page.evaluate((html) => {
+      const data = new DataTransfer();
+      data.setData('text/plain', 'Before\n\nBetween\n\nAfter');
+      data.setData('text/html', html);
+      document.querySelector('.ProseMirror')!.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+    }, html);
+    const img = editor(page).locator('img');
+    await expect(img).toHaveCount(2);
+    for (let i = 0; i < 2; i += 1) {
+      await expect(img.nth(i)).toHaveAttribute('src', /\/uploads\//);
+      await expect.poll(() => img.nth(i).evaluate((el: HTMLImageElement) => el.complete && el.naturalWidth)).toBe(1);
+    }
+    await expect.poll(() => outline(page)).toEqual(['paragraph: Before', 'image', 'paragraph: Between', 'image', 'paragraph: After']);
+    await waitForSaved(page);
+    await page.reload();
+    await expect(editor(page).locator('img')).toHaveCount(2);
+  });
+
   test('a pasted image file is uploaded, and still loads after a reload', async ({ alice: page, workspaceId }) => {
     await openPage(page, await createPage(page, workspaceId));
     await editor(page).click();

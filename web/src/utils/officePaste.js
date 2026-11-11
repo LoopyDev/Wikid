@@ -1,7 +1,8 @@
-// Pasting from Word (and other Office apps) with text and pictures together. The HTML it puts on the
-// clipboard points each picture at a file on the computer (file:///…/clip_image001.png), which a web
-// page can't read, so the pictures were dropped. Its RTF copy holds the pictures themselves, in the
-// same order: they're read from there.
+// Pasting from Word (and other Office apps) with text and pictures together. Word puts each picture
+// in its HTML either as the picture itself (data:image/png;base64,…, as Word for Windows does), which
+// the editor won't keep in a page, or as an address of a file on the computer (file:///…/clip_
+// image001.png), which a page can't read; then its RTF copy holds the pictures, in the same order.
+// Either way they were dropped. Now they're read from where they are, and uploaded.
 
 import { isLocalImageSrc } from '../tiptap/resizableImage';
 
@@ -96,15 +97,63 @@ function toPicture(group) {
   return { type: format[0], extension: format[1], bytes };
 }
 
-/** How many pictures in the HTML point at files on the computer. */
-export const localImageCount = (html) =>
-  [...new DOMParser().parseFromString(String(html || ''), 'text/html').querySelectorAll('img')].filter((img) => isLocalImageSrc(img.getAttribute('src'))).length;
+// The picture formats a page shows (and the server takes); a data: address may carry parameters
+const DATA_IMAGE = /^data:image\/([a-z0-9.+-]+)((?:;[^;,]*)*);base64,/i;
+const DATA_TYPES = { png: ['image/png', 'png'], jpeg: ['image/jpeg', 'jpg'], jpg: ['image/jpeg', 'jpg'], gif: ['image/gif', 'gif'], webp: ['image/webp', 'webp'], bmp: ['image/bmp', 'bmp'], avif: ['image/avif', 'avif'] };
 
-// What a pasted picture's placeholder says until the picture takes its place
-export const PLACEHOLDER_TEXT = 'Picture pasted from Word';
+// A picture a paste holds but the page can't keep as it is: the picture itself, or a file's address
+const needsUpload = (src) => isLocalImageSrc(src) || /^data:/i.test(String(src || '').trim());
+
+const htmlImages = (doc) => [...doc.querySelectorAll('img')].filter((img) => needsUpload(img.getAttribute('src')));
 
 /**
- * The HTML with its local pictures as image placeholders, each with the block id given for it, in
+ * Whether pasted HTML is from Word (or another Office app) and holds pictures the page can't keep as
+ * they are. Only Office's: elsewhere (a web page, an email) a data: picture is mostly an icon or an
+ * emoji in a line, which is left out as before rather than made a picture of its own.
+ */
+export const hasOfficePictures = (html) =>
+  /urn:schemas-microsoft-com:office|class=["']?Mso|mso-/i.test(html) && /<img\b[^>]*\bsrc\s*=\s*["']?\s*(data:|file:|blob:|webkit-fake-url:)/i.test(html);
+
+/**
+ * The pictures a paste holds, one for each the HTML has that the page can't keep as it is, in order:
+ * from the HTML itself (data:), or from the RTF (a file's address; only when the RTF has one for each
+ * of those). Null for one that can't be read, or isn't a format a browser shows.
+ * @returns {Array<{ type: string, extension: string, bytes: Uint8Array } | null>}
+ */
+export function picturesFromPaste(html, rtf) {
+  const doc = new DOMParser().parseFromString(String(html || ''), 'text/html');
+  const images = htmlImages(doc);
+  const local = images.filter((img) => isLocalImageSrc(img.getAttribute('src'))).length;
+  const fromRtf = local && typeof rtf === 'string' && rtf.includes('\\pict') ? picturesFromRtf(rtf) : [];
+  // The RTF has every picture (those in the HTML too), or, without any in the HTML, those it lacks
+  const rtfIndex = fromRtf.length === images.length ? (i) => i : fromRtf.length === local ? (i, nth) => nth : null;
+  let nthLocal = 0;
+  return images.map((img, i) => {
+    const src = img.getAttribute('src').trim();
+    if (isLocalImageSrc(src)) {
+      const picture = rtfIndex ? fromRtf[rtfIndex(i, nthLocal)] : null;
+      nthLocal += 1;
+      return picture;
+    }
+    const match = src.match(DATA_IMAGE);
+    const format = match && DATA_TYPES[match[1].toLowerCase()];
+    if (!format) return null;
+    try {
+      const binary = atob(src.slice(match[0].length).replace(/\s+/g, ''));
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+      return bytes.length ? { type: format[0], extension: format[1], bytes } : null;
+    } catch {
+      return null;
+    }
+  });
+}
+
+// What a pasted picture's placeholder says until the picture takes its place
+export const PLACEHOLDER_TEXT = 'Pasted picture';
+
+/**
+ * The HTML with the pictures it holds (see picturesFromPaste) as image placeholders, each with the block id given for it, in
  * order (the pictures take their places once uploaded); one without an id (a picture that can't be
  * read) is left out. A placeholder is a block: it takes the place of the paragraph a picture is alone
  * in (Word wraps it in spans), or goes after the paragraph it shares with text. Also returns, by id,
@@ -115,12 +164,11 @@ export function withPicturePlaceholders(html, ids) {
   const shown = {};
   const lastAfter = new Map(); // a paragraph -> the last placeholder put after it
   let next = 0;
-  for (const img of [...doc.querySelectorAll('img')]) {
-    if (!isLocalImageSrc(img.getAttribute('src'))) continue;
+  for (const img of htmlImages(doc)) {
     const id = ids[next];
     next += 1;
     const block = img.closest('p, li, h1, h2, h3, h4, h5, h6, td, th') || null;
-    const alone = block && block.tagName === 'P' && !block.textContent.trim() && [...block.querySelectorAll('img')].filter((other) => isLocalImageSrc(other.getAttribute('src'))).length === 1;
+    const alone = block && block.tagName === 'P' && !block.textContent.trim() && block.querySelectorAll('img').length === 1;
     if (!id) {
       (alone ? block : img).remove();
       continue;
