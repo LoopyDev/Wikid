@@ -16,8 +16,17 @@ const bootstrapIconsDir = dirname(createRequire(import.meta.url).resolve('bootst
 // synchronized editor text") and nothing typed there went in, for anyone, even after a reload. Text
 // with no text item yet is new (nothing to track), so it's counted and stepped over. Remove once
 // a y-tiptap release handles it; the build fails if the code it replaces changes.
+//
+// And: after a change that moves blocks (Enter, which puts a new line above the rest), y-tiptap's
+// position migration deleted every moved block from the live document and made it again. Someone
+// pressing Enter at the start of your line made your line theirs, so your Ctrl+Z couldn't undo it.
+// Each block's id is now noted with the plan (before the change is written, which copies the new
+// block's attributes onto the element); an element still holding the same block, by id, has only
+// moved and stays as it is. One reused for a different block is made again, as before. Remove once
+// a y-tiptap release handles it; the build fails if the code it replaces changes.
 let yTiptapFixApplied = false
 let yTiptapEmptyBlockFixApplied = false
+let yTiptapMovedBlockFixApplied = false
 const yTiptapSelectionFix = {
   name: 'y-tiptap-selection-fix',
   enforce: 'pre',
@@ -42,13 +51,36 @@ const yTiptapSelectionFix = {
     }
     const emptyBlockAfter =
       'if (!(shared instanceof Y.XmlText)) { untracked += 1; offset += child.reduce((size, node) => size + node.nodeSize, 0); return; }'
+    const movedBefore = 'if (source && source.position !== position) {\n\t\tdeleteMapping(metadata.mapping, element);'
+    if (!code.includes(movedBefore)) {
+      throw new Error('y-tiptap changed: check whether the moved block fix is still needed')
+    }
+    const movedAfter =
+      'const sameBlock = !!source && source.blockId != null && source.blockId === (node.attrs && node.attrs.id);\n' +
+      '\tif (source && source.position !== position && !sameBlock) {\n\t\tdeleteMapping(metadata.mapping, element);'
+    // In getPositionContent: each element's block id, as it is before the change
+    const planBefore = 'nodes.push({\n\t\t\t\t\tid: shared._item.id,'
+    const planAfter = 'nodes.push({\n\t\t\t\t\tid: shared._item.id,\n\t\t\t\t\tblockId: shared.getAttribute("id"),'
+    if (!code.includes(planBefore)) {
+      throw new Error('y-tiptap changed: check whether the moved block fix is still needed')
+    }
     yTiptapFixApplied = true
     yTiptapEmptyBlockFixApplied = true
-    return { code: code.replace(before, after).replace(loopBefore, loopAfter).replace(emptyBlockBefore, emptyBlockAfter), map: null }
+    yTiptapMovedBlockFixApplied = true
+    return {
+      code: code
+        .replace(before, after)
+        .replace(loopBefore, loopAfter)
+        .replace(emptyBlockBefore, emptyBlockAfter)
+        .replace(movedBefore, movedAfter)
+        .replace(planBefore, planAfter),
+      map: null,
+    }
   },
   generateBundle() {
     if (!yTiptapFixApplied) throw new Error('The y-tiptap selection fix was not applied: was y-tiptap moved or renamed?')
     if (!yTiptapEmptyBlockFixApplied) throw new Error('The y-tiptap empty block fix was not applied: was y-tiptap moved or renamed?')
+    if (!yTiptapMovedBlockFixApplied) throw new Error('The y-tiptap moved block fix was not applied: was y-tiptap moved or renamed?')
   },
 }
 

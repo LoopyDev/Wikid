@@ -15,6 +15,21 @@ async function sharedPage(alice: Page, bob: Page, workspaceId: string) {
   await expect.poll(() => blockTexts(bob)).toEqual(['Line one:', 'Line two:']);
 }
 
+/** Who made each top-level block's element and text in this person's live document: "me" or "other". */
+const owners = (page: Page) =>
+  page.evaluate(() => {
+    const ed = (document.querySelector('.ProseMirror:not(.page-hold *)') as any).editor;
+    const sync = ed.state.plugins.find((plugin: any) => plugin.key.startsWith('y-sync'));
+    const fragment = sync.getState(ed.state).type;
+    const me = fragment.doc.clientID;
+    return fragment.toArray().map((element: any) => {
+      const text = element.toArray()[0];
+      const items: string[] = [];
+      for (let item = text?._start; item; item = item.right) if (!item.deleted) items.push(item.id.client === me ? 'me' : 'other');
+      return `${element.toString().replace(/<[^>]+>/g, '')}: ${element._item.id.client === me ? 'me' : 'other'}/${[...new Set(items)].join('+') || '-'}`;
+    });
+  });
+
 test.describe('editing together', () => {
   test("shows each other's typing live", async ({ alice, bob, workspaceId }) => {
     await sharedPage(alice, bob, workspaceId);
@@ -72,5 +87,105 @@ test.describe('editing together', () => {
     const expected = ['Line one: 0123456789', 'Line two:', 'alpha', 'beta', 'gamma'];
     await expect.poll(() => blockTexts(alice)).toEqual(expected);
     await expect.poll(() => blockTexts(bob)).toEqual(expected);
+  });
+
+  test("someone pressing Enter at the start of your line leaves it yours, so your Ctrl+Z still undoes it", async ({ alice, bob, workspaceId }) => {
+    const id = await createPage(alice, workspaceId);
+    await openPage(alice, id);
+    await openPage(bob, id);
+    await editor(alice).click();
+    await alice.keyboard.type('Hello world', { delay: 30 });
+    // A pause, so the next line is an undo step of its own (typing within ~0.5s is one)
+    await alice.waitForTimeout(1200);
+    await alice.keyboard.press('Enter');
+    await alice.keyboard.type('Second para', { delay: 30 });
+    await expect.poll(() => blockTexts(bob)).toEqual(['Hello world', 'Second para']);
+
+    await placeCursor(bob, 1, 'start');
+    await bob.keyboard.press('Enter');
+    await expect.poll(() => blockTexts(alice)).toEqual(['Hello world', '', 'Second para']);
+    // Her line is still hers in the live document (it was deleted and made again, as Bob's)
+    expect(await owners(alice)).toEqual(['Hello world: me/me', ': other/-', 'Second para: me/me']);
+
+    await alice.keyboard.press('ControlOrMeta+z');
+    await expect.poll(() => blockTexts(alice)).not.toContain('Second para');
+    expect(await blockTexts(alice)).toContain('Hello world');
+  });
+
+  test("someone undoing the line they added above yours leaves what you typed since in your line", async ({ alice, bob, workspaceId }) => {
+    const id = await createPage(alice, workspaceId);
+    await openPage(alice, id);
+    await openPage(bob, id);
+    await editor(alice).click();
+    await alice.keyboard.type('Hello world', { delay: 30 });
+    await alice.keyboard.press('Enter');
+    await alice.keyboard.type('Second para', { delay: 30 });
+    await expect.poll(() => blockTexts(bob)).toEqual(['Hello world', 'Second para']);
+
+    await placeCursor(bob, 1, 'start');
+    await bob.keyboard.press('Enter');
+    await expect.poll(() => blockTexts(alice)).toEqual(['Hello world', '', 'Second para']);
+    await placeCursor(alice, 2, 'end');
+    await alice.keyboard.type(' plus', { delay: 30 });
+    await expect.poll(() => blockTexts(bob)).toEqual(['Hello world', '', 'Second para plus']);
+    await bob.keyboard.press('ControlOrMeta+z');
+    await expect.poll(() => blockTexts(alice)).toEqual(['Hello world', 'Second para plus']);
+    await expect.poll(() => blockTexts(bob)).toEqual(['Hello world', 'Second para plus']);
+  });
+
+  test('a block someone moved keeps what the other person types in it, and the others keep theirs', async ({ alice, bob, workspaceId }) => {
+    const id = await createPage(alice, workspaceId);
+    const p = (text: string) => ({ type: 'paragraph', content: [{ type: 'text', text }] });
+    expect((await alice.request.put(`/api/pages/${id}/content`, { data: { content: { type: 'doc', content: [p('Alpha'), p('Beta'), p('Gamma')] } } })).status()).toBe(200);
+    await openPage(alice, id);
+    await openPage(bob, id);
+    await expect.poll(() => blockTexts(bob)).toEqual(['Alpha', 'Beta', 'Gamma']);
+    // Alice moves Alpha to the end (as the block handle's drag does: one change taking it out and
+    // putting it back further down)
+    await alice.evaluate(() => {
+      const ed = (document.querySelector('.ProseMirror:not(.page-hold *)') as any).editor;
+      const { state } = ed;
+      const alpha = state.doc.child(0);
+      const tr = state.tr.delete(0, alpha.nodeSize);
+      tr.insert(tr.doc.content.size, alpha);
+      ed.view.dispatch(tr);
+    });
+    await expect.poll(() => blockTexts(bob)).toEqual(['Beta', 'Gamma', 'Alpha']);
+    await placeCursor(bob, 2, 'end');
+    await bob.keyboard.type(' moved', { delay: 30 });
+    await placeCursor(alice, 0, 'end');
+    await alice.keyboard.type(' too', { delay: 30 });
+    await expect.poll(() => blockTexts(alice)).toEqual(['Beta too', 'Gamma', 'Alpha moved']);
+    await expect.poll(() => blockTexts(bob)).toEqual(['Beta too', 'Gamma', 'Alpha moved']);
+  });
+
+  // Known to fail: splitting a line copies the text after the split into a new line and deletes it
+  // from the old one, so two people splitting one line at the same moment both copy the same text,
+  // and it's doubled or lost. Needs a split to be a move in the live document (y-tiptap); a line split
+  // and joined again while someone types at its end goes the same way.
+  test.fail('two people pressing Enter and typing in the same line at once keep one copy of everything', async ({ alice, bob, workspaceId }) => {
+    const id = await createPage(alice, workspaceId);
+    await openPage(alice, id);
+    await editor(alice).click();
+    await alice.keyboard.type('START  END', { delay: 20 });
+    await openPage(bob, id);
+    await expect.poll(() => blockTexts(bob)).toEqual(['START  END']);
+    const at = (page: Page, pos: number) =>
+      page.evaluate((p) => {
+        const ed = (document.querySelector('.ProseMirror:not(.page-hold *)') as any).editor;
+        ed.chain().focus().setTextSelection(p).run();
+      }, pos);
+    await at(alice, 7);
+    await at(bob, 8);
+    await Promise.all([
+      (async () => { for (let i = 0; i < 3; i += 1) { await alice.keyboard.press('Enter'); await alice.keyboard.type(`a${i}`, { delay: 20 }); } })(),
+      (async () => { for (let i = 0; i < 3; i += 1) { await bob.keyboard.press('Enter'); await bob.keyboard.type(`b${i}`, { delay: 20 }); } })(),
+    ]);
+    await expect.poll(async () => JSON.stringify(await blockTexts(bob)) === JSON.stringify(await blockTexts(alice))).toBe(true);
+    const text = (await blockTexts(alice)).join('|');
+    // Each piece once: START, END, and every typed line
+    for (const piece of ['START', 'END', 'a0', 'a1', 'a2', 'b0', 'b1', 'b2']) {
+      expect(text.split(piece).length - 1, `${piece} in ${text}`).toBe(1);
+    }
   });
 });
