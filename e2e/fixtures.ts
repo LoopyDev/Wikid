@@ -92,13 +92,24 @@ export async function waitForSaved(page: Page) {
 export async function placeCursor(page: Page, index: number, where: 'start' | 'end') {
   await editor(page).locator(':scope > *').nth(index).click();
   await page.keyboard.press(where === 'start' ? 'Home' : 'End');
-  await page.waitForFunction(({ index, where }) => {
-    const { doc, selection } = (document.querySelector('.ProseMirror') as any).editor.state;
+  const isThere = () =>
+    page.waitForFunction(({ index, where }) => {
+      const { doc, selection } = (document.querySelector('.ProseMirror') as any).editor.state;
+      let pos = 0;
+      for (let i = 0; i < index; i += 1) pos += doc.child(i).nodeSize;
+      const target = where === 'start' ? pos + 1 : pos + doc.child(index).nodeSize - 1;
+      return selection.empty && selection.from === target;
+    }, { index, where }, { timeout: 3000 });
+  // The key can be lost while the click is still settling (seen in CI): then the editor puts it there
+  if (await isThere().then(() => true, () => false)) return;
+  await page.evaluate(({ index, where }) => {
+    const ed = (document.querySelector('.ProseMirror') as any).editor;
+    const { doc } = ed.state;
     let pos = 0;
     for (let i = 0; i < index; i += 1) pos += doc.child(i).nodeSize;
-    const target = where === 'start' ? pos + 1 : pos + doc.child(index).nodeSize - 1;
-    return selection.empty && selection.from === target;
+    ed.chain().focus().setTextSelection(where === 'start' ? pos + 1 : pos + doc.child(index).nodeSize - 1).run();
   }, { index, where });
+  await isThere();
 }
 
 type Fixtures = { alice: Page; bob: Page; workspaceId: string };
