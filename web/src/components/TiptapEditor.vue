@@ -262,31 +262,33 @@ const pickImageFile = () =>
   });
 
 // Whether images can be uploaded here, saying why not
-const canUploadImages = () => {
+// quiet: no message saying why not (pictures pasted with text: the text goes in regardless)
+const canUploadImages = ({ quiet = false } = {}) => {
+  const say = (message) => !quiet && window.alert(message);
   if (props.readonly) return false;
   if (!workspace.hasApi) {
-    window.alert('API unavailable.');
+    say('API unavailable.');
     return false;
   }
   if (!props.pageId) {
-    window.alert('Save this page before uploading images.');
+    say('Save this page before uploading images.');
     return false;
   }
   if (!workspace.activeUser?.id) {
-    window.alert('Login required to upload images.');
+    say('Login required to upload images.');
     return false;
   }
   return true;
 };
 
-const uploadImageFile = async (file, onProgress) => {
+const uploadImageFile = async (file, onProgress, { quiet = false } = {}) => {
   const user = workspace.activeUser;
   try {
     const res = await api.uploadImage(file, { pageId: props.pageId, userId: user.id, userName: user.name, onProgress });
     return res?.file?.url || null;
   } catch (err) {
     console.warn('Image upload failed', err);
-    window.alert('Image upload failed.');
+    if (!quiet) window.alert('Image upload failed.');
     return null;
   }
 };
@@ -308,6 +310,24 @@ const insertImageFiles = async (files, pos, { paragraphAfter = false } = {}) => 
   }));
   return inserted.filter(Boolean).length;
 };
+
+// Pictures pasted with text (from Word): each uploaded, and handed to `done` (its index, and its
+// address and size, or null if it failed: its placeholder stays, to upload by hand) as it finishes.
+// One message however many fail, unless the page has gone meanwhile.
+const uploadPastedImages = async (files, done) => {
+  let failed = 0;
+  await Promise.all(files.map(async (file, i) => {
+    if (!file) return;
+    const [src, size] = await Promise.all([uploadImageFile(file, undefined, { quiet: true }), readImageSize(file)]);
+    if (!src) failed += 1;
+    done(i, src ? { src, attrs: imageSizeAttrs(size) } : null);
+  }));
+  if (failed && editor?.value && !editor.value.isDestroyed) {
+    window.alert(failed === 1 ? "A pasted picture couldn't be uploaded: its placeholder is there to upload it by hand." : `${failed} pasted pictures couldn't be uploaded: their placeholders are there to upload them by hand.`);
+  }
+};
+// Whether pictures can be uploaded here at all (not on an unsaved page, say), without saying why not
+const canUploadPastedImages = () => canUploadImages({ quiet: true });
 
 const insertImageFromUpload = async (editor, range) => {
   if (props.readonly) return;
@@ -631,7 +651,7 @@ const dragScroll = createDragScrollRestore();
 editor = useEditor({
   content: isCollabEnabled.value ? undefined : editorDocToTiptap(props.doc),
   editable: !props.readonly,
-  editorProps: createEditorProps({ lastTextInputAt, lastTextInputInfo, props, isCollabEnabled, isSyncedLocked, notifySyncedBlockLocked, insertSyncedBlockFromUrl, insertImageFiles, shouldInsertClickPlaceholder, insertClickPlaceholder, dragScroll, getEditor: () => editor?.value }),
+  editorProps: createEditorProps({ lastTextInputAt, lastTextInputInfo, props, isCollabEnabled, isSyncedLocked, notifySyncedBlockLocked, insertSyncedBlockFromUrl, insertImageFiles, uploadPastedImages, canUploadPastedImages, shouldInsertClickPlaceholder, insertClickPlaceholder, dragScroll, getEditor: () => editor?.value }),
   extensions: createEditorExtensions({
     collab: isCollabEnabled.value
       ? { document: collabDoc.value, provider: collabReady.value ? collabProvider.value : null, user: cursorUser.value }

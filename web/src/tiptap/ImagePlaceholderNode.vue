@@ -12,6 +12,8 @@ const props = defineProps({
 const canUpload = computed(() => props.editor?.isEditable && typeof props.extension.storage.upload === 'function');
 const empty = computed(() => !props.node.textContent);
 const uploading = ref(false);
+// Its picture already on its way (pasted from Word): it takes this box's place once it's uploaded
+const comingAlready = computed(() => !!props.node.attrs.id && props.extension.storage.pending?.has(props.node.attrs.id));
 
 const pickFile = () =>
   new Promise((resolve) => {
@@ -25,7 +27,7 @@ const pickFile = () =>
 // The image goes in just before the box, which then goes: only once it's in, so a failed upload
 // leaves the box (and what it asks for) where it was
 const upload = async () => {
-  if (!canUpload.value || uploading.value) return;
+  if (!canUpload.value || uploading.value || comingAlready.value) return;
   const file = await pickFile();
   if (!file) return;
   uploading.value = true;
@@ -50,10 +52,10 @@ const upload = async () => {
       class="ghost-btn image-placeholder__upload"
       type="button"
       contenteditable="false"
-      :disabled="uploading"
+      :disabled="uploading || comingAlready"
       @click="upload"
     >
-      {{ uploading ? 'Uploading…' : 'Upload' }}
+      {{ uploading || comingAlready ? 'Uploading…' : 'Upload' }}
     </button>
   </NodeViewWrapper>
 </template>
