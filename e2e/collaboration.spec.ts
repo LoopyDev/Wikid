@@ -26,7 +26,12 @@ const owners = (page: Page) =>
       const text = element.toArray()[0];
       const items: string[] = [];
       for (let item = text?._start; item; item = item.right) if (!item.deleted) items.push(item.id.client === me ? 'me' : 'other');
-      return `${element.toString().replace(/<[^>]+>/g, '')}: ${element._item.id.client === me ? 'me' : 'other'}/${[...new Set(items)].join('+') || '-'}`;
+      // The block's text, from its text items (not its markup)
+      const plain = element
+        .toArray()
+        .map((child: any) => (typeof child.toDelta === 'function' ? child.toDelta().map((op: any) => (typeof op.insert === 'string' ? op.insert : '')).join('') : ''))
+        .join('');
+      return `${plain}: ${element._item.id.client === me ? 'me' : 'other'}/${[...new Set(items)].join('+') || '-'}`;
     });
   });
 
