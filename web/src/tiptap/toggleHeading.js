@@ -1,6 +1,7 @@
 import { Node, mergeAttributes } from '@tiptap/core';
 import { VueNodeViewRenderer } from '@tiptap/vue-3';
 import ToggleHeadingNode from './ToggleHeadingNode.vue';
+import { containerKeys } from './containerKeys';
 
 export default Node.create({
   name: 'toggleHeading',
@@ -27,5 +28,9 @@ export default Node.create({
   },
   addNodeView() {
     return VueNodeViewRenderer(ToggleHeadingNode);
+  },
+  // Backspace after one joins its last line showing (its heading while it's folded)
+  addKeyboardShortcuts() {
+    return containerKeys(this.name, { lastLine: (node) => (node.attrs.collapsed ? node.firstChild : node.lastChild) });
   },
 });

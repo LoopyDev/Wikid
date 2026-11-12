@@ -326,10 +326,24 @@ const turnInto = (kind) => {
     if (child.isTextblock) textPos = pos + 1 + offset + 1;
   });
   if (textPos == null) return;
-  const toList = kind in LIST_TYPES;
   let chain = focusInPlace().setTextSelection(textPos);
-  // An item turning into text leaves its list first, all the way out of a nested one
-  if (LIST_ITEM_TYPES.has(node.type.name) && !toList) {
+  // A code block: a line of text for each of its lines (they ran into one), all of them turned
+  if (node.type.name === 'codeBlock') {
+    const { schema } = editor.value.state;
+    const lines = node.textContent.split('\n').map((line) => schema.nodes.paragraph.create(null, line ? schema.text(line) : null));
+    const size = lines.reduce((total, line) => total + line.nodeSize, 0);
+    chain = focusInPlace()
+      .command(({ tr }) => {
+        tr.replaceWith(pos, pos + node.nodeSize, lines);
+        return true;
+      })
+      .setTextSelection({ from: pos + 1, to: pos + size - 1 });
+  }
+  // An item leaves its list first, all the way out of a nested one: as text, or, if it's just a line,
+  // as another kind of list of its own (in its list, it turned the whole list, and joined it to the
+  // next one; an item holding more, a sub-list say, still turns its whole list)
+  const toList = kind in LIST_TYPES;
+  if (LIST_ITEM_TYPES.has(node.type.name) && (!toList || node.childCount === 1)) {
     const $text = editor.value.state.doc.resolve(textPos);
     for (let depth = $text.depth; depth > 0; depth -= 1) {
       if ($text.node(depth).type.name === node.type.name) chain = chain.liftListItem(node.type.name);

@@ -132,6 +132,43 @@ test.describe('editor menus', () => {
     expect(await outline(page)).toEqual(before);
   });
 
+  test('Turn into: one item into another kind of list on its own, a code block keeps its lines, a list drops the indent', async ({ alice: page, workspaceId }) => {
+    await openPage(page, await createPage(page, workspaceId));
+    const p = (text: string, attrs: object = {}) => ({ type: 'paragraph', attrs, content: [{ type: 'text', text }] });
+    const item = (text: string) => ({ type: 'listItem', content: [p(text)] });
+    const setContent = (content: unknown[]) => page.evaluate((content) => (document.querySelector('.ProseMirror') as any).editor.commands.setContent({ type: 'doc', content }), content);
+    const itemHandle = page.locator('.drag-handle--floating:not(.drag-handle--list) .drag-handle__btn--drag');
+
+    // B alone becomes a bullet, between the rest of its numbered list (it used to turn the whole
+    // list, and join it to the bullet list after it)
+    await setContent([{ type: 'orderedList', content: [item('A'), item('B'), item('C')] }, { type: 'bulletList', content: [item('D')] }]);
+    await editor(page).locator('li').nth(1).hover();
+    await itemHandle.click();
+    await menuItem(page, 'Turn into…').click();
+    await menuItem(page, 'Bulleted list').click();
+    await expect.poll(() => outline(page)).toEqual([
+      'orderedList', '  listItem', '    paragraph: A',
+      'bulletList', '  listItem', '    paragraph: B',
+      'orderedList', '  listItem', '    paragraph: C',
+      'bulletList', '  listItem', '    paragraph: D',
+    ]);
+
+    // A code block's lines stay lines (they ran together)
+    await setContent([{ type: 'codeBlock', content: [{ type: 'text', text: 'c1\nc2' }] }, p('After')]);
+    await (await handleFor(page, 0)).click();
+    await menuItem(page, 'Turn into…').click();
+    await menuItem(page, 'Paragraph').click();
+    await expect.poll(() => outline(page)).toEqual(['paragraph: c1', 'paragraph: c2', 'paragraph: After']);
+
+    // An indented line made a list item keeps no indent (its text sat far from its bullet)
+    await setContent([p('Indented', { indent: 3 }), p('After')]);
+    await (await handleFor(page, 0)).click();
+    await menuItem(page, 'Turn into…').click();
+    await menuItem(page, 'Bulleted list').click();
+    await expect.poll(() => outline(page)).toEqual(['bulletList', '  listItem', '    paragraph: Indented', 'paragraph: After']);
+    await expect.poll(() => page.evaluate(() => (document.querySelector('.ProseMirror') as any).editor.getJSON().content[0].content[0].content[0].attrs.indent)).toBe(0);
+  });
+
   test('a to-do has one handle for the whole line, and the to-do list one of its own, as a bullet list does', async ({ alice: page, workspaceId }) => {
     await openPage(page, await createPage(page, workspaceId));
     await page.evaluate(() => {

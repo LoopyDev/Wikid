@@ -1,6 +1,7 @@
 import { Node, mergeAttributes, nodeInputRule } from '@tiptap/core';
 
-const setHorizontalRuleInput = /^(?:---|___|\*\*\*)$/;
+// *** and ___ only with a space after, so ***bold italic*** can be typed
+const setHorizontalRuleInput = /^(?:---|___\s|\*\*\*\s)$/;
 
 export default Node.create({
   name: 'horizontalRule',
