@@ -1,6 +1,7 @@
 import { Extension, InputRule, textInputRule } from '@tiptap/core';
 import Collaboration from '@tiptap/extension-collaboration';
 import CollaborationCaret from '@tiptap/extension-collaboration-caret';
+import { RedoSelection } from './redoSelection';
 import StarterKit from '@tiptap/starter-kit';
 import TaskList from '@tiptap/extension-task-list';
 import TaskItem from '@tiptap/extension-task-item';
@@ -106,6 +107,7 @@ export function createEditorExtensions({
             Collaboration.configure({
               document: collab.document,
             }),
+            RedoSelection,
             ...(collab.provider
               ? [
                   CollaborationCaret.configure({

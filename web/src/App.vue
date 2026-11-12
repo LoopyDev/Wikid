@@ -33,6 +33,7 @@ import SaveTemplateModal from './components/SaveTemplateModal.vue';
 import TemplateBanner from './components/TemplateBanner.vue';
 import PageTree from './components/PageTree';
 import { usePageSwitchHold } from './composables/usePageSwitchHold';
+import { useTextHistory } from './composables/useTextHistory';
 import { isInIconBrowser } from './utils/iconSearch';
 import { api, AUTH_EXPIRED_EVENT, PASSWORD_CHANGE_REQUIRED_EVENT } from './api/client';
 import { editorDocToMarkdown, editorDocToMarkdownAsync } from './utils/editorDoc';
@@ -1135,6 +1136,7 @@ const handleDatabasePresence = (presence) => {
 };
 const handleTitleInput = (event) => {
   if (!canEditPage.value) return;
+  titleHistory.onInput(event);
   const target = event?.target;
   const value = target?.value ?? '';
   resizePageTitle(target);
@@ -1148,6 +1150,10 @@ const handleTitleInput = (event) => {
   workspace.updateTitleDraft(value);
   notifyTitleUpdated(activePageId.value, value);
 };
+
+// Ctrl+Z in the title undoes a run of typing in one go (see useTextHistory); a fresh history per page
+const titleHistory = useTextHistory({ apply: (el) => handleTitleInput({ target: el }) });
+watch(activePageId, () => titleHistory.reset());
 
 const handleTitleEnter = (event) => {
   if (!canEditPage.value) return;
@@ -2471,7 +2477,9 @@ if (typeof window !== 'undefined') {
                 rows="1"
                 :value="pageTitle"
                 :readonly="!canEditPage"
+                @beforeinput="titleHistory.onBeforeInput"
                 @input="handleTitleInput"
+                @keydown="titleHistory.onKeyDown"
                 @keydown.enter.prevent="handleTitleEnter"
                 placeholder="Untitled page"
               ></textarea>
