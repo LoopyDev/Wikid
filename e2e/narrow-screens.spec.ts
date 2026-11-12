@@ -109,5 +109,19 @@ test.describe('narrow screens', () => {
     await expect.poll(() => sidebarShowing(page)).toBe(true);
     await context.close();
   });
+
+  test("the sidebar doesn't scroll sideways, on a laptop or in a phone's drawer", async ({ alice: page, workspaceId }) => {
+    const id = await createPage(page, workspaceId, { title: 'A page' });
+    await createPage(page, workspaceId, { title: 'A subpage with a long enough title to need cutting short', parentId: id });
+    const sideways = () => sidebar(page).evaluate((el) => el.scrollWidth - el.clientWidth);
+    await page.setViewportSize({ width: 1400, height: 900 });
+    await openPage(page, id);
+    await expect.poll(() => sidebarShowing(page)).toBe(true);
+    expect(await sideways()).toBe(0);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await menuButton(page).click();
+    await expect.poll(() => sidebarShowing(page)).toBe(true);
+    expect(await sideways()).toBe(0);
+  });
 });
 

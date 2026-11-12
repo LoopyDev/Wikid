@@ -256,27 +256,14 @@ button {
   grid-column: 1;
   grid-row: 1;
   min-width: var(--sidebar-width);
-  /* Scroll when there are more pages than fit; the app shell clips anything taller */
+  /* Scroll when there are more pages than fit (the app shell clips anything taller), and never
+     sideways: what's too wide is cut short */
   min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   user-select: none;
   -webkit-user-select: none;
   position: relative;
-}
-.sidebar::after {
-  content: '';
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  right: -8px;
-  width: 16px;
-  pointer-events: none;
-  box-shadow: none;
-  opacity: 0;
-}
-:root[data-theme='light'] .sidebar::after {
-  box-shadow: none;
-  opacity: 0;
 }
 .sidebar * {
   user-select: none;
