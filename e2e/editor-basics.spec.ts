@@ -2,6 +2,13 @@ import { test, expect, createPage, openPage, editor, blockTexts, outline, placeC
 
 // Everyday editing that used to go wrong.
 
+// What's been typed so far is one change to undo (Yjs runs typing within half a second together)
+const endUndoStep = (page: import('@playwright/test').Page) =>
+  page.evaluate(() => {
+    const { state } = (document.querySelector('.ProseMirror') as any).editor.view;
+    state.plugins.find((p: any) => p.key.startsWith('y-undo$')).getState(state).undoManager.stopCapturing();
+  });
+
 test.describe('editing basics', () => {
   test('after selecting everything and deleting it, the page takes typing again, for everyone and after a reload', async ({ alice, bob, workspaceId }) => {
     const id = await createPage(alice, workspaceId);
@@ -373,6 +380,50 @@ test.describe('editing basics', () => {
       return ed.view.someProp('clipboardTextSerializer', (f: any) => f(ed.state.selection.content(), ed.view));
     });
     expect(text).toBe('Intro\n\nOne\nTwo\n\nA\tB\n\nEnd');
+  });
+
+  test('after a redo, typing goes on from the end of what came back', async ({ alice: page, workspaceId }) => {
+    // A line there already: undoing back to an empty page is its own bug (the test.fail above)
+    const id = await createPage(page, workspaceId);
+    expect((await page.request.put(`/api/pages/${id}/content`, { data: { content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'zero' }] }] } } })).status()).toBe(200);
+    await openPage(page, id);
+    await placeCursor(page, 0, 'end');
+    for (const word of ['one', 'two', 'three']) {
+      await page.keyboard.press('Enter');
+      await page.keyboard.type(word, { delay: 30 });
+    }
+    await expect.poll(() => blockTexts(page)).toEqual(['zero', 'one', 'two', 'three']);
+    await endUndoStep(page); // the typing is one change to undo
+    await page.keyboard.press('ControlOrMeta+z');
+    await expect.poll(() => blockTexts(page)).toEqual(['zero']);
+    await page.keyboard.press('ControlOrMeta+Shift+z');
+    await expect.poll(() => blockTexts(page)).toEqual(['zero', 'one', 'two', 'three']);
+    await page.keyboard.type('X', { delay: 30 });
+    await expect.poll(() => blockTexts(page)).toEqual(['zero', 'one', 'two', 'threeX']);
+
+    // Typing in the middle of the page, undone and redone: on from the end of it
+    await endUndoStep(page);
+    await placeCursor(page, 2, 'end');
+    await page.keyboard.type(' more', { delay: 30 });
+    await endUndoStep(page);
+    await page.keyboard.press('ControlOrMeta+z');
+    await expect.poll(() => blockTexts(page)).toEqual(['zero', 'one', 'two', 'threeX']);
+    await page.keyboard.press('ControlOrMeta+Shift+z');
+    await expect.poll(() => blockTexts(page)).toEqual(['zero', 'one', 'two more', 'threeX']);
+    await page.keyboard.type('!', { delay: 30 });
+    await expect.poll(() => blockTexts(page)).toEqual(['zero', 'one', 'two more!', 'threeX']);
+  });
+
+  test('Ctrl+Z in the title undoes the typing in one go, as in any text box', async ({ alice: page, workspaceId }) => {
+    await openPage(page, await createPage(page, workspaceId, { title: 'Untitled page' }));
+    const title = page.getByRole('main').getByRole('textbox', { name: 'Untitled page' });
+    await title.click();
+    await page.keyboard.type('Plan for the week', { delay: 30 });
+    await expect(title).toHaveValue('Plan for the week');
+    await page.keyboard.press('ControlOrMeta+z');
+    await expect(title).toHaveValue('');
+    await page.keyboard.press('ControlOrMeta+Shift+z');
+    await expect(title).toHaveValue('Plan for the week');
   });
 });
 
