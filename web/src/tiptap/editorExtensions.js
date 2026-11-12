@@ -1,4 +1,4 @@
-import { Extension, textInputRule } from '@tiptap/core';
+import { Extension, InputRule, textInputRule } from '@tiptap/core';
 import Collaboration from '@tiptap/extension-collaboration';
 import CollaborationCaret from '@tiptap/extension-collaboration-caret';
 import StarterKit from '@tiptap/starter-kit';
@@ -72,6 +72,20 @@ lowlight.register('lua', lua);
  * - lastPointerDownAt: when the editor was last clicked (a cursor move then is meant).
  * - dragBlock(event, { pos, node }): starts dragging a block, as its handle does (for images).
  */
+// Typography rules don't apply while typing inline code: after a ` that hasn't been closed yet on the
+// line, until the closing ` makes it code (in code already, Tiptap skips them)
+const outsideInlineCode = (rule) =>
+  new InputRule({
+    find: rule.find,
+    undoable: rule.undoable,
+    handler: (props) => {
+      const $from = props.state.doc.resolve(props.range.from);
+      const before = $from.parent.textBetween(0, $from.parentOffset, undefined, '\ufffc');
+      if ((before.match(/`/g) || []).length % 2) return null;
+      return rule.handler(props);
+    },
+  });
+
 export function createEditorExtensions({
   collab,
   isCollabEnabled,
@@ -206,13 +220,25 @@ export function createEditorExtensions({
           return [
             ...this.parent(),
             textInputRule({ find: /~=$/, replace: '≈' }),
-          ];
+            // (c), (r), (tm) and (sm) as words of their own, not the end of one ("f(c)")
+            textInputRule({ find: /(?:^|[\s([{"'])(\(c\))$/, replace: '©' }),
+            textInputRule({ find: /(?:^|[\s([{"'])(\(r\))$/, replace: '®' }),
+            textInputRule({ find: /(?:^|[\s([{"'])(\(tm\))$/, replace: '™' }),
+            textInputRule({ find: /(?:^|[\s([{"'])(\(sm\))$/, replace: '℠' }),
+            // "3 x 4" (spaced), not sizes and names such as 3x4 or 1920x1080
+            textInputRule({ find: /\d\s([x*])\s\d$/, replace: '×' }),
+          ].map(outsideInlineCode);
         },
       }).configure({
         openDoubleQuote: false,
         closeDoubleQuote: false,
         openSingleQuote: false,
         closeSingleQuote: false,
+        copyright: false,
+        registeredTrademark: false,
+        trademark: false,
+        servicemark: false,
+        multiplication: false,
       }),
       SlashCommand.configure(slashCommands),
       ColumnInputGuardExtension,

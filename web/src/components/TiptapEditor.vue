@@ -214,8 +214,16 @@ const insertToggleHeading = (editor, range, level) => {
     .focus()
     .deleteRange(range)
     .command(({ tr, state }) => {
-      const insertPos = tr.selection.from;
       const node = state.schema.nodeFromJSON(payload);
+      const { $from } = tr.selection;
+      // On an empty line, in its place (put inside it, it left the line empty above)
+      if ($from.parent.type.name === 'paragraph' && !$from.parent.content.size && $from.depth >= 1 && $from.node(-1).canReplaceWith($from.index(-1), $from.indexAfter(-1), node.type)) {
+        const start = $from.before();
+        tr.replaceWith(start, $from.after(), node);
+        tr.setSelection(TextSelection.create(tr.doc, start + 2));
+        return true;
+      }
+      const insertPos = tr.selection.from;
       tr.insert(insertPos, node);
       tr.setSelection(TextSelection.create(tr.doc, insertPos + 2));
       return true;

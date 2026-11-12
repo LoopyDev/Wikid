@@ -1,4 +1,6 @@
-import { Selection } from 'prosemirror-state';
+import { Selection, TextSelection } from 'prosemirror-state';
+import { getTextSerializersFromSchema } from '@tiptap/core';
+import { plainText } from './plainText';
 import { findBlockById, selectionSyncedReferenceId } from './syncedBlocks';
 import { parseBlockUrl } from '../utils/editorLinks';
 import { liftImagesForPaste, shouldHandleMarkdownPaste } from '../utils/markdownPaste';
@@ -48,6 +50,10 @@ export function createEditorProps({ lastTextInputAt, lastTextInputInfo, props, i
   return {
     attributes: {
       class: 'tiptap-editor',
+    },
+    clipboardTextSerializer(slice) {
+      const schema = slice.content.firstChild?.type.schema;
+      return schema ? plainText(slice.content, getTextSerializersFromSchema(schema)) : '';
     },
     transformPastedHTML(html) {
       const doc = new DOMParser().parseFromString(html, 'text/html');
@@ -271,6 +277,20 @@ export function createEditorProps({ lastTextInputAt, lastTextInputInfo, props, i
         return insertClickPlaceholder(view);
       }
       return false;
+    },
+    // A double-click to the right of a line's end puts the cursor there: Chrome selected the line
+    // break, and the next key typed joined the line to the next
+    handleDoubleClick(view, pos, event) {
+      if (!event || event.button !== 0) return false;
+      const $pos = view.state.doc.resolve(pos);
+      if (!$pos.parent.isTextblock || $pos.parent.type.spec.code || $pos.parentOffset !== $pos.parent.content.size) return false;
+      const end = view.coordsAtPos(pos);
+      const dom = view.domAtPos(pos).node;
+      const rtl = (dom.nodeType === 1 ? dom : dom.parentElement) && getComputedStyle(dom.nodeType === 1 ? dom : dom.parentElement).direction === 'rtl';
+      const past = rtl ? event.clientX < end.left - 2 : event.clientX > end.right + 2;
+      if (!past || event.clientY < end.top || event.clientY > end.bottom) return false;
+      view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, pos)));
+      return true;
     },
   };
 }

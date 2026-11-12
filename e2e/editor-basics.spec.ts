@@ -251,4 +251,128 @@ test.describe('editing basics', () => {
     }
     await expect.poll(() => blockTexts(page)).toEqual(['', 'hello', 'Existing']);
   });
+
+  test('Backspace and Enter around a toggle heading, and one from the / menu takes the empty line it was on', async ({ alice: page, workspaceId }) => {
+    const p = (text?: string) => (text ? { type: 'paragraph', content: [{ type: 'text', text }] } : { type: 'paragraph' });
+    const toggle = (collapsed: boolean, title: string, ...content: unknown[]) => ({ type: 'toggleHeading', attrs: { collapsed }, content: [{ type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: title }] }, ...content] });
+    // The cursor at the start of the toggle's heading, or the end of its last line
+    const inToggle = (where: 'start' | 'end') =>
+      page.evaluate((at) => {
+        const editorEl = document.querySelector('.ProseMirror:not(.page-hold *)') as any;
+        let target = -1;
+        editorEl.editor.state.doc.descendants((node: any, pos: number) => {
+          if (target >= 0) return false;
+          if (node.type.name === 'toggleHeading') {
+            target = at === 'start' ? pos + 2 : pos + node.nodeSize - 2;
+            return false;
+          }
+          return true;
+        });
+        editorEl.editor.chain().focus().setTextSelection(target).run();
+      }, where);
+    const open = async (content: unknown[]) => {
+      const id = await createPage(page, workspaceId);
+      expect((await page.request.put(`/api/pages/${id}/content`, { data: { content: { type: 'doc', content } } })).status()).toBe(200);
+      await openPage(page, id);
+    };
+    const topLevel = () => page.evaluate(() => ((document.querySelector('.ProseMirror') as any).editor.getJSON().content || []).map((n: any) => n.type));
+
+    // At the start of the line after it: that line joins its last line (it used to select the whole toggle)
+    await open([toggle(false, 'Plan', p('step')), p('next')]);
+    await placeCursor(page, 1, 'start');
+    await page.keyboard.press('Backspace');
+    await page.keyboard.type('!', { delay: 20 });
+    await expect.poll(() => outline(page)).toEqual(['toggleHeading', '  heading2: Plan', '  paragraph: step!next']);
+
+    // Folded, its heading is the last line showing
+    await open([toggle(true, 'Plan', p('step')), p('next')]);
+    await placeCursor(page, 1, 'start');
+    await page.keyboard.press('Backspace');
+    await expect.poll(() => outline(page)).toEqual(['toggleHeading', '  heading2: Plannext', '  paragraph: step']);
+
+    // At the start of its heading: it becomes plain blocks again; folded, it opens first
+    await open([p('before'), toggle(true, 'Plan', p('step'))]);
+    await inToggle('start');
+    await page.keyboard.press('Backspace');
+    await expect.poll(() => page.evaluate(() => (document.querySelector('.ProseMirror') as any).editor.getJSON().content[1].attrs.collapsed)).toBe(false);
+    await page.keyboard.press('Backspace');
+    await expect.poll(() => outline(page)).toEqual(['paragraph: before', 'heading2: Plan', 'paragraph: step']);
+
+    // After one ending in a list: the cursor goes to the list's last line, and nothing breaks
+    await open([toggle(false, 'Plan', { type: 'bulletList', content: [{ type: 'listItem', content: [p('item')] }] }), p('next')]);
+    await placeCursor(page, 1, 'start');
+    await page.keyboard.press('Backspace');
+    await page.keyboard.type('!', { delay: 20 });
+    await expect.poll(() => outline(page)).toEqual(['toggleHeading', '  heading2: Plan', '  bulletList', '    listItem', '      paragraph: item!', 'paragraph: next']);
+
+    // Enter on an empty last line leaves it
+    await open([toggle(false, 'Plan', p('step')), p('after')]);
+    await inToggle('end');
+    await page.keyboard.press('Enter');
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('Outside', { delay: 20 });
+    await expect.poll(() => outline(page)).toEqual(['toggleHeading', '  heading2: Plan', '  paragraph: step', 'paragraph: Outside', 'paragraph: after']);
+
+    // From the / menu on an empty line: in that line's place, with no empty line left above it
+    await open([p('Intro'), p(), p('After')]);
+    await placeCursor(page, 1, 'start');
+    await page.keyboard.type('/toggle', { delay: 40 });
+    await expect(page.locator('.slash-menu')).toBeVisible();
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('Plan', { delay: 20 });
+    await expect.poll(() => topLevel()).toEqual(['paragraph', 'toggleHeading', 'paragraph']);
+    await expect.poll(() => outline(page)).toEqual(['paragraph: Intro', 'toggleHeading', '  heading1: Plan', 'paragraph: After']);
+  });
+
+  test("typing shortcuts: not in inline code being typed, nor inside words; *** needs a space to become a divider", async ({ alice: page, workspaceId }) => {
+    await openPage(page, await createPage(page, workspaceId));
+    await editor(page).click();
+    await page.keyboard.type('`a -> b != c (c)` f(c) g(r) 3x4, 3 x 4, (c) 2026 -> done', { delay: 15 });
+    const textAndCode = () =>
+      page.evaluate(() => {
+        const json = (document.querySelector('.ProseMirror') as any).editor.getJSON();
+        const texts = json.content[0].content || [];
+        return { text: texts.map((t: any) => t.text).join(''), code: texts.filter((t: any) => t.marks?.some((m: any) => m.type === 'code')).map((t: any) => t.text) };
+      });
+    await expect.poll(textAndCode).toEqual({ text: 'a -> b != c (c) f(c) g(r) 3x4, 3 × 4, © 2026 → done', code: ['a -> b != c (c)'] });
+
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('***bold italic*** then', { delay: 15 });
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('*** ', { delay: 15 });
+    await page.keyboard.type('below', { delay: 15 });
+    await expect.poll(() => outline(page)).toEqual(['paragraph: a -> b != c (c) f(c) g(r) 3x4, 3 × 4, © 2026 → done', 'paragraph: ***bold italic*** then', 'horizontalRule', 'paragraph: below']);
+  });
+
+  test("a double-click to the right of a line puts the cursor at its end, and typing doesn't join the next line", async ({ alice: page, workspaceId }) => {
+    const id = await createPage(page, workspaceId);
+    const p = (text: string) => ({ type: 'paragraph', content: [{ type: 'text', text }] });
+    expect((await page.request.put(`/api/pages/${id}/content`, { data: { content: { type: 'doc', content: [p('First'), p('Second')] } } })).status()).toBe(200);
+    await openPage(page, id);
+    const first = editor(page).locator('p').first();
+    const box = (await first.boundingBox())!;
+    await page.mouse.dblclick(box.x + box.width - 20, box.y + box.height / 2);
+    await page.keyboard.type('X', { delay: 20 });
+    await expect.poll(() => outline(page)).toEqual(['paragraph: FirstX', 'paragraph: Second']);
+  });
+
+  test('copied as plain text, list items and table rows (cells apart by tabs) are a line each, with no blank lines between', async ({ alice: page, workspaceId }) => {
+    await openPage(page, await createPage(page, workspaceId));
+    const text = await page.evaluate(() => {
+      const ed = (document.querySelector('.ProseMirror') as any).editor;
+      const p = (text: string) => ({ type: 'paragraph', content: [{ type: 'text', text }] });
+      const item = (text: string) => ({ type: 'listItem', content: [p(text)] });
+      const cell = (text: string) => ({ type: 'tableCell', content: [p(text)] });
+      ed.commands.setContent({ type: 'doc', content: [
+        p('Intro'),
+        { type: 'bulletList', content: [item('One'), item('Two')] },
+        { type: 'table', content: [{ type: 'tableRow', content: [cell('A'), cell('B')] }] },
+        p('End'),
+      ] });
+      ed.commands.selectAll();
+      return ed.view.someProp('clipboardTextSerializer', (f: any) => f(ed.state.selection.content(), ed.view));
+    });
+    expect(text).toBe('Intro\n\nOne\nTwo\n\nA\tB\n\nEnd');
+  });
 });
+
