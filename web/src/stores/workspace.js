@@ -34,6 +34,8 @@ const collabTokenFor = (user, workspaceId) => {
 // only briefly: the live-editing connection brings the latest content once the page is open.
 const PREFETCH_KEEP_MS = 10 * 1000;
 const prefetchedPages = new Map();
+// Counts page loads, so only the latest decides which page is open (see loadPageDoc)
+let loadSeq = 0;
 const takePrefetchedPage = (pageId) => {
   const entry = prefetchedPages.get(pageId);
   prefetchedPages.delete(pageId);
@@ -57,6 +59,9 @@ export const useWorkspaceStore = defineStore('workspace', {
     templates: null,
     activePageId: null,
     activePageWorkspaceId: null,
+    // A page that couldn't be opened (a link to it, say): { pageId, kind: 'binned' | 'missing' |
+    // 'forbidden' | 'error', message }. Shown in its place, rather than an error under another page
+    pageProblem: null,
     workspaces: [],
     activeWorkspaceId: null,
     activeWorkspaceRole: null,
@@ -425,6 +430,11 @@ export const useWorkspaceStore = defineStore('workspace', {
     },
     async loadPageDoc(pageId) {
       if (!pageId || !this.hasApi || !this.activeUser || this.deletingCascade) return;
+      // Only the latest load decides what's open: one that fails after another page has opened
+      // leaves that page alone
+      loadSeq += 1;
+      const seq = loadSeq;
+      const reloadingOpenPage = pageId === this.activePageId && !!this.currentPage;
       this.loadingDoc = true;
       const docRevisionAtStart = this.docRevision;
       try {
@@ -434,6 +444,8 @@ export const useWorkspaceStore = defineStore('workspace', {
             userId: this.activeUser?.id,
             userName: this.activeUser?.name,
           }));
+        // Another page was asked for meanwhile: that one opens, not this
+        if (seq !== loadSeq) return;
         this.activePageId = pageId;
         this.activePageWorkspaceId = page.workspaceId || null;
         if (page.workspaceId && page.workspaceId !== this.activeWorkspaceId) {
@@ -445,6 +457,7 @@ export const useWorkspaceStore = defineStore('workspace', {
           await this.loadPageList(page.workspaceId);
         }
         this.upsertPage(page);
+        this.pageProblem = null;
         if (this.docRevision === docRevisionAtStart) {
           this.doc = normalizeEditorDoc(page.content);
         }
@@ -458,10 +471,40 @@ export const useWorkspaceStore = defineStore('workspace', {
         }
       } catch (err) {
         console.warn('Load page doc failed', err);
-        this.error = err?.message || 'Failed to load page';
+        // Not the page that was open before (or the workspace's first), under the error: nothing is
+        // open, and the reason shows in the page's place
+        if (seq !== loadSeq) return;
+        const message = err?.message || '';
+        const kind = err?.status === 404 ? (err?.body?.code === 'PAGE_IN_BIN' ? 'binned' : 'missing') : err?.status === 403 ? 'forbidden' : 'error';
+        // A hiccup reloading the page you're on (offline, the server busy): it stays, with the error over it
+        if (kind === 'error' && reloadingOpenPage) {
+          this.error = message || 'Failed to load page';
+          return;
+        }
+        this.pageProblem = { pageId, kind, message: message || 'Failed to load page' };
+        this.activePageId = null;
+        this.doc = fallbackDoc;
+        await this.updateCollabContext(null, null, null);
       } finally {
         this.loadingDoc = false;
       }
+    },
+    /** Restores the page that couldn't be opened because it's in the Bin (with its parents, if they are too), and opens it. */
+    async restoreProblemPage() {
+      const pageId = this.pageProblem?.kind === 'binned' ? this.pageProblem.pageId : null;
+      if (!pageId) return false;
+      this.error = null;
+      let result = await this.restorePageFromBin(pageId);
+      if (result?.parentsInBin) result = await this.restorePageFromBin(pageId, { placement: 'withParents' });
+      if (!result?.restored) {
+        // Said where the button is (the error banner is part of a page, and none is open)
+        if (this.pageProblem?.pageId === pageId) this.pageProblem = { ...this.pageProblem, restoreError: this.error || "Couldn't restore it" };
+        this.error = null;
+        return false;
+      }
+      if (this.activeWorkspaceId) await this.loadPageList(this.activeWorkspaceId);
+      await this.loadPageDoc(pageId);
+      return true;
     },
     /** Starts loading a page the pointer is resting on in the sidebar (see loadPageDoc). */
     prefetchPage(pageId) {
@@ -484,6 +527,8 @@ export const useWorkspaceStore = defineStore('workspace', {
       this.activePageWorkspaceId = entry.workspace.id;
       this.saveLastWorkspaceId(entry.workspace.id);
       this.activePageId = null;
+      this.pageProblem = null;
+      this.error = null;
       this.titleDraft = 'Untitled page';
       this.doc = fallbackDoc;
       await this.loadWorkspacePages(entry.workspace.id);
@@ -492,6 +537,9 @@ export const useWorkspaceStore = defineStore('workspace', {
       if (!page || this.deletingCascade) return;
       if (page.isHidden && !options.allowHidden) return;
       this.flushPendingTitleSave();
+      // Another page: what went wrong on the last one is done with
+      this.pageProblem = null;
+      this.error = null;
       if (page.workspaceId && page.workspaceId !== this.activeWorkspaceId) {
         const entry = this.workspaces.find((item) => item.workspace?.id === page.workspaceId) || null;
         this.activeWorkspaceId = page.workspaceId;
@@ -523,6 +571,8 @@ export const useWorkspaceStore = defineStore('workspace', {
       this.sessionChecked = false;
       this.userPreferences = {};
       this.activePageId = null;
+      this.pageProblem = null;
+      this.error = null;
       this.activePageWorkspaceId = null;
       this.workspaces = [];
       this.activeWorkspaceId = null;

@@ -10437,6 +10437,32 @@ button {
   padding: 12px 14px;
   border-radius: 10px;
 }
+/* Dark mode (it was light pink there too); not in a light panel inside it */
+:root[data-theme='dark'] .alert:not([data-theme='light'] *) {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.35);
+  color: #fca5a5;
+}
+.alert--banner {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 var(--page-heading-offset, 24px) 12px;
+}
+.alert__dismiss {
+  background: transparent;
+  border: none;
+  color: inherit;
+  font-size: 1.1rem;
+  line-height: 1;
+  padding: 2px 4px;
+  cursor: pointer;
+  opacity: 0.8;
+}
+.alert__dismiss:hover {
+  opacity: 1;
+}
 
 .muted {
   color: #6b7280;
