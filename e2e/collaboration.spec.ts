@@ -164,11 +164,14 @@ test.describe('editing together', () => {
     await expect.poll(() => blockTexts(bob)).toEqual(['Beta too', 'Gamma', 'Alpha moved']);
   });
 
-  // Known to fail: splitting a line copies the text after the split into a new line and deletes it
-  // from the old one, so two people splitting one line at the same moment both copy the same text,
-  // and it's doubled or lost. Needs a split to be a move in the live document (y-tiptap); a line split
-  // and joined again while someone types at its end goes the same way.
-  test.fail('two people pressing Enter and typing in the same line at once keep one copy of everything', async ({ alice, bob, workspaceId }) => {
+  // Skipped, a known limit of the live document: a split deletes the text after it and puts a copy in
+  // a new line (each line is its own element, and Yjs can't move text between elements), so two
+  // people splitting one line at the same moment both copy it, and it's doubled. Not Wikid's code or
+  // y-tiptap's fork: the same happens with plain Tiptap and with the original y-prosemirror (checked
+  // 2026-11-12). Needs Yjs to move content between elements (yjs/yjs issue 444, PR 357). A line split
+  // and joined again while someone types at its end goes the same way. It was test.fail, but the
+  // timing sometimes lets it pass, which failed the run.
+  test.skip('two people pressing Enter and typing in the same line at once keep one copy of everything', async ({ alice, bob, workspaceId }) => {
     const id = await createPage(alice, workspaceId);
     await openPage(alice, id);
     await editor(alice).click();
