@@ -10648,25 +10648,71 @@ button {
   }
 }
 
-@media (max-width: 900px) {
-  .app-shell {
-    grid-template-columns: 1fr;
+/* A narrow screen (a phone, a tablet upright): the sidebar is a drawer over the page (App.vue isNarrow) */
+.app-shell--narrow .sidebar {
+  width: min(var(--sidebar-panel-width), 85vw);
+  min-width: 0;
+}
+/* Where there's no top bar (admin views, a form), its button to open the drawer */
+.narrow-menu-btn {
+  position: fixed;
+  top: 10px;
+  left: 12px;
+  z-index: 50;
+  background: var(--content-bg);
+}
+.content--narrow-menu {
+  padding-top: 56px;
+}
+.sidebar-drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 2999;
+  background: rgba(0, 0, 0, 0.45);
+}
+/* A phone: the page uses the width; the gutters beside the text hold drag handles, which a finger
+   can't use */
+@media (max-width: 640px) {
+  .wikid-mainframe,
+  .tiptap-editor,
+  .page-overlay__body .tiptap-editor {
+    --editor-gutter: 20px;
   }
-  .sidebar-resize-handle {
+  .wikid-mainframe {
+    padding-left: 0;
+  }
+  .page-surface {
+    padding-left: 0;
+  }
+  /* Settings: its sections in a row along the top, scrolling sideways, with the section under them */
+  .settings-popup-card {
+    flex-direction: column;
+    width: calc(100vw - 24px);
+    height: calc(100dvh - 48px);
+  }
+  .settings-popup-nav {
+    flex-direction: row;
+    flex-shrink: 0;
+    min-width: 0;
+    overflow-x: auto;
+    padding: 12px 48px 12px 12px;
+    border-right: none;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+  }
+  .settings-popup-nav .settings-nav-section-label {
     display: none;
   }
-  .sidebar {
-    flex-direction: row;
-    overflow-x: auto;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-    grid-column: 1;
+  .settings-tab {
+    white-space: nowrap;
   }
-  .content {
-    grid-column: 1;
+  .settings-popup-content {
+    padding: 16px;
   }
-  .sidebar__list {
-    flex-direction: row;
-    flex-wrap: nowrap;
+  /* The top bar names just the page you're on (App.vue isPhone), cut short if it's long */
+  .crumbs > .crumb.current {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 }
 

@@ -441,8 +441,13 @@ const splitPrimaryWidthPx = ref(null); // null = 50/50 flex
 const splitResizeStartX = ref(0);
 const splitWidthAtStart = ref(0);
 const openPageInSplit = (pageId) => {
-  splitPageId.value = pageId;
   menuOpenFor.value = null;
+  // Two pages side by side don't fit a narrow screen: it opens on its own
+  if (isNarrow.value) {
+    openRowPageFull(pageId);
+    return;
+  }
+  splitPageId.value = pageId;
 };
 const closeSplit = () => {
   splitPageId.value = null;
@@ -463,17 +468,55 @@ const startSplitResize = (event) => {
   event.preventDefault();
 };
 provide('openPageInSplit', openPageInSplit);
-const isSidebarHidden = computed(() => !!workspace.userPreferences?.sidebarHidden);
+// On a narrow screen (a phone, a tablet upright) the sidebar is a drawer over the page, opened from the
+// top bar, whatever the sidebar preference (which is left as it is for wider screens)
+// A media query's match, kept up to date (older Safari has only addListener)
+const useMediaQuery = (query) => {
+  const media = typeof window !== 'undefined' && window.matchMedia ? window.matchMedia(query) : null;
+  const matches = ref(!!media?.matches);
+  const onChange = (event) => {
+    matches.value = event.matches;
+  };
+  if (media?.addEventListener) media.addEventListener('change', onChange);
+  else media?.addListener?.(onChange);
+  onBeforeUnmount(() => {
+    if (media?.removeEventListener) media.removeEventListener('change', onChange);
+    else media?.removeListener?.(onChange);
+  });
+  return matches;
+};
+const isNarrow = useMediaQuery('(max-width: 900px)');
+// A phone: the top bar names just the page you're on
+const isPhone = useMediaQuery('(max-width: 640px)');
+const isSidebarHidden = computed(() => isNarrow.value || !!workspace.userPreferences?.sidebarHidden);
 const isSidebarPeek = ref(false);
+const isSidebarDrawerOpen = computed(() => isNarrow.value && isSidebarPeek.value);
+// The sidebar's own button: closes the drawer, or pins and unpins the sidebar
+const showNarrowMenuButton = computed(() => isNarrow.value && (isSysadminView.value || isFormView.value));
+const sidebarHeaderButtonLabel = computed(() => (isNarrow.value ? 'Close sidebar' : isSidebarHidden.value ? 'Pin sidebar' : 'Unpin sidebar'));
 const isSidebarHovered = ref(false);
 const sidebarRef = ref(null);
 const sidebarPeekTimeout = ref(null);
 const pointerStartX = ref(0);
 const widthAtStart = ref(sidebarWidth.value);
-const sidebarHoldOpen = computed(
+// A window open over the page (search, Templates, the Bin, settings, a page's dialogs)
+const windowOpen = computed(
   () =>
-    isSidebarHidden.value &&
-    (showUserMenu.value || !!menuOpenFor.value || showSettingsPopup.value || showBinModal.value)
+    showSearch.value ||
+    showTemplatesModal.value ||
+    showBinModal.value ||
+    showSettingsPopup.value ||
+    showCreateWorkspaceModal.value ||
+    deleteModalVisible.value ||
+    !!exportRequest.value ||
+    !!saveTemplatePage.value ||
+    !!historyPageId.value ||
+    !!moveWorkspacePage.value ||
+    !!complianceSetupRequest.value
+);
+// The sidebar stays out while one of its menus, or a window from it, is open
+const sidebarHoldOpen = computed(
+  () => isSidebarHidden.value && (showUserMenu.value || !!menuOpenFor.value || windowOpen.value)
 );
 
 const appShellStyle = computed(() => ({
@@ -525,6 +568,12 @@ const startResize = (event) => {
 };
 
 const toggleSidebar = (next) => {
+  if (isNarrow.value) {
+    // The drawer opens and closes; the preference stays for wider screens
+    isSidebarPeek.value = typeof next === 'boolean' ? !next : !isSidebarPeek.value;
+    clearSidebarPeekTimeout();
+    return;
+  }
   const shouldHide = typeof next === 'boolean' ? next : !isSidebarHidden.value;
   if (shouldHide) {
     stopResizing();
@@ -580,6 +629,8 @@ const scheduleSidebarPeekClose = (event) => {
 };
 
 const handleSidebarPreview = ({ open, event } = {}) => {
+  // A drawer opens and closes with a tap, not by hovering (a tap on a touch screen hovers too)
+  if (isNarrow.value) return;
   if (open) {
     openSidebarPeek();
   } else {
@@ -589,36 +640,39 @@ const handleSidebarPreview = ({ open, event } = {}) => {
 
 const handleSidebarMouseEnter = () => {
   isSidebarHovered.value = true;
-  if (!isSidebarHidden.value) return;
+  if (!isSidebarHidden.value || isNarrow.value) return;
   openSidebarPeek();
 };
 
 const handleSidebarMouseLeave = () => {
   isSidebarHovered.value = false;
-  if (!isSidebarHidden.value) return;
+  if (!isSidebarHidden.value || isNarrow.value) return;
   if (sidebarHoldOpen.value) return;
   closeSidebarPeek();
 };
 
+// The drawer closes once a page is picked, and when the screen gets wide again
+watch(activePageId, () => {
+  if (isNarrow.value) isSidebarPeek.value = false;
+});
+watch(isNarrow, (narrow) => {
+  isSidebarPeek.value = false;
+  if (narrow && splitPageId.value) closeSplit();
+});
+// Escape closes it, unless it's for something else: a menu or window open, or text being edited
+const handleDrawerKeydown = (event) => {
+  if (event.key !== 'Escape' || !isSidebarDrawerOpen.value || event.defaultPrevented || sidebarHoldOpen.value) return;
+  if (event.target?.closest?.('input, textarea, select, [contenteditable="true"]')) return;
+  isSidebarPeek.value = false;
+};
+if (typeof window !== 'undefined') window.addEventListener('keydown', handleDrawerKeydown);
+onBeforeUnmount(() => typeof window !== 'undefined' && window.removeEventListener('keydown', handleDrawerKeydown));
 watch(
   () => isSidebarHidden.value,
   (hidden) => {
     if (!hidden) {
       isSidebarPeek.value = false;
       clearSidebarPeekTimeout();
-    }
-  }
-);
-watch(
-  () => sidebarHoldOpen.value,
-  (hold) => {
-    if (!isSidebarHidden.value) return;
-    if (hold) {
-      clearSidebarPeekTimeout();
-      return;
-    }
-    if (!isSidebarHovered.value) {
-      closeSidebarPeek();
     }
   }
 );
@@ -952,6 +1006,8 @@ onBeforeUnmount(() => {
 const selectPage = (page) => {
   activeView.value = 'page';
   workspace.selectPage(page);
+  // Picked in the drawer (the page already open too): the drawer goes
+  if (isNarrow.value) isSidebarPeek.value = false;
 };
 const openRowPageFull = (pageId) => {
   if (!pageId) return;
@@ -1281,6 +1337,7 @@ const openAdminView = (view) => {
   showUserMenu.value = false;
   showSettingsPopup.value = false;
   activeView.value = view;
+  if (isNarrow.value) isSidebarPeek.value = false;
 };
 const openSettingsPopup = () => {
   closeMenu();
@@ -1522,6 +1579,11 @@ const prefetchSidebarPage = (page) => workspace.prefetchPage(page?.id);
 
 const handlePageItemClick = (page) => {
   if (activePageId.value === page.id) {
+    // In the drawer, the page already open with nothing under it to show: the drawer goes
+    if (isNarrow.value && !pages.value.some((item) => item.parentId === page.id)) {
+      isSidebarPeek.value = false;
+      return;
+    }
     toggleExpand(page.id);
   } else {
     selectPage(page);
@@ -1730,6 +1792,24 @@ const breadcrumbs = computed(() => {
 });
 
 const deleteModalVisible = ref(false);
+// The sidebar drawer closes when a window opens from it, so it's not left behind that
+watch(windowOpen, (open) => {
+  if (open && isNarrow.value) isSidebarPeek.value = false;
+});
+// (after the windows it watches are declared)
+watch(
+  () => sidebarHoldOpen.value,
+  (hold) => {
+    if (!isSidebarHidden.value || isNarrow.value) return;
+    if (hold) {
+      clearSidebarPeekTimeout();
+      return;
+    }
+    if (!isSidebarHovered.value) {
+      closeSidebarPeek();
+    }
+  }
+);
 const deleteModalTarget = ref(null);
 const deleteModalResolver = ref(null);
 const binCount = computed(() => workspace.binPages.length);
@@ -2061,7 +2141,7 @@ if (typeof window !== 'undefined') {
   <LoginPage v-else-if="!activeUser" />
   <div v-else-if="!workspace.sessionChecked" class="app-signing-in" role="status" aria-live="polite">Signing in…</div>
   <ChooseNewPassword v-else-if="workspace.mustChangePassword" />
-  <div v-else class="app-shell" :class="{ 'app-shell--sidebar-hidden': isSidebarHidden }" :style="appShellStyle">
+  <div v-else class="app-shell" :class="{ 'app-shell--sidebar-hidden': isSidebarHidden, 'app-shell--narrow': isNarrow }" :style="appShellStyle">
     <div v-if="showNotConnected" class="not-connected-overlay" role="status" aria-live="polite">
       <div class="not-connected-card">
         <h1>Not connected</h1>
@@ -2084,6 +2164,7 @@ if (typeof window !== 'undefined') {
       </div>
     </div>
     <div v-if="menuOpenFor" class="page-menu-overlay" @mousedown="closeMenu"></div>
+    <div v-if="isSidebarDrawerOpen" class="sidebar-drawer-backdrop" aria-hidden="true" @click="toggleSidebar(true)"></div>
     <aside
       ref="sidebarRef"
       class="sidebar"
@@ -2102,12 +2183,19 @@ if (typeof window !== 'undefined') {
         <button
           class="sidebar-hide-btn"
           type="button"
-          :title="isSidebarHidden ? 'Pin sidebar' : 'Unpin sidebar'"
-          :aria-label="isSidebarHidden ? 'Pin sidebar' : 'Unpin sidebar'"
-          @click="toggleSidebar(!isSidebarHidden)"
+          :title="sidebarHeaderButtonLabel"
+          :aria-label="sidebarHeaderButtonLabel"
+          @click="toggleSidebar(isNarrow || !isSidebarHidden)"
         >
           <PageIcon
-            v-if="isSidebarHidden"
+            v-if="isNarrow"
+            class="sidebar-toggle-icon"
+            icon="icon:x-lg"
+            fallback="Close"
+            aria-hidden="true"
+          />
+          <PageIcon
+            v-else-if="isSidebarHidden"
             class="sidebar-toggle-icon"
             icon="icon:pin-angle-fill"
             fallback="Pin"
@@ -2291,7 +2379,18 @@ if (typeof window !== 'undefined') {
       @mousedown.prevent="startResize"
     ></div>
 
-    <main class="content">
+    <main class="content" :class="{ 'content--narrow-menu': showNarrowMenuButton }">
+      <!-- A narrow screen with no top bar (admin views, a form): the button that opens the sidebar -->
+      <button
+        v-if="showNarrowMenuButton"
+        type="button"
+        class="ghost-btn topbar-sidebar-toggle narrow-menu-btn"
+        aria-label="Show sidebar"
+        title="Show sidebar"
+        @click="showSidebar"
+      >
+        <PageIcon class="topbar-sidebar-icon" icon="icon:list" fallback="Menu" aria-hidden="true" />
+      </button>
       <div class="content-with-ai-panel">
         <AiSidePanel
           v-if="showAiPanel && !splitPageId && workspace.aiEnabled"
@@ -2315,7 +2414,7 @@ if (typeof window !== 'undefined') {
         <TopBar
           v-if="workspace.currentPage && !isSysadminView && !isFormView"
           :workspace-name="activeWorkspaceName"
-          :crumbs="splitPageId ? (breadcrumbs.length ? [breadcrumbs[breadcrumbs.length - 1]] : []) : breadcrumbs"
+          :crumbs="splitPageId || isPhone ? (breadcrumbs.length ? [breadcrumbs[breadcrumbs.length - 1]] : []) : breadcrumbs"
           :saving="saving"
           :collaborators="collabPresence"
           :status-label="useCollabStatus ? collabStatusLabel : ''"
@@ -2325,7 +2424,7 @@ if (typeof window !== 'undefined') {
           :show-sidebar-toggle="isSidebarHidden"
           :show-ai-toggle="!splitPageId && isDocLayout && workspace.aiEnabled"
           :ai-panel-open="showAiPanel"
-          :show-workspace-name="!splitPageId && !(breadcrumbs.length && breadcrumbs[0]?.title === '…')"
+          :show-workspace-name="!splitPageId && !isPhone && !(breadcrumbs.length && breadcrumbs[0]?.title === '…')"
           :show-history="!splitPageId && isDocLayout && !isSetupPage"
           :show-save-as-template="!splitPageId && isDocLayout && !isSetupPage && !workspace.currentPage?.isTemplate"
           @export="openExportModal"
