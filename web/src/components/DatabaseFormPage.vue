@@ -871,7 +871,36 @@ const clearFieldErrorIfResolved = (fieldId, overrideValue, hasOverride = false) 
   }
 };
 
+// Whether this person may send the form (a viewer may only look at it)
+const canSubmit = ref(true);
+
+// Switches to the form's workspace as opening its page would, once the app has finished loading
+// (which opens your last workspace, and switched back over this)
+let leftFormPage = false;
+onBeforeUnmount(() => {
+  leftFormPage = true;
+});
+const openFormWorkspace = async (workspaceId) => {
+  const formId = props.formId;
+  if (workspace.loadingPages) {
+    await new Promise((resolve) => {
+      const stop = watch(
+        () => workspace.loadingPages,
+        (loading) => {
+          if (loading) return;
+          stop();
+          resolve();
+        }
+      );
+    });
+  }
+  // (not if you've left this form meanwhile: it would switch wherever you'd gone)
+  if (leftFormPage || props.formId !== formId || workspaceId === workspace.activeWorkspaceId) return;
+  await workspace.selectWorkspaceById(workspaceId).catch((err) => console.warn("Opening the form's workspace failed", err));
+};
+
 const resetState = () => {
+  canSubmit.value = true;
   resetFormInputs();
   submitStatus.value = '';
   submitError.value = '';
@@ -929,6 +958,10 @@ const { loading, error, execute: loadForm } = useApiMutation(async () => {
     databasePageId.value = typeof res?.databasePageId === 'string' ? res.databasePageId : '';
     databaseRowCount.value = Number.isFinite(res?.databaseRowCount) ? res.databaseRowCount : null;
     complianceMode.value = res?.databaseComplianceMode === true;
+    // A viewer can open it, not send it: said at once, not after it's filled in
+    canSubmit.value = res?.canSubmit !== false;
+    // The sidebar on the form's workspace (it showed the one you were in before)
+    if (!props.embedded && res?.workspaceId) openFormWorkspace(res.workspaceId);
     rows.value = [];
     rowsError.value = '';
   } finally {
@@ -1289,7 +1322,11 @@ onBeforeUnmount(() => {
           </div>
         </div>
       </div>
-      <form v-else class="form-page__body" @submit.prevent="submitForm">
+      <form v-else class="form-page__body" :class="{ 'form-page__body--readonly': !canSubmit && !isPreview }" @submit.prevent="submitForm">
+        <p v-if="!canSubmit && !isPreview" class="form-page__readonly" role="status">
+          You can see this form, but not fill it in: you can only view this workspace.
+        </p>
+        <fieldset class="form-page__fields" :disabled="!canSubmit && !isPreview">
         <div v-if="isPreview" class="form-field__note muted">Preview only. Submissions are disabled.</div>
         <div v-if="isUpdateMode" class="form-record-banner">
           <div>
@@ -1523,6 +1560,7 @@ onBeforeUnmount(() => {
             {{ submitStatus || submitError }}
           </span>
         </div>
+        </fieldset>
       </form>
     </div>
   </div>

@@ -8,7 +8,7 @@ import { PageAccessService } from './page-access.service';
 import { DatabaseValuesService } from './database-values.service';
 import { DatabasesService } from './databases.service';
 import { CollabMaterializerService } from '../collab/collab-materializer.service';
-import { POSITION_INCREMENT, COMPLIANCE_RECORD_KEY, getFieldSource, normalizeFormIcon } from './pages.shared';
+import { POSITION_INCREMENT, COMPLIANCE_RECORD_KEY, getFieldSource, normalizeFormIcon, canEdit } from './pages.shared';
 
 // Database forms: their fields and settings, and submitting entries through them.
 @Injectable()
@@ -237,7 +237,7 @@ export class DatabaseFormsService {
     if (!form) throw new NotFoundException('Form not found');
     const access = await this.prisma.database.findUnique({ where: { id: form.databaseId }, select: { pageId: true, workspaceId: true } });
     if (!access) throw new NotFoundException('Database not found');
-    await this.access.requirePageAccess(access.pageId, user);
+    const { membership } = await this.access.requirePageAccess(access.pageId, user);
     // The database's columns as they are now, not as of its last periodic save
     await this.materializer.catchUpDatabase(access.pageId, access.workspaceId);
     const database = await this.prisma.database.findUnique({
@@ -273,6 +273,10 @@ export class DatabaseFormsService {
       databaseFields: database.fields,
       databaseRowCount: rowCount,
       people,
+      // Its workspace (for the sidebar), and whether this person may send it: a viewer can open a form
+      // but not submit it, and filled one in only to be refused
+      workspaceId: database.workspaceId,
+      canSubmit: canEdit(membership.role),
     };
   }
 

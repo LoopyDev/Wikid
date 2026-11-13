@@ -62,6 +62,19 @@ describe('login and sessions', () => {
     expect((await new Session().request('POST', '/auth/login', { login: 'nobody-here', password: DEMO_PASSWORD })).status).toBe(401);
   });
 
+  it("won't take an email address without an @ (that person could never sign in)", async () => {
+    const admin = await loginAs(USERS.admin.email);
+    const bad = await admin.post('/admin/users', { adminId: 'x', displayName: 'No At', email: 'no-at-sign', password: 'password1', mustChangePassword: false });
+    expect(bad.status).toBe(400);
+    expect(bad.body.message).toMatch(/email address/i);
+    const email = `${unique('ok').replace(/\W/g, '')}@wikid.local`;
+    const created = await admin.post('/admin/users', { adminId: 'x', displayName: 'Has At', email, password: 'password1', mustChangePassword: false });
+    expect(created.status).toBe(201);
+    const userId = created.body.id ?? created.body.user?.id;
+    expect((await admin.patch(`/admin/users/${userId}`, { adminId: 'x', email: 'still not one' })).status).toBe(400);
+    await admin.delete(`/admin/users/${userId}?adminId=x`);
+  });
+
   it('lets the admin give users a unique username', async () => {
     const admin = await loginAs(USERS.admin.email);
     const name = `user-${Date.now().toString(36)}`;

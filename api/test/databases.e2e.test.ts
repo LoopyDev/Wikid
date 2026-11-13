@@ -699,4 +699,17 @@ describe('compliance mode', () => {
     expect((await alice.get(`/pages/${pageId}/database`)).body.rows.find((r: any) => r.id === row.id)).toBeUndefined();
     expect((await record()).status).toBe('ARCHIVED');
   });
+
+  it('says whether someone can send a form, and its workspace: a viewer can open one but not submit it', async () => {
+    const { pageId, titleFieldId } = await createDatabase();
+    const form = await alice.post(`/pages/${pageId}/database/forms`, { name: 'Sign up', fields: [{ fieldId: titleFieldId }] });
+    const asOwner = await alice.get(`/database-forms/${form.body.id}`);
+    expect(asOwner.body.canSubmit).toBe(true);
+    expect(asOwner.body.workspaceId).toBe(workspaceId);
+    const asViewer = await bob.get(`/database-forms/${form.body.id}`);
+    expect(asViewer.status).toBe(200);
+    expect(asViewer.body.canSubmit).toBe(false);
+    expect((await bob.post(`/database-forms/${form.body.id}/submit`, { data: { [titleFieldId]: 'Nope' } })).status).toBe(403);
+  });
 });
+
