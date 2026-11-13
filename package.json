@@ -18,6 +18,7 @@
     "test:api": "npm run test:e2e -w api",
     "test:e2e": "playwright test -c e2e",
     "test:restore": "node docker/test-restore.mjs",
+    "test:update": "node docker/test-update.mjs",
     "build": "npm run build -w web",
     "icons:meta": "node scripts/build-icon-meta.mjs"
   },

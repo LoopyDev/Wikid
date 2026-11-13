@@ -7,7 +7,8 @@ cd "$(dirname "$0")/.."
 DEST="${BACKUP_DIR:-./backups}"
 mkdir -p "$DEST"
 DEST="$(cd "$DEST" && pwd)"
-STAMP="$(date +%Y%m%d-%H%M%S)"
+# (update.sh picks the stamp, to say which backup to restore)
+STAMP="${BACKUP_STAMP:-$(date +%Y%m%d-%H%M%S)}"
 
 echo "Backing up to $DEST ($STAMP)"
 docker compose exec -T db pg_dump -U postgres -Fc wikid-tiptap > "$DEST/wikid-$STAMP.dump"
