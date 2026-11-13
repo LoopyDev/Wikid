@@ -3165,6 +3165,45 @@ button {
   color: var(--text-primary);
 }
 
+/* A big database's rows past those shown (see ROWS_SHOWN_AT_ONCE in DatabaseTable.vue) */
+.db-more-rows {
+  padding: 10px;
+  border-top: 1px solid var(--surface-border);
+}
+
+.db-more-rows-cell {
+  padding: 0;
+}
+
+.db-more-rows-btn {
+  background: transparent;
+  border: 0;
+  color: var(--text-primary);
+  padding: 4px 0;
+  font: inherit;
+  cursor: pointer;
+}
+
+.db-more-rows-btn:hover,
+.db-more-rows-btn:focus-visible {
+  color: var(--caret-color);
+}
+
+.db-more-rows-print {
+  display: none;
+}
+
+@media print {
+  .db-more-rows-btn {
+    display: none;
+  }
+
+  .db-more-rows-print {
+    display: inline;
+    color: var(--text-muted);
+  }
+}
+
 .db-forms-list {
   padding: 16px;
   display: flex;

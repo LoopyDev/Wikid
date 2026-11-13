@@ -1,4 +1,4 @@
-import { computed, ref } from 'vue';
+import { computed, reactive, ref, toRaw } from 'vue';
 import { colorFromId } from '../utils/presenceColor';
 import { getFontForElement } from '../utils/database/columnLayout';
 import { readSelectionOffset } from '../utils/database/cellInput';
@@ -12,7 +12,25 @@ export function useCellPresence({ emit, activeUser, collabProvider, isCollabEnab
     name: activeUser.value?.name || 'Guest',
     color: colorFromId(activeUser.value?.id || 'guest'),
   }));
-  const collabCellPresence = ref([]);
+  // Who else is in each cell ("rowId:fieldId" to their entries). Only cells whose entries change are
+  // updated, and each cell reads only its own: rebuilt whole on every awareness update (this
+  // person's typing too), every cell of the table drew itself again on each keystroke
+  const cellPresenceMap = reactive(new Map());
+  const setCellPresence = (entries) => {
+    const next = new Map();
+    entries.forEach((entry) => {
+      const key = `${entry.rowId}:${entry.fieldId}`;
+      next.set(key, [...(next.get(key) || []), entry]);
+    });
+    for (const key of [...cellPresenceMap.keys()]) {
+      if (!next.has(key)) cellPresenceMap.delete(key);
+    }
+    // What a cell shows of who's in it (not when they last said so: that changes on every update)
+    const shown = (list) => JSON.stringify((list || []).map(({ ts, ...entry }) => entry));
+    next.forEach((list, key) => {
+      if (shown(toRaw(cellPresenceMap.get(key))) !== shown(list)) cellPresenceMap.set(key, list);
+    });
+  };
   const collabAwarenessSource = ref(null);
   const collabAwarenessHandler = ref(null);
   let localTypingTimer = null;
@@ -153,7 +171,7 @@ export function useCellPresence({ emit, activeUser, collabProvider, isCollabEnab
   const updateCellPresence = () => {
     const awareness = collabProvider.value?.awareness;
     if (!awareness) {
-      collabCellPresence.value = [];
+      setCellPresence([]);
       emit('collabpresence', []);
       return;
     }
@@ -191,7 +209,7 @@ export function useCellPresence({ emit, activeUser, collabProvider, isCollabEnab
         since: typeof cursor.since === 'number' ? cursor.since : 0,
       });
     });
-    collabCellPresence.value = cellEntries;
+    setCellPresence(cellEntries);
     emit('collabpresence', topbarEntries);
   };
   const attachAwarenessListener = () => {
@@ -207,7 +225,7 @@ export function useCellPresence({ emit, activeUser, collabProvider, isCollabEnab
       collabAwarenessHandler.value = handler;
       updateCellPresence();
     } else {
-      collabCellPresence.value = [];
+      setCellPresence([]);
       emit('collabpresence', []);
     }
   };
@@ -271,24 +289,14 @@ export function useCellPresence({ emit, activeUser, collabProvider, isCollabEnab
     const max = Math.max(6, el.clientWidth - 6);
     return Math.min(Math.max(raw, 6), max);
   };
-  const cellPresenceMap = computed(() => {
-    const map = new Map();
-    collabCellPresence.value.forEach((entry) => {
-      const key = `${entry.rowId}:${entry.fieldId}`;
-      const list = map.get(key) || [];
-      list.push(entry);
-      map.set(key, list);
-    });
-    return map;
-  });
   const getCellPresence = (rowId, fieldId) =>
-    cellPresenceMap.value.get(`${rowId}:${fieldId}`) || [];
+    cellPresenceMap.get(`${rowId}:${fieldId}`) || [];
   // Who else is editing a cell this person isn't in, so it's locked for them (like a spreadsheet):
   // two people typing in one cell would otherwise overwrite each other. Null if no one.
   // Two who went in at nearly the same time: whoever was first keeps it.
   const cellEditor = (rowId, fieldId) => {
     const key = `${rowId}:${fieldId}`;
-    const others = cellPresenceMap.value.get(key) || [];
+    const others = cellPresenceMap.get(key) || [];
     if (localCell.value !== key) return others[0] || null;
     return others.find((entry) => entry.since && entry.since < localSince) || null;
   };
