@@ -1,4 +1,4 @@
-import { test, expect, createPage, openPage, editor } from './fixtures';
+import { test, expect, createPage, openPage, editor, unique, USERS } from './fixtures';
 import type { Page } from '@playwright/test';
 
 // A link to a page that can't be opened: the reason in its place, at its address, and nothing
@@ -51,4 +51,33 @@ test.describe("pages that can't be opened", () => {
     await expect(bob.locator('.alert')).toHaveCount(0);
     expect(new URL(bob.url()).pathname).toBe(`/doc/${shared}`);
   });
+
+  test('an open page someone makes private, or moves to another workspace, says so in its place', async ({ alice, bob, workspaceId }) => {
+    // Made private by its author
+    const secret = await createPage(alice, workspaceId, { title: 'Soon private' });
+    await openPage(bob, secret);
+    await expect(editor(bob)).toBeVisible();
+    expect((await alice.request.patch(`/api/pages/${secret}/visibility`, { data: { visibility: 'PRIVATE' } })).status()).toBe(200);
+    await expect(problem(bob).getByRole('heading')).toHaveText(`You can't open "Soon private" any more`);
+    await expect(editor(bob)).toHaveCount(0);
+
+    // Moved to another workspace Bob is in: he can follow it there
+    const created = await alice.request.post('/api/workspaces', { data: { name: unique('Elsewhere') } });
+    const other = (await created.json()).workspace as { id: string; name: string };
+    try {
+      expect((await alice.request.post(`/api/workspaces/${other.id}/members`, { data: { email: USERS.bob.email, role: 'EDITOR' } })).status()).toBe(201);
+      const moving = await createPage(alice, workspaceId, { title: 'On the move' });
+      await openPage(bob, moving);
+      await expect(editor(bob)).toBeVisible();
+      expect((await alice.request.patch(`/api/pages/${moving}/workspace`, { data: { targetWorkspaceId: other.id } })).status()).toBe(200);
+      await expect(problem(bob).getByRole('heading')).toHaveText(`"On the move" was moved to ${other.name}`);
+      await problem(bob).getByRole('button', { name: 'Open it there' }).click();
+      await expect(bob.getByRole('main').getByRole('textbox', { name: 'Untitled page' })).toHaveValue('On the move');
+      await expect(problem(bob)).toHaveCount(0);
+      await expect(bob.locator('aside.sidebar .user-name')).toHaveText(other.name);
+    } finally {
+      await alice.request.delete(`/api/workspaces/${other.id}`);
+    }
+  });
 });
+

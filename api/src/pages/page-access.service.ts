@@ -177,7 +177,7 @@ export class PageAccessService {
       }
     }
     if (page.isDeleted && !options.allowDeleted) {
-      throw new NotFoundException({ message: 'Page is in the bin', code: 'PAGE_IN_BIN' });
+      throw new NotFoundException({ message: 'Page is in the bin', code: 'PAGE_IN_BIN', workspaceId: page.workspaceId });
     }
     if (options.requireWrite && !canEdit(membership.role)) {
       throw new ForbiddenException('Forbidden: editor access required');

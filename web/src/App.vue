@@ -1609,6 +1609,14 @@ watch(
     updateUrlForPage(id);
   }
 );
+// A page that couldn't be opened has the address while it shows, and gives it up when it goes
+watch(
+  () => workspace.pageProblem?.pageId,
+  () => {
+    if (activeView.value !== 'page' || activePageId.value) return;
+    updateUrlForPage(null);
+  }
+);
 
 watch(
   () => activeFormId.value,
@@ -2539,9 +2547,9 @@ if (typeof window !== 'undefined') {
           <div class="empty-state page-problem" role="status">
             <template v-if="workspace.pageProblem.kind === 'binned'">
               <h1>This page is in the Bin</h1>
-              <p v-if="canEditWorkspace" class="muted">Restore it to open it again.</p>
+              <p v-if="workspace.canRestoreProblemPage" class="muted">Restore it to open it again.</p>
               <p v-else class="muted">Someone who can edit the workspace can restore it.</p>
-              <button v-if="canEditWorkspace" class="ghost-btn ghost-btn-background" type="button" :disabled="restoringProblemPage" @click="restoreProblemPage">
+              <button v-if="workspace.canRestoreProblemPage" class="ghost-btn ghost-btn-background" type="button" :disabled="restoringProblemPage" @click="restoreProblemPage">
                 {{ restoringProblemPage ? 'Restoring…' : 'Restore' }}
               </button>
               <p v-if="workspace.pageProblem.restoreError" class="alert">{{ workspace.pageProblem.restoreError }}</p>
@@ -2550,6 +2558,15 @@ if (typeof window !== 'undefined') {
               <h1>This page doesn't exist</h1>
               <p class="muted">It may have been deleted for good, or the link is wrong.</p>
             </template>
+            <template v-else-if="workspace.pageProblem.kind === 'moved'">
+              <h1>{{ workspace.pageProblem.title ? `"${workspace.pageProblem.title}"` : 'This page' }} was moved to {{ workspace.pageProblem.workspaceName || 'another workspace' }}</h1>
+              <p class="muted">Someone moved it while you had it open.</p>
+              <button class="ghost-btn ghost-btn-background" type="button" :disabled="loadingDoc" @click="workspace.openProblemPage()">Open it there</button>
+            </template>
+            <template v-else-if="workspace.pageProblem.kind === 'forbidden' && workspace.pageProblem.changed">
+              <h1>You can't open {{ workspace.pageProblem.title ? `"${workspace.pageProblem.title}"` : 'this page' }} any more</h1>
+              <p class="muted">Someone made it private, or moved it to a workspace you're not in.</p>
+            </template>
             <template v-else-if="workspace.pageProblem.kind === 'forbidden'">
               <h1>You can't open this page</h1>
               <p class="muted">It's private, or in a workspace you're not a member of.</p>
@@ -2557,7 +2574,7 @@ if (typeof window !== 'undefined') {
             <template v-else>
               <h1>This page couldn't be loaded</h1>
               <p class="muted">{{ workspace.pageProblem.message }}</p>
-              <button class="ghost-btn ghost-btn-background" type="button" :disabled="loadingDoc" @click="workspace.loadPageDoc(workspace.pageProblem.pageId)">
+              <button class="ghost-btn ghost-btn-background" type="button" :disabled="loadingDoc" @click="workspace.openProblemPage()">
                 {{ loadingDoc ? 'Trying…' : 'Try again' }}
               </button>
             </template>

@@ -159,6 +159,7 @@ describe('bin, restore and permanent delete', () => {
     expect(inBin.status).toBe(404);
     expect(inBin.body.message).toBe('Page is in the bin');
     expect(inBin.body.code).toBe('PAGE_IN_BIN');
+    expect(inBin.body.workspaceId).toBe(workspaceId);
     // Someone who couldn't open it isn't told it's there: Alice's private page, in the bin
     const secret = await createPage(alice, workspaceId, { visibility: 'PRIVATE' });
     expect((await alice.delete(`/pages/${secret.id}`)).status).toBe(200);
@@ -166,6 +167,7 @@ describe('bin, restore and permanent delete', () => {
     const outsider = await bob.get(`/pages/${secret.id}`);
     expect(outsider.status).toBe(403);
     expect(outsider.body.code).toBeUndefined();
+    expect(outsider.body.workspaceId).toBeUndefined();
     expect(await listIds(alice)).not.toContain(parent.id);
     expect(await listIds(alice, '&state=bin')).toEqual(expect.arrayContaining([parent.id, child.id]));
     expect(await listIds(alice, '&includeDeleted=true')).toEqual(expect.arrayContaining([parent.id, child.id]));

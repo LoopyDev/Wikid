@@ -135,6 +135,12 @@ export const useWorkspaceStore = defineStore('workspace', {
     canEditActiveWorkspace(state) {
       return state.activeWorkspaceRole === 'OWNER' || state.activeWorkspaceRole === 'EDITOR';
     },
+    // A page in the Bin that couldn't be opened: whether you may restore it (in its own workspace)
+    canRestoreProblemPage(state) {
+      const workspaceId = state.pageProblem?.kind === 'binned' ? state.pageProblem.workspaceId || state.activeWorkspaceId : null;
+      const role = state.workspaces.find((entry) => entry.workspace?.id === workspaceId)?.role;
+      return role === 'OWNER' || role === 'EDITOR';
+    },
     collabActive(state) {
       return !!(state.collabToken && state.collabDocName && state.collabWorkspaceId);
     },
@@ -426,7 +432,49 @@ export const useWorkspaceStore = defineStore('workspace', {
       if (pageId && changedIds.has(pageId) && this.currentPage?.setupStatus === 'PENDING' && !liveEvents.settingUp.has(pageId)) {
         await this.loadPageDoc(this.activePageId);
       }
+      const openTitle = this.currentPage?.title || '';
       await this.loadPageList(workspaceId, { keepBin: true });
+      // The open page left the list, and not for the Bin (that has its notice): moved to another
+      // workspace, or made private by someone else. It used to vanish without a word
+      const openId = this.activePageId;
+      if (openId && changedIds.has(openId) && !this.pages.some((p) => p.id === openId) && !this.activePageRemotelyDeleted) {
+        await this.explainOpenPageGone(openId, openTitle);
+      }
+    },
+    /** Says in the page's place why the open page is gone (see refreshAfterRemoteChange). */
+    async explainOpenPageGone(pageId, title) {
+      let problem = null;
+      try {
+        const page = await api.getPage(pageId, { userId: this.activeUser?.id, userName: this.activeUser?.name });
+        if (page?.workspaceId && page.workspaceId !== this.activeWorkspaceId) {
+          // A workspace joined since the list was loaded: its name, and your role there
+          if (!this.workspaces.some((item) => item.workspace?.id === page.workspaceId)) await this.refreshWorkspaces();
+          const workspaceName = this.workspaces.find((item) => item.workspace?.id === page.workspaceId)?.workspace?.name || '';
+          problem = { pageId, kind: 'moved', title: page.title || title, workspaceId: page.workspaceId, workspaceName };
+        }
+      } catch (err) {
+        if (err?.status === 403) problem = { pageId, kind: 'forbidden', title, changed: true };
+        else if (err?.status === 404) {
+          problem = err?.body?.code === 'PAGE_IN_BIN'
+            ? { pageId, kind: 'binned', title, workspaceId: err.body.workspaceId || null }
+            : { pageId, kind: 'missing', title };
+        }
+      }
+      // Still the open page (not left meanwhile), and gone for one of those reasons
+      if (!problem || this.activePageId !== pageId) return;
+      // A title still being typed for it can't be saved now
+      if (this.pendingTitleSave) {
+        clearTimeout(this.pendingTitleSave);
+        this.pendingTitleSave = null;
+      }
+      if (this.pendingTitleUpdates?.[pageId]) {
+        const { [pageId]: _dropped, ...rest } = this.pendingTitleUpdates;
+        this.pendingTitleUpdates = rest;
+      }
+      this.pageProblem = problem;
+      this.activePageId = null;
+      this.doc = fallbackDoc;
+      await this.updateCollabContext(null, null, null);
     },
     async loadPageDoc(pageId) {
       if (!pageId || !this.hasApi || !this.activeUser || this.deletingCascade) return;
@@ -481,12 +529,12 @@ export const useWorkspaceStore = defineStore('workspace', {
           this.error = message || 'Failed to load page';
           return;
         }
-        this.pageProblem = { pageId, kind, message: message || 'Failed to load page' };
+        this.pageProblem = { pageId, kind, message: message || 'Failed to load page', workspaceId: err?.body?.workspaceId || null };
         this.activePageId = null;
         this.doc = fallbackDoc;
         await this.updateCollabContext(null, null, null);
       } finally {
-        this.loadingDoc = false;
+        if (seq === loadSeq) this.loadingDoc = false;
       }
     },
     /** Restores the page that couldn't be opened because it's in the Bin (with its parents, if they are too), and opens it. */
@@ -502,9 +550,20 @@ export const useWorkspaceStore = defineStore('workspace', {
         this.error = null;
         return false;
       }
-      if (this.activeWorkspaceId) await this.loadPageList(this.activeWorkspaceId);
-      await this.loadPageDoc(pageId);
+      // Opening it brings its workspace's list along if it's another; in this one, the list gets it
+      // (and the pages restored with it)
+      const sameWorkspace = !this.pageProblem?.workspaceId || this.pageProblem.workspaceId === this.activeWorkspaceId;
+      await this.openProblemPage();
+      if (sameWorkspace && this.activeWorkspaceId) await this.loadPageList(this.activeWorkspaceId, { keepBin: true });
       return true;
+    },
+    /** Opens the page the problem screen is about (Try again, Open it there), as opening any page does. */
+    async openProblemPage() {
+      const pageId = this.pageProblem?.pageId;
+      if (!pageId) return;
+      this.error = null;
+      await this.loadPageDoc(pageId);
+      if (this.activePageId === pageId) this.saveLastPageId(pageId);
     },
     /** Starts loading a page the pointer is resting on in the sidebar (see loadPageDoc). */
     prefetchPage(pageId) {
