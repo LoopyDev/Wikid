@@ -415,10 +415,38 @@ const handleBrowserOffline = () => {
   workspace.setApiStatus(false);
 };
 
-const retryConnection = () => {
-  if (!activeUser.value) return;
-  workspace.loadInitial();
+// Back from "Not connected" (Retry, the network coming back, or a check every few seconds): on
+// the page you were on, not the workspace's first
+const retryingConnection = ref(false);
+const retryConnection = async () => {
+  if (!activeUser.value || retryingConnection.value) return;
+  retryingConnection.value = true;
+  try {
+    const routed = parsePageIdFromPath();
+    const ok = await workspace.reconnect();
+    if (!ok) return;
+    // The page the address is for, if it isn't open (it failed to load while the connection was gone)
+    if (routed && workspace.activePageId !== routed) {
+      activeView.value = 'page';
+      await workspace.openPageFromLink(routed);
+    }
+  } finally {
+    retryingConnection.value = false;
+  }
 };
+const handleBrowserOnline = () => {
+  if (showNotConnected.value) retryConnection();
+};
+let reconnectTimer = null;
+watch(
+  () => showNotConnected.value,
+  (showing) => {
+    clearInterval(reconnectTimer);
+    // Not while the browser knows it's offline (its 'online' event says when it's back)
+    reconnectTimer = showing ? setInterval(() => navigator.onLine !== false && retryConnection(), 5000) : null;
+  }
+);
+onBeforeUnmount(() => clearInterval(reconnectTimer));
 const activeCollabDoc = ref(null);
 const activeCollabProvider = ref(null);
 const iconYMap = ref(null);
@@ -918,6 +946,7 @@ onMounted(() => {
   window.addEventListener(PASSWORD_CHANGE_REQUIRED_EVENT, handlePasswordChangeRequired);
   window.addEventListener('wikid:page-title-updated', handleExternalTitleUpdated);
   window.addEventListener('offline', handleBrowserOffline);
+  window.addEventListener('online', handleBrowserOnline);
   setTimeout(() => focusBlockFromHash(), 120);
 });
 
@@ -1000,6 +1029,7 @@ onBeforeUnmount(() => {
   window.removeEventListener(PASSWORD_CHANGE_REQUIRED_EVENT, handlePasswordChangeRequired);
   window.removeEventListener('wikid:page-title-updated', handleExternalTitleUpdated);
   window.removeEventListener('offline', handleBrowserOffline);
+  window.removeEventListener('online', handleBrowserOnline);
   stopResizing();
 });
 
@@ -1318,9 +1348,10 @@ const handleLogout = () => {
   showUserMenu.value = false;
   workspace.logout();
 };
-// Session cookie missing or expired: drop the cached user so the login screen shows
+// Session cookie missing or expired: signed out, with the sign-in screen saying why, and back to
+// this page after signing in
 const handleAuthExpired = () => {
-  if (workspace.activeUserId) workspace.logout();
+  if (workspace.activeUserId) workspace.expireSession(parsePageIdFromPath());
 };
 const handlePasswordChangeRequired = () => workspace.requirePasswordChange();
 
@@ -1702,11 +1733,9 @@ watch(
   () => workspace.loadingPages,
   (loading) => {
     if (!loading && initialRoutePageId.value) {
-      const page = workspace.pages.find((p) => p.id === initialRoutePageId.value);
-      if (page) {
-        selectPage(page);
-      } else if (workspace.hasApi) {
-        workspace.loadPageDoc(initialRoutePageId.value);
+      if (workspace.hasApi) {
+        activeView.value = 'page';
+        workspace.openPageFromLink(initialRoutePageId.value);
       }
       initialRoutePageId.value = null;
     }
@@ -1845,6 +1874,8 @@ const parseFormIdFromPath = () => {
 };
 const updateUrlForPage = (pageId) => {
   if (isDevMode.value || typeof window === 'undefined') return;
+  // Not while disconnected or signed out: the address is where you were, to go back to
+  if (!workspace.hasApi || !workspace.activeUserId) return;
   // A page that couldn't be opened keeps its address, to try again or pass on
   const id = pageId || workspace.pageProblem?.pageId;
   const target = id ? `/doc/${id}` : '/';
@@ -2161,7 +2192,9 @@ if (typeof window !== 'undefined') {
         <h1>Not connected</h1>
         <p class="muted">Connect to the server to continue.</p>
         <div class="not-connected-actions">
-          <button class="ghost-btn" type="button" @click="retryConnection">Retry</button>
+          <button class="ghost-btn" type="button" :disabled="retryingConnection" @click="retryConnection">
+            {{ retryingConnection ? 'Trying…' : 'Retry' }}
+          </button>
         </div>
       </div>
     </div>

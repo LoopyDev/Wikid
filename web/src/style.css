@@ -10356,6 +10356,16 @@ button {
   font-size: 0.92rem;
 }
 
+/* Signed out because the session ran out */
+.login-notice {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(59, 130, 246, 0.12);
+  border: 1px solid rgba(59, 130, 246, 0.35);
+  font-size: 0.92rem;
+}
+
 .login-field {
   display: flex;
   flex-direction: column;

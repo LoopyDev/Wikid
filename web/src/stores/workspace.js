@@ -62,6 +62,11 @@ export const useWorkspaceStore = defineStore('workspace', {
     // A page that couldn't be opened (a link to it, say): { pageId, kind: 'binned' | 'missing' |
     // 'forbidden' | 'error', message }. Shown in its place, rather than an error under another page
     pageProblem: null,
+    // Signed out because the session ran out (not by the person): the sign-in screen says so, and
+    // signing in again goes back to this page
+    sessionExpired: false,
+    returnToPageId: null,
+    expiredUserId: null,
     workspaces: [],
     activeWorkspaceId: null,
     activeWorkspaceRole: null,
@@ -596,7 +601,13 @@ export const useWorkspaceStore = defineStore('workspace', {
         this.mustChangePassword = !!res.user.mustChangePassword;
         this.setUserPreferences(res.user?.preferences || {});
         this.saveUserToStorage();
+        // Back where the session ran out: the same person only (not whoever signs in next)
+        const returnTo = this.expiredUserId === res.user.id ? this.returnToPageId : null;
+        this.sessionExpired = false;
+        this.returnToPageId = null;
+        this.expiredUserId = null;
         await this.loadInitial();
+        if (returnTo && this.activePageId !== returnTo && !this.mustChangePassword) await this.openPageFromLink(returnTo);
       } catch (err) {
         console.warn('Login failed', err);
         this.error = err?.message || 'Login failed';
@@ -645,6 +656,61 @@ export const useWorkspaceStore = defineStore('workspace', {
     },
     setApiStatus(available) {
       this.hasApi = !!available;
+    },
+    /** The session ran out: signed out, remembering the page to go back to (see login). */
+    expireSession(pageId = null) {
+      const returnTo = pageId || this.activePageId || this.pageProblem?.pageId || null;
+      const userId = this.activeUserId;
+      this.logout();
+      this.sessionExpired = true;
+      this.returnToPageId = returnTo;
+      this.expiredUserId = userId;
+    },
+    /**
+     * Opens a page from its address (a link, the page the session ran out on, the page before a lost
+     * connection): from the list if it's there, a database row opened full page too; otherwise
+     * loaded, which goes to its workspace, or says why it can't be opened.
+     */
+    async openPageFromLink(pageId) {
+      if (!pageId) return;
+      const page = this.pages.find((p) => p.id === pageId);
+      if (page) this.selectPage(page, { allowHidden: true });
+      else await this.loadPageDoc(pageId);
+    },
+    /**
+     * Back from "Not connected": checks the server, then refreshes the workspaces and the open
+     * workspace's pages, keeping the page that's open (its live editing reconnects by itself). Only
+     * if nothing was loaded yet does it load from the start. False while the server can't be reached.
+     */
+    async reconnect() {
+      if (!this.activeUser) return false;
+      let memberships;
+      try {
+        // A request that never answers (a half-open network) counts as failed, to try again later
+        memberships = await Promise.race([
+          api.listWorkspaces({ userId: this.activeUser.id, userName: this.activeUser.name }),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 10000)),
+        ]);
+      } catch {
+        return false;
+      }
+      this.workspaces = Array.isArray(memberships) ? memberships : [];
+      this.hasApi = true;
+      if (!(this.activeWorkspaceId && this.workspaces.some((entry) => entry.workspace?.id === this.activeWorkspaceId))) {
+        await this.loadInitial();
+        return this.hasApi;
+      }
+      try {
+        await this.loadPageList(this.activeWorkspaceId, { keepBin: true });
+      } catch (err) {
+        console.warn('Page list refresh failed', err);
+        return false;
+      }
+      // What may have changed meanwhile: settings, and a page that isn't kept live (a viewer's, say)
+      await Promise.all([this.fetchUserPreferences(), this.loadServerConfig()]).catch(() => {});
+      if (this.activePageId && !this.collabActive) await this.loadPageDoc(this.activePageId);
+      this.error = null;
+      return this.hasApi;
     },
     setUserPreferences(preferences) {
       if (preferences && typeof preferences === 'object' && !Array.isArray(preferences)) {
