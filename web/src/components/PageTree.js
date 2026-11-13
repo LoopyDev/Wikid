@@ -101,15 +101,16 @@ export default defineComponent({
     // there has more pages after it, so its line carries on down past this row; the last column is
     // this row's own join, ├ if more pages follow it, └ if it's the last. An open page with pages
     // inside also draws the top of the line down to them (`stem`), from under its icon.
-    // Each line runs down from the middle of the icon above; the icon itself is narrower than its
-    // slot, so the line passes clear of it even at the smallest step.
-    const LINE_ICON_CENTRE = 14;
-    const ICON_INSET = 6;
+    // Each line runs down from under the icon above: from its middle when there's room, moving
+    // towards its left side as the levels close up, so the arm out to the next icon (├─) stays
+    // long enough to read as one.
+    const ICON_INSET = 6; // the icon's own left edge within its 28px slot
     const treeLines = (depth, through, isLast, stem = false) => {
       if (!props.showLines || (!depth && !stem)) return null;
       const step = props.indentStep;
-      const lineAt = (column) => 6 + column * step + LINE_ICON_CENTRE;
-      const armWidth = Math.max(2, step - (LINE_ICON_CENTRE - ICON_INSET) - 1);
+      const lineOffset = Math.max(9, Math.min(14, step - 8));
+      const lineAt = (column) => 6 + column * step + lineOffset;
+      const armWidth = Math.max(2, step + ICON_INSET - lineOffset - 1);
       const kinds = depth ? [...through.map((goesOn) => (goesOn ? 'through' : 'none')), isLast ? 'elbow' : 'tee'] : [];
       const lines = kinds.map((kind, column) =>
         h('span', { class: `tree-line tree-line--${kind}`, 'data-line': kind, style: { left: `${lineAt(column)}px`, width: `${armWidth}px` } })
