@@ -31,6 +31,20 @@ export function createSlashItems({ insertToggleHeading, insertColumns, insertIma
     { title: 'To-do list', icon: '[ ]', hint: 'Task list', search: ['todo', 'task', 'checkbox'], command: ({ editor, range }) => editor.chain().focus().deleteRange(range).toggleTaskList().run() },
     { title: 'Bulleted list', icon: '*', hint: 'Bullet points', search: ['bullet', 'ul', 'list'], command: ({ editor, range }) => editor.chain().focus().deleteRange(range).toggleBulletList().run() },
     { title: 'Numbered list', icon: '1.', hint: 'Ordered list', search: ['number', 'ol', 'list'], command: ({ editor, range }) => editor.chain().focus().deleteRange(range).toggleOrderedList().run() },
+    {
+      title: 'Quote',
+      icon: '❝',
+      hint: 'Quoted text',
+      search: ['quote', 'blockquote', 'citation'],
+      // A quote of the line (in one already, it stays: toggling took it out); where none can go, as
+      // the first line of a list item, only the "/quote" goes
+      command: ({ editor, range }) => {
+        const chain = editor.chain().focus().deleteRange(range);
+        if (editor.isActive('blockquote')) return chain.run();
+        // (if the quote can't be made, the chain still takes the "/quote" away)
+        return chain.setParagraph().setBlockquote().run();
+      },
+    },
     { title: 'Divider', icon: '---', hint: 'Horizontal rule', search: ['divider', 'hr', 'rule'], command: ({ editor, range }) => insertBlock(editor, range, { type: 'horizontalRule' }) },
     {
       title: 'Table of contents',

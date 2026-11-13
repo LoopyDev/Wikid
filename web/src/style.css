@@ -7657,6 +7657,8 @@ button {
   border-radius: 12px;
   box-shadow: 0 16px 36px rgba(0, 0, 0, 0.35);
   min-width: 240px;
+  /* At most this tall from the start (SlashCommandList fits it to the room), so it's placed for it */
+  max-height: 360px;
   overflow-y: auto;
   overflow-x: hidden;
 }

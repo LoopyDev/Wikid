@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref } from 'vue';
 
 const props = defineProps({
   items: {
@@ -44,25 +44,9 @@ const handleKeyDown = (event) => {
   return false;
 };
 
-// Cap the menu's height to the space between its top and the bottom of the
-// viewport so it stays anchored below the cursor and scrolls instead of
-// running off-screen.
-const applyMaxHeight = () => {
-  const el = listRef.value;
-  if (!el) return;
-  const { top } = el.getBoundingClientRect();
-  const available = window.innerHeight - top - 12;
-  el.style.maxHeight = `${Math.max(available, 120)}px`;
-};
-
 onMounted(() => {
   const el = listRef.value;
   if (!el) return;
-  // Wait for tippy/popper to position the element before measuring.
-  requestAnimationFrame(applyMaxHeight);
-  window.addEventListener('resize', applyMaxHeight);
-  // Recompute when the filtered results change (height/position may shift).
-  watch(() => props.items, () => nextTick(applyMaxHeight));
   const observer = new MutationObserver(() => {
     const active = el.querySelector('.slash-item--active');
     if (active) active.scrollIntoView({ block: 'nearest' });
@@ -70,7 +54,6 @@ onMounted(() => {
   observer.observe(el, { childList: true, subtree: true, attributes: true });
   onUnmounted(() => {
     observer.disconnect();
-    window.removeEventListener('resize', applyMaxHeight);
   });
 });
 
