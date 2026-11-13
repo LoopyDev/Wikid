@@ -45,7 +45,7 @@ export function useClickPlaceholder({ props }) {
     if (isEmptyTextblockNode(lastBlock)) return false;
     const root = view.dom;
     if (!root?.querySelectorAll) return false;
-    const blocks = root.querySelectorAll('[data-block-pos]');
+    const blocks = root.querySelectorAll('[data-block]');
     if (!blocks.length) return false;
     const lastRect = blocks[blocks.length - 1].getBoundingClientRect();
     const rootRect = root.getBoundingClientRect();
