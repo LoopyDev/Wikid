@@ -143,6 +143,10 @@ export const api = {
   async getPage(pageId, { userId, userName, priority } = {}) {
     return request(`/pages/${pageId}${buildQs({ userId, userName })}`, priority ? { priority } : {});
   },
+  // The page's content as it is now, with what's being typed on it (getPage has the stored copy)
+  async getPageContent(pageId, { userId, userName } = {}) {
+    return request(`/pages/${pageId}/content${buildQs({ userId, userName })}`);
+  },
   async updatePageContent(pageId, content, { userId, userName } = {}) {
     return request(`/pages/${pageId}/content${buildQs({ userId, userName })}`, {
       method: 'PUT',

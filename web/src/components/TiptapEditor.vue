@@ -560,6 +560,8 @@ const handleCollabSynced = (synced) => {
   // Tells the page its content is in (the first time), with the document's name
   if (!contentSynced.value) emit('contentready', currentDocName.value);
   contentSynced.value = true;
+  // The page's synced blocks and references, now that its content is in
+  scheduleSyncedWorkspaceSourceUpdate();
   emitSavedWithDelay();
   const shouldAttemptSetupSeed =
     props.seedCollabOnMount && isCollabEnabled.value && editor.value && !setupSeededAfterSync.value;
@@ -638,7 +640,7 @@ const handleStatelessMessage = (event) => {
   }
 };
 
-const { isSyncedLocked, hasWorkspaceSyncedReference, insertSyncedBlockFromUrl, toggleSyncedLock, notifySyncedBlockLocked, bindSyncedLocksMap, unbindSyncedLocksMap, scheduleSyncedWorkspaceRefresh, scheduleSyncedWorkspaceSourceUpdate, setupSyncedWorkspaceProvider, teardownSyncedWorkspaceProvider, disposeSyncedBlocks } = useSyncedBlocks({ props, workspace, activeWorkspaceId, getResolvedPage, collabDoc, isCollabEnabled, getEditor: () => editor?.value, getHoveredSyncedSourceId: () => hoveredSyncedSourceId?.value });
+const { isSyncedLocked, hasWorkspaceSyncedReference, insertSyncedBlockFromUrl, toggleSyncedLock, notifySyncedBlockLocked, bindSyncedLocksMap, unbindSyncedLocksMap, scheduleSyncedWorkspaceRefresh, scheduleSyncedWorkspaceSourceUpdate, setupSyncedWorkspaceProvider, teardownSyncedWorkspaceProvider, disposeSyncedBlocks } = useSyncedBlocks({ props, workspace, activeWorkspaceId, getResolvedPage, collabDoc, isCollabEnabled, getEditor: () => editor?.value, getHoveredSyncedSourceId: () => hoveredSyncedSourceId?.value, isContentIn: () => !isCollabEnabled.value || contentSynced.value });
 bindSyncedLocksMap(collabDoc.value);
 
 const { emitStatus, clearSavedDelay, emitSaving, emitSavedWithDelay, refreshSaveStatus, stopUnsyncedWatcher, handleUnsyncedChanges, startUnsyncedWatcher, handleProviderStatus } = useSaveStatus({ emit, isCollabEnabled, collabProvider, currentDocName });

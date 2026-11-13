@@ -4,6 +4,7 @@ import { Logger } from '@hocuspocus/extension-logger';
 import { Database } from '@hocuspocus/extension-database';
 import jwt from 'jsonwebtoken';
 import * as Y from 'yjs';
+import { SYNCED_BLOCKS_DOC_ID, hasUnreferencedSyncedBlocks, pruneUnreferencedSyncedBlocks } from './syncedBlocks.js';
 import type { IncomingMessage } from 'http';
 
 const port = Number(process.env.COLLAB_PORT) || 1234;
@@ -72,6 +73,27 @@ const parseDatabaseDocumentName = (documentName: string | undefined | null) => {
 const isEventsDocument = (documentName: string | undefined | null) => {
   const doc = parseDocumentName(documentName);
   return doc?.scope === 'ws' && doc.pageId === EVENTS_DOC_ID;
+};
+
+const isSyncedBlocksDocument = (documentName: string | undefined | null) => {
+  const doc = parseDocumentName(documentName);
+  return doc?.scope === 'ws' && doc.pageId === SYNCED_BLOCKS_DOC_ID;
+};
+
+// A block that stops being referred to is taken out a little later, not at once: cutting and pasting
+// a synced copy, undoing its deletion or dragging it to another page leaves it unreferenced for a
+// moment, and taking it out then would leave the copy without the block it follows
+const SYNCED_BLOCKS_PRUNE_DELAY_MS = 10_000;
+const syncedBlocksPruneTimers = new Map<string, NodeJS.Timeout>();
+const scheduleSyncedBlocksPrune = (documentName: string, document: Y.Doc) => {
+  if (syncedBlocksPruneTimers.has(documentName) || !hasUnreferencedSyncedBlocks(document)) return;
+  syncedBlocksPruneTimers.set(
+    documentName,
+    setTimeout(() => {
+      syncedBlocksPruneTimers.delete(documentName);
+      pruneUnreferencedSyncedBlocks(document);
+    }, SYNCED_BLOCKS_PRUNE_DELAY_MS)
+  );
 };
 
 const verifyToken = (token: string | undefined | null, doc: WorkspaceDoc): AuthContext => {
@@ -610,15 +632,27 @@ const server = new Server({
     // Auth already verified in onAuthenticate; just log for observability.
     console.log('collab connected', { connectionId: socketId, documentName, userId: ctx?.userId, allowed: ctx?.workspaceIds });
   },
-  async onChange({ documentName, context }) {
+  async onChange({ document, documentName, context }) {
     // Direct connections (the API's pushes and flushes) have no user
     noteEditor(documentName, (context as AuthContext | undefined)?.userId);
+    // Whatever stopped being synced (a reference removed), or was added with nothing referring to it
+    if (isSyncedBlocksDocument(documentName)) scheduleSyncedBlocksPrune(documentName, document);
   },
   async onDisconnect({ socketId, documentName, clientsCount }) {
     console.log('collab disconnected', socketId);
     if (clientsCount === 0 && !isEventsDocument(documentName)) {
       await requestMaterialize(documentName);
     }
+  },
+  async afterUnloadDocument({ documentName }) {
+    clearTimeout(syncedBlocksPruneTimers.get(documentName));
+    syncedBlocksPruneTimers.delete(documentName);
+  },
+  // What was saved before blocks were taken out as they change
+  async afterLoadDocument({ document, documentName }) {
+    if (!isSyncedBlocksDocument(documentName)) return;
+    const pruned = pruneUnreferencedSyncedBlocks(document);
+    if (pruned) console.log('synced blocks: took out unreferenced', { documentName, pruned });
   },
   async onStoreDocument({ document, documentName }) {
     // Broadcast a stateless "stored" event so clients can mark the doc as saved.
