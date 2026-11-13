@@ -161,6 +161,10 @@ describe('user profile and preferences', () => {
     expect(res.body.preferences).toMatchObject({ sidebarHidden: true });
     expect(res.body.preferences.somethingElse).toBeUndefined();
     await alice.patch(`/users/${USERS.alice.id}/preferences`, { preferences: { sidebarHidden: false } });
+    // The sidebar's tree lines, on or off
+    const lines = await alice.patch(`/users/${USERS.alice.id}/preferences`, { preferences: { hideTreeLines: true } });
+    expect(lines.body.preferences).toMatchObject({ hideTreeLines: true, sidebarHidden: false });
+    await alice.patch(`/users/${USERS.alice.id}/preferences`, { preferences: { hideTreeLines: false } });
     expect((await alice.patch(`/users/${USERS.bob.id}/preferences`, { preferences: {} })).status).toBe(403);
   });
 

@@ -235,6 +235,14 @@ watch(settingsTab, (tab) => {
             <span>Color mode</span>
             <button class="ghost-btn ghost-btn-background" type="button" @click="emit('toggle-theme')">{{ themeModeLabel }}</button>
           </div>
+          <label class="settings-theme-row settings-toggle-row">
+            <span>Show lines between nested pages</span>
+            <input
+              type="checkbox"
+              :checked="workspace.userPreferences?.hideTreeLines !== true"
+              @change="workspace.setHideTreeLinesPreference(!$event.target.checked)"
+            />
+          </label>
           <label v-if="workspace.aiAvailable" class="settings-theme-row settings-toggle-row">
             <span>Show AI features</span>
             <input
