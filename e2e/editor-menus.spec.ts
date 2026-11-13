@@ -25,6 +25,75 @@ async function handleFor(page: Page, index: number) {
 }
 
 test.describe('editor menus', () => {
+  test('the slash menu: every block type, searches with spaces, a Quote, and on screen near the bottom of the window', async ({ alice: page, workspaceId }) => {
+    await openPage(page, await createPage(page, workspaceId));
+    const menu = page.locator('.slash-menu');
+    await editor(page).click();
+
+    // A bare "/" lists every type (it stopped at 10), the menu scrolling
+    await page.keyboard.type('/', { delay: 30 });
+    await expect(menu).toBeVisible();
+    expect(await menu.locator('.slash-item').count()).toBeGreaterThan(20);
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('Backspace');
+
+    // A search with spaces (a space ended it)
+    await page.keyboard.type('/table of', { delay: 30 });
+    await expect(menu.locator('.slash-item__title')).toHaveText(['Table of contents']);
+    await page.keyboard.press('Enter');
+    await expect.poll(() => outline(page).then((o) => o[0])).toBe('tableOfContents');
+
+    // A sentence after a "/" that matches nothing closes the menu; "1 / 2" and "either / " never open it
+    await page.keyboard.type('/heading and then some words', { delay: 20 });
+    await expect(menu).toHaveCount(0);
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('ratio 1 / 2', { delay: 20 });
+    await expect(menu).toHaveCount(0);
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('either / ', { delay: 20 });
+    await expect(menu).toHaveCount(0);
+    await page.keyboard.type('or', { delay: 20 });
+    await page.keyboard.press('Enter');
+    await expect.poll(() => outline(page)).toEqual(expect.arrayContaining(['paragraph: ratio 1 / 2', 'paragraph: either / or']));
+
+    // Quote
+    await page.keyboard.type('/quote', { delay: 30 });
+    await expect(menu.locator('.slash-item--active .slash-item__title')).toHaveText('Quote');
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('Said well', { delay: 20 });
+    await expect.poll(() => outline(page)).toContain('blockquote');
+
+    // ...and Turn into takes it out again
+    const quoteIndex = (await outline(page)).filter((l) => !l.startsWith(' ')).indexOf('blockquote');
+    await (await handleFor(page, quoteIndex)).click();
+    await menuItem(page, 'Turn into…').click();
+    await menuItem(page, 'Paragraph').click();
+    await expect.poll(() => outline(page)).not.toContain('blockquote');
+    await expect.poll(() => outline(page)).toContain('paragraph: Said well');
+  });
+
+  test('the slash menu near the bottom of the window opens above the line, all of it on screen', async ({ alice: page, workspaceId }) => {
+    const id = await createPage(page, workspaceId);
+    const p = (text?: string) => ({ type: 'paragraph', ...(text ? { content: [{ type: 'text', text }] } : {}) });
+    expect((await page.request.put(`/api/pages/${id}/content`, { data: { content: { type: 'doc', content: Array.from({ length: 40 }, (_, i) => p(`Line ${i + 1}`)) } } })).status()).toBe(200);
+    await page.setViewportSize({ width: 1200, height: 700 });
+    await openPage(page, id);
+    // The last line showing whole near the bottom of the window
+    const near = await editor(page).locator('p').evaluateAll((els) => els.findIndex((el) => el.getBoundingClientRect().bottom > innerHeight - 90));
+    expect(near).toBeGreaterThan(1);
+    const target = editor(page).locator('p').nth(near - 1);
+    await target.click();
+    await page.keyboard.press('End');
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('/', { delay: 30 });
+    const menu = page.locator('.slash-menu');
+    await expect(menu).toBeVisible();
+    const box = (await menu.boundingBox())!;
+    expect(box.y).toBeGreaterThanOrEqual(0);
+    expect(box.y + box.height).toBeLessThanOrEqual(700);
+    expect(box.height).toBeGreaterThan(200);
+  });
+
   test('the slash menu turns a line into a heading or a to-do list', async ({ alice: page, workspaceId }) => {
     await openPage(page, await createPage(page, workspaceId));
     await editor(page).click();

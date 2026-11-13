@@ -276,7 +276,7 @@ const isSyncedHandle = computed(() => !!handleState.value?.node?.attrs?.[SYNCED_
 
 // Turn into is for text blocks, and lists and their items. Other blocks (dividers, images, embeds,
 // callouts, columns, tables) don't have it: there it changed the block next to them, or nothing.
-const TEXT_BLOCK_TYPES = new Set(['paragraph', 'heading', 'codeBlock']);
+const TEXT_BLOCK_TYPES = new Set(['paragraph', 'heading', 'codeBlock', 'blockquote']);
 const LIST_TYPES = { bulletList: 'listItem', orderedList: 'listItem', taskList: 'taskItem' };
 const LIST_ITEM_TYPES = new Set(['listItem', 'taskItem']);
 const handleType = computed(() => handleState.value?.node?.type?.name || '');
@@ -286,9 +286,20 @@ const turnIntoListsOnly = computed(() => handleType.value in LIST_TYPES);
 
 // What the block is now, ticked in the menu: paragraph, heading1-3, codeBlock, or a list type (for
 // an item, its list's)
+// A line in a quote: the handle's on the line, but it's the quote that turns into something else
+const quoteAround = (pos) => {
+  try {
+    const $pos = editor.value.state.doc.resolve(pos);
+    return $pos.parent.type.name === 'blockquote' ? { node: $pos.parent, pos: $pos.before() } : null;
+  } catch {
+    return null;
+  }
+};
+
 const currentBlockKind = computed(() => {
   const node = getHandleNode();
   const type = node?.type?.name;
+  if (type === 'paragraph' && handleState.value && quoteAround(handleState.value.pos)) return 'blockquote';
   if (type === 'heading') return `heading${node.attrs?.level}`;
   if (LIST_ITEM_TYPES.has(type)) {
     try {
@@ -306,6 +317,7 @@ const TURN_INTO_OPTIONS = [
   { kind: 'heading2', icon: 'H2', title: 'Heading 2', hint: 'Section heading' },
   { kind: 'heading3', icon: 'H3', title: 'Heading 3', hint: 'Sub heading' },
   { kind: 'codeBlock', icon: '</>', title: 'Code block', hint: 'Monospace block' },
+  { kind: 'blockquote', icon: '❝', title: 'Quote', hint: 'Quoted text' },
   { kind: 'taskList', icon: '[ ]', title: 'To-do', hint: 'Checkbox list' },
   { kind: 'bulletList', icon: '*', title: 'Bulleted list', hint: 'Turn into bullets' },
   { kind: 'orderedList', icon: '1.', title: 'Numbered list', hint: 'Turn into ordered' },
@@ -313,8 +325,9 @@ const TURN_INTO_OPTIONS = [
 const turnIntoOptions = computed(() => (turnIntoListsOnly.value ? TURN_INTO_OPTIONS.filter((option) => option.kind in LIST_TYPES) : TURN_INTO_OPTIONS));
 
 const turnInto = (kind) => {
-  const node = getHandleNode();
-  const pos = handleState.value?.pos;
+  const quote = handleState.value ? quoteAround(handleState.value.pos) : null;
+  const node = quote?.node || getHandleNode();
+  const pos = quote ? quote.pos : handleState.value?.pos;
   if (!editor.value || !node || pos == null || pos < 0 || kind === currentBlockKind.value) {
     closeTuneMenu();
     return;
@@ -339,6 +352,17 @@ const turnInto = (kind) => {
       })
       .setTextSelection({ from: pos + 1, to: pos + size - 1 });
   }
+  // A quote: its lines come out of it first, then all of them are turned (in it, Paragraph did
+  // nothing, and a heading or list went inside it)
+  if (node.type.name === 'blockquote') {
+    const inner = node.content;
+    chain = focusInPlace()
+      .command(({ tr }) => {
+        tr.replaceWith(pos, pos + node.nodeSize, inner);
+        return true;
+      })
+      .setTextSelection({ from: pos + 1, to: pos + inner.size - 1 });
+  }
   // An item leaves its list first, all the way out of a nested one: as text, or, if it's just a line,
   // as another kind of list of its own (in its list, it turned the whole list, and joined it to the
   // next one; an item holding more, a sub-list say, still turns its whole list)
@@ -352,6 +376,7 @@ const turnInto = (kind) => {
   if (kind === 'paragraph') chain = chain.setParagraph();
   else if (kind.startsWith('heading')) chain = chain.setHeading({ level: Number(kind.slice(-1)) });
   else if (kind === 'codeBlock') chain = chain.setCodeBlock();
+  else if (kind === 'blockquote') chain = chain.setParagraph().toggleBlockquote();
   else if (kind === 'bulletList') chain = chain.toggleBulletList();
   else if (kind === 'orderedList') chain = chain.toggleOrderedList();
   else if (kind === 'taskList') chain = chain.toggleTaskList();

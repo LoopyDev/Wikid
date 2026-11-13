@@ -23,17 +23,39 @@ export default Extension.create({
   },
   addProseMirrorPlugins() {
     const extension = this;
+    // The items a search matches: all of them (it showed only the first 10), the menu scrolling. A
+    // search of several words ("table of", "2 col") matches the start of a title or keyword, and
+    // starts right after the "/": in "1 / 2" or "either / or" the menu stays shut
+    // (the text match is kept for the next call with the same search; what's available is asked each
+    // time, as it depends on where the "/" is, in a table say)
+    let last = { query: null, items: [] };
+    const matching = (query) => {
+      if (query !== last.query) {
+        const q = query.toLowerCase();
+        let items = [];
+        if (!/\s/.test(q)) {
+          items = extension.options.commands.filter((item) => item.title.toLowerCase().includes(q) || item.search?.some((t) => t.includes(q)));
+        } else if (!/^\s/.test(q)) {
+          const words = q.replace(/\s+$/, '');
+          items = extension.options.commands.filter((item) => item.title.toLowerCase().startsWith(words) || item.search?.some((t) => t.startsWith(words)));
+        }
+        last = { query, items };
+      }
+      return last.items.filter((item) => !item.isAvailable || item.isAvailable());
+    };
+    const triggerLength = (this.options.suggestion.char || '/').length;
     return [
       Suggestion({
         editor: this.editor,
         ...this.options.suggestion,
-        items: ({ query }) => {
-          const q = query.toLowerCase();
-          return extension.options.commands
-            .filter((item) => !item.isAvailable || item.isAvailable())
-            .filter((item) => item.title.toLowerCase().includes(q) || item.search?.some((t) => t.includes(q)))
-            .slice(0, 10);
+        // A search can have spaces ("table of contents", "2 columns"; a space ended it), while it
+        // still matches something (see matching): a sentence after a "/" closes the menu
+        allowSpaces: true,
+        allow: ({ state, range }) => {
+          const query = state.doc.textBetween(range.from, range.to, ' ').slice(triggerLength);
+          return !/\s/.test(query) || matching(query).length > 0;
         },
+        items: ({ query }) => matching(query),
         command: ({ editor, range, props }) => {
           props.command({ editor, range });
         },
@@ -52,6 +74,21 @@ export default Extension.create({
             popup = null;
           };
           const stillTyping = (editor) => !editor.isDestroyed && !!SuggestionPluginKey.getState(editor.state)?.active;
+
+          // Below the "/" if the menu fits there, or there's more room there than above; otherwise
+          // above (near the bottom of the window it ran off-screen). Its height fits that side.
+          const MAX_HEIGHT = 360;
+          const fit = (props) => {
+            const rect = props.clientRect?.();
+            const el = component?.element;
+            if (!rect || !el) return 'bottom-start';
+            const below = window.innerHeight - rect.bottom - 16;
+            const above = rect.top - 16;
+            const wanted = Math.min(MAX_HEIGHT, el.scrollHeight || MAX_HEIGHT);
+            const placeBelow = below >= wanted || below >= above;
+            el.style.maxHeight = `${Math.max(120, Math.min(MAX_HEIGHT, placeBelow ? below : above))}px`;
+            return placeBelow ? 'bottom-start' : 'top-start';
+          };
 
           const start = (props) => {
             if (closeOpenMenu && closeOpenMenu !== close) closeOpenMenu();
@@ -73,13 +110,11 @@ export default Extension.create({
               animation: 'shift-away-subtle',
               theme: 'light-border',
               popperOptions: {
-                modifiers: [
-                  // Keep the menu anchored below the cursor instead of
-                  // flipping above it; height is capped by the list itself.
-                  { name: 'flip', enabled: false },
-                ],
+                // The side is chosen here (fit), not flipped by popper
+                modifiers: [{ name: 'flip', enabled: false }],
               },
             });
+            popup?.[0]?.setProps({ placement: fit(props) });
           };
 
           return {
@@ -94,6 +129,7 @@ export default Extension.create({
               if (popup?.[0]?.setProps) {
                 popup[0].setProps({
                   getReferenceClientRect: props.clientRect,
+                  placement: fit(props),
                 });
               }
             },
