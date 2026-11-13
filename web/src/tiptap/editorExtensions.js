@@ -47,6 +47,7 @@ import { createBulletDepthPlugin } from './bulletDepth';
 import { ListJoin } from './listJoin';
 import { ColumnCleanupExtension, ColumnInputGuardExtension } from './columnGuards';
 import { createInputSelectionGuardExtension } from './inputSelectionGuard';
+import { KeyboardWayOut } from './keyboardWayOut';
 import { createSyncedMirrorExtension } from './syncedBlocks';
 import { codeBlockLanguages } from './editorMenuOptions';
 
@@ -100,6 +101,9 @@ export function createEditorExtensions({
   lastTextInputInfo,
   lastPointerDownAt,
   dragBlock,
+  focusTitle,
+  openBlockMenu,
+  closeMenus,
 }) {
   return [
       ...(collab
@@ -247,5 +251,6 @@ export function createEditorExtensions({
       createInputSelectionGuardExtension({ lastTextInputAt, lastTextInputInfo, lastPointerDownAt }),
       AiSuggestionExtension,
       Extension.create({ name: 'bullet-depth', addProseMirrorPlugins: () => [createBulletDepthPlugin()] }),
+      KeyboardWayOut.configure({ focusTitle, openBlockMenu, closeMenus }),
   ];
 }
