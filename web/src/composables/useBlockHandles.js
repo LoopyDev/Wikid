@@ -1,5 +1,6 @@
 import { onBeforeUnmount } from 'vue';
 import { getColumnOnlyBlock } from '../tiptap/blockPayloads';
+import { blockElementPos } from '../tiptap/blockIds';
 
 // Where the drag handle sits: finds the block (or list) under the pointer and moves the block
 // handle or the list handle next to it.
@@ -270,9 +271,8 @@ export function useBlockHandles({ handleState, handleVisible, handleLocked, hand
     if (listItemTarget) {
       return listItemTarget;
     }
-    const closestBlock = event.target?.closest?.('[data-block-pos],[data-pos]');
-    const blockPosAttr = closestBlock?.getAttribute?.('data-block-pos') || closestBlock?.getAttribute?.('data-pos');
-    const attrPos = blockPosAttr ? parseInt(blockPosAttr, 10) : NaN;
+    const closestBlock = event.target?.closest?.('[data-block],[data-pos]');
+    const attrPos = closestBlock ? blockElementPos(view, closestBlock) ?? NaN : NaN;
     if (Number.isFinite(attrPos)) {
       const nodeAt = state.doc.nodeAt(attrPos);
       if (nodeAt?.isBlock) {

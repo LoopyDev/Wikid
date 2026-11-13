@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
 import { EditorContent, useEditor } from '@tiptap/vue-3';
 import { TextSelection, NodeSelection } from 'prosemirror-state';
 import * as Y from 'yjs';
@@ -10,7 +10,7 @@ import { editorDocToTiptap } from '../utils/editorDoc';
 import { api } from '../api/client';
 import { useWorkspaceStore } from '../stores/workspace';
 import { useBlockSummarizer } from '../composables/useBlockSummarizer';
-import { blockHighlightKey } from '../tiptap/blockIds';
+import { blockElementPos, blockHighlightKey } from '../tiptap/blockIds';
 import { columnCleanupKey } from '../tiptap/columnGuards';
 import { SYNCED_FROM_ATTR, findColumnAncestor } from '../tiptap/editorShared';
 import { createColumnsPayload, createToggleHeadingPayload, getColumnOnlyBlock } from '../tiptap/blockPayloads';
@@ -444,11 +444,12 @@ const collabField = 'default';
 const collabMetaKey = 'wikidMeta';
 const createCollabDoc = () => {
   const guid = props.collab?.docName || `wikid-temp-${Math.random().toString(16).slice(2)}`;
+  // (Never made reactive: see utils/yjsNotReactive.js)
   const doc = new Y.Doc({ guid });
   doc.getXmlFragment(collabField);
   return doc;
 };
-const collabDoc = ref(createCollabDoc());
+const collabDoc = shallowRef(createCollabDoc());
 // Leaving (closing or reloading the tab) with changes the server hasn't got yet would lose them:
 // offline, or the server unreachable. The browser asks first.
 // Only for changes made here (a reconnect alone can look like unsent changes until the server answers).
@@ -1118,8 +1119,8 @@ const focusBlockById = (blockId) => {
 
 const setHoveredCodeBlockFromElement = (element) => {
   if (!editor.value?.state || !element) return;
-  const posAttr = element.getAttribute('data-pos');
-  const pos = posAttr ? parseInt(posAttr, 10) : NaN;
+  // (Looked up: the node view's own data-pos can be behind)
+  const pos = blockElementPos(editor.value.view, element) ?? NaN;
   if (!Number.isFinite(pos)) {
     clearHoveredCodeBlock();
     return;
@@ -1177,15 +1178,7 @@ const shouldShowCodeBlockBubble = () => {
 
 const setHoveredSyncedSourceFromElement = (element) => {
   if (!editor.value?.state || !element) return;
-  const posAttr = element.getAttribute('data-block-pos') || element.getAttribute('data-pos');
-  let pos = posAttr ? parseInt(posAttr, 10) : NaN;
-  if (!Number.isFinite(pos)) {
-    try {
-      pos = editor.value.view.posAtDOM(element, 0);
-    } catch {
-      pos = NaN;
-    }
-  }
+  const pos = blockElementPos(editor.value.view, element) ?? NaN;
   if (!Number.isFinite(pos)) {
     clearHoveredSyncedSource();
     return;
@@ -1225,8 +1218,8 @@ const shouldShowSyncedSourceBubble = () => {
 
 const setHoveredImageFromElement = (element) => {
   if (!editor.value?.state || !element) return;
-  const posAttr = element.getAttribute('data-pos');
-  const pos = posAttr ? parseInt(posAttr, 10) : NaN;
+  // (Looked up: the node view's own data-pos can be behind)
+  const pos = blockElementPos(editor.value.view, element) ?? NaN;
   if (!Number.isFinite(pos)) {
     clearHoveredImage();
     return;
@@ -1373,9 +1366,12 @@ const updateTuneMenuBlockHighlight = () => {
   if (!showTuneMenu.value || !editor.value) return;
   const pos = handleState.value?.pos;
   if (pos == null || pos < 0) return;
-  const root = editor.value.view?.dom;
-  if (!root?.querySelector) return;
-  const target = root.querySelector(`[data-block-pos="${pos}"]`);
+  let target = null;
+  try {
+    target = editor.value.view.nodeDOM(pos);
+  } catch {
+    target = null;
+  }
   if (target instanceof HTMLElement) {
     target.classList.add('tiptap-block-selected');
     tuneMenuBlockEl.value = target;
@@ -1819,8 +1815,9 @@ watch(
     if (!sameContent(current?.content, nextDoc.content)) {
       editor.value.commands.setContent(nextDoc, false);
     }
-  },
-  { deep: true }
+  }
+  // Not deep: a new page's content is a new object, and walking the whole page on every keystroke
+  // took longer the bigger the page
 );
 
 onBeforeUnmount(() => {
