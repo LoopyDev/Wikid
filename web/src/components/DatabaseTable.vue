@@ -1383,7 +1383,7 @@ watch(
   { immediate: true }
 );
 onBeforeUnmount(() => clearTimeout(connectionNoticeTimer));
-const { attachAwarenessListener, caretLeftForCell, cellEditor, releaseCell, clearLocalCellCursor, getCellPresence, handleCaretMouse, handleCaretNavigate, markCellBlur, markCellFocus, markCellTyping, onTableFocusOut, presenceUser, setCellInputRef, updateAwarenessUser } = useCellPresence({ emit, activeUser, collabProvider, isCollabEnabled, tableWrapRef, flushPendingEnsureRowPages, scheduleSortRefresh });
+const { attachAwarenessListener, caretLeftForCell, cellEditor, releaseCell, clearLocalCellCursor, focusCellInput, getCellPresence, handleCaretMouse, handleCaretNavigate, markCellBlur, markCellFocus, markCellTyping, onTableFocusOut, presenceUser, setCellInputRef, updateAwarenessUser } = useCellPresence({ emit, activeUser, collabProvider, isCollabEnabled, tableWrapRef, flushPendingEnsureRowPages, scheduleSortRefresh });
 
 const { savedViews, normalizeSavedView, createSavedView, deleteSavedView, renameSavedView, patchActiveViewConfig, activeViewFilters, activeViewSorts, activeFilterCount, setFilterMatch, addFilterRule, updateFilterRule, changeFilterRuleField, removeFilterRule, addSortRule, updateSortRule, removeSortRule, setBoardGroupField, setGalleryCardField, setGalleryCardFields, setGalleryCoverMax, setGalleryShowColors, setListOpenField, fieldChoices, filterMenu, filterMenuRef, filterMenuStyle, openFilterMenu, closeFilterMenu, sortMenu, sortMenuRef, sortMenuStyle, openSortMenu, closeSortMenu } = useSavedViews({ props, workspace, fields, fieldById, activeViewId, activeSavedView, hasApi, activeUser, error, canCreateForms, runWithSavingIndicator, closeFormMenu, closeColumnsMenu, getChoiceLabel, databaseRootRef });
 
@@ -3217,7 +3217,8 @@ const addRow = async () => {
     return;
   }
   if (isCollabEnabled.value && isComplianceDatabase.value) {
-    if (!hasApi.value || !activeUser.value) return;
+    if (!hasApi.value || !activeUser.value) return null;
+    let addedComplianceRowId = null;
     try {
       const row = await runWithSavingIndicator(() =>
         api.createDatabaseRow(
@@ -3234,6 +3235,7 @@ const addRow = async () => {
       } else {
         rows.value = [...rows.value, hydrated];
       }
+      addedComplianceRowId = hydrated.id;
       whenCollabSynced(() => {
         const doc = ensureCollabDoc();
         const rowMap = ensureCollabRowMap(hydrated.id);
@@ -3261,9 +3263,10 @@ const addRow = async () => {
       console.warn('Create row failed', err);
       error.value = err?.message || 'Failed to create row';
     }
-    return;
+    return addedComplianceRowId;
   }
   if (isCollabEnabled.value) {
+    let addedRowId = null;
     whenCollabSynced(() => {
       const doc = ensureCollabDoc();
       const rowsMap = collabRowsMap.value || doc.getMap('rows');
@@ -3277,8 +3280,9 @@ const addRow = async () => {
         rowsMap.set(id, rowMap);
         rowOrder.push([id]);
       }, 'db-row-add');
+      addedRowId = id;
     });
-    return;
+    return addedRowId;
   }
   try {
     const row = await runWithSavingIndicator(() =>
@@ -3291,10 +3295,40 @@ const addRow = async () => {
     const hydrated = hydrateRow(row);
     syncComplianceStatusCache([hydrated]);
     rows.value = [...rows.value, hydrated];
+    return hydrated.id;
   } catch (err) {
     console.warn('Create row failed', err);
     error.value = err?.message || 'Failed to create row';
+    return null;
   }
+};
+
+// "Add row" puts the cursor in the new row's name, ready to type it. Focus stayed on the button, so
+// the keys typed next (Space, Enter) pressed it again and added more empty rows.
+// (the row this click added, not one someone else added meanwhile; and not once you've gone elsewhere)
+let addRowFocusToken = 0;
+const addRowAndFocus = async (event) => {
+  const button = event?.currentTarget;
+  addRowFocusToken += 1;
+  const token = addRowFocusToken;
+  const rowId = await addRow();
+  if (isWikiDatabase.value) return;
+  // (the row comes once the live document's ready: at least the button lets go, so keys don't add more)
+  if (!rowId) {
+    button?.blur?.();
+    return;
+  }
+  const started = Date.now();
+  const tryFocus = () => {
+    if (token !== addRowFocusToken) return;
+    const focused = document.activeElement;
+    if (focused && focused !== button && focused !== document.body) return;
+    const fieldId = pageTitleFieldId.value || fields.value[0]?.id;
+    if (fieldId && focusCellInput(rowId, fieldId)) return;
+    if (Date.now() - started < 2000) requestAnimationFrame(tryFocus);
+    else button?.blur?.();
+  };
+  requestAnimationFrame(tryFocus);
 };
 
 // What the form builder needs from the table (FormBuilder.vue).
@@ -3829,7 +3863,7 @@ onBeforeUnmount(() => {
           <tfoot v-if="showAddButtons">
             <tr>
               <td class="db-add-row-cell" :colspan="visibleColumnCount">
-                <button class="db-add-row-btn" type="button" :disabled="isReadonly" @click="addRow">
+                <button class="db-add-row-btn" type="button" :disabled="isReadonly" @click="addRowAndFocus">
                   {{ isWikiDatabase ? 'Add page' : 'Add row' }}
                 </button>
               </td>

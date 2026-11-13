@@ -297,5 +297,13 @@ export function useCellPresence({ emit, activeUser, collabProvider, isCollabEnab
     if (localCell.value === `${rowId}:${fieldId}`) clearLocalCellCursor();
   };
 
-  return { attachAwarenessListener, caretLeftForCell, cellEditor, releaseCell, clearLocalCellCursor, getCellPresence, handleCaretMouse, handleCaretNavigate, markCellBlur, markCellFocus, markCellTyping, onTableFocusOut, presenceUser, setCellInputRef, updateAwarenessUser };
+  // Puts the cursor in a cell's box, if it has one on screen. True if it did.
+  const focusCellInput = (rowId, fieldId) => {
+    const el = cellInputRefs.get(`${rowId}:${fieldId}`);
+    if (!el || typeof el.focus !== 'function') return false;
+    el.focus();
+    return true;
+  };
+
+  return { attachAwarenessListener, caretLeftForCell, cellEditor, releaseCell, clearLocalCellCursor, focusCellInput, getCellPresence, handleCaretMouse, handleCaretNavigate, markCellBlur, markCellFocus, markCellTyping, onTableFocusOut, presenceUser, setCellInputRef, updateAwarenessUser };
 }

@@ -2112,8 +2112,10 @@ button {
   overflow: visible;
 }
 
+/* An embedded view's table scrolls sideways in its own box, as on its page: it widened the whole
+   page, which then scrolled sideways (display: contents took the box away) */
 .database-table--embedded .database-table__wrap {
-  display: contents;
+  max-width: 100%;
 }
 
 .database-table__views {

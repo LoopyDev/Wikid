@@ -26,6 +26,10 @@ export const sanitizeNumberInput = (value) => {
 
 export const isNumberInputCandidateValid = (value) => /^-?\d*\.?\d*$/.test(value);
 
+// The start of a number but not one yet ("-", ".", "-."): not saved while it's typed (the server
+// tidied it away and sent that back, so ".5" became 5 and "-.25" 25), and cleared if left like that
+export const isUnfinishedNumber = (value) => /^-?\.?$/.test(value) && value !== '';
+
 export const handleNumberKeydown = (event) => {
   if (event.metaKey || event.ctrlKey || event.altKey) return;
   const allowedKeys = ['Backspace', 'Delete', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Tab', 'Enter', 'Home', 'End', 'Escape'];
