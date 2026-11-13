@@ -30,6 +30,12 @@ export function isSystemAdmin(userId?: string) {
   return process.env.NODE_ENV !== 'production';
 }
 
+// Whether the system admin may open other people's private pages: never in production, and outside
+// it only with WIKID_ADMIN_BYPASS=true. "Private" means its author only, the admin included.
+export function canReadOthersPrivatePages(userId?: string) {
+  return userId === SYSTEM_ADMIN_ID && process.env.NODE_ENV !== 'production' && process.env.WIKID_ADMIN_BYPASS === 'true';
+}
+
 export function canEdit(role: WorkspaceRole) {
   return role === WorkspaceRole.OWNER || role === WorkspaceRole.EDITOR;
 }

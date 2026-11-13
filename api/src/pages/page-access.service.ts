@@ -4,7 +4,7 @@ import { WorkspaceRole, PageVisibility } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { isUuid } from '../utils/uuid.util';
 import { assertSystemAdmin } from '../utils/assert-admin.util';
-import { isSystemAdmin, canEdit } from './pages.shared';
+import { isSystemAdmin, canEdit, canReadOthersPrivatePages } from './pages.shared';
 
 // Who may do what: workspace lookup and membership, roles, and page access checks.
 // The bottom layer; every other page service builds on it.
@@ -149,7 +149,8 @@ export class PageAccessService {
     if (!userId) {
       throw new BadRequestException('userId is required');
     }
-    const isAdmin = isSystemAdmin(userId);
+    // Other people's private pages: their authors only, the system admin too (see canReadOthersPrivatePages)
+    const isAdmin = canReadOthersPrivatePages(userId);
     const page = await this.prisma.page.findUniqueOrThrow({
       where: { id: pageId },
       select: {
@@ -202,7 +203,7 @@ export class PageAccessService {
   // Pages in a workspace that this user can't open: other people's private pages, and all
   // private pages for viewers. Mirrors the visibility rules in listPages and requirePageAccess.
   async listHiddenPageIds(workspaceId: string, userId: string) {
-    if (isSystemAdmin(userId)) return [];
+    if (canReadOthersPrivatePages(userId)) return [];
     const membership = await this.requireMembership(userId, workspaceId);
     const hidden = await this.prisma.page.findMany({
       where: {

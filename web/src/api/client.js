@@ -491,6 +491,10 @@ export const api = {
       body: JSON.stringify(payload),
     });
   },
+  // What the system admin has changed in a workspace (set an owner, removed a member), newest first
+  async listWorkspaceAdminActions(workspaceId) {
+    return request(`/workspaces/${workspaceId}/admin-actions`);
+  },
   async removeWorkspaceMember(workspaceId, memberId, { userId, adminId } = {}) {
     return request(`/workspaces/${workspaceId}/members/${memberId}${buildQs({ userId, adminId })}`, {
       method: 'DELETE',

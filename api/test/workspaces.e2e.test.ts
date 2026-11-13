@@ -171,8 +171,9 @@ describe('workspace members', () => {
     const admin = await loginAs(USERS.admin.email);
     const id = await createWorkspace(alice);
     expect((await admin.get(`/workspaces/${id}/members?adminId=x`)).status).toBe(200);
-    expect((await admin.post(`/workspaces/${id}/members?adminId=x`, { email: USERS.bob.email })).status).toBe(201);
-    // Assigning someone again sets their role: how an admin repairs a workspace left without an owner
+    // Not as an ordinary member (giving access is the owners' to do; see admin-workspaces.e2e.test.ts)...
+    expect((await admin.post(`/workspaces/${id}/members?adminId=x`, { email: USERS.bob.email })).status).toBe(403);
+    // ...but as an owner: how an admin repairs a workspace left without one
     expect((await admin.post(`/workspaces/${id}/members?adminId=x`, { email: USERS.bob.email, role: 'OWNER' })).body.role).toBe('OWNER');
     expect((await admin.delete(`/workspaces/${id}/members/${USERS.bob.id}?adminId=x`)).status).toBe(200);
     expect((await alice.get(`/workspaces/${id}/members?adminId=x`)).status).toBe(403);
