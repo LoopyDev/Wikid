@@ -69,6 +69,8 @@ jobs:
           npx prisma generate --config prisma.compliance.config.ts
       - run: npm run typecheck
       - run: npm test
+      # The server's update script, with git but without Docker (docker/test-update.mjs)
+      - run: npm run test:update
       - run: npm run build
 
   docker:

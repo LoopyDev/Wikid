@@ -77,20 +77,26 @@ docker compose logs -f caddy     # certificate issuance; Ctrl+C to stop
 ## Updating
 
 ```bash
-git pull
-docker compose build --pull      # rebuild, fetching newer base images (security fixes)
-docker compose up -d
-docker image prune -f            # remove old images
+./docker/update.sh
 ```
 
-`--pull` matters: without it, rebuilds reuse the base images (nginx, Node) downloaded the first time and never get their security updates. Run this every few weeks even when Wikid itself hasn't changed. `docker compose pull` does the same for the images that aren't built (Postgres, Silo, Caddy).
+It moves the checkout forward to the branch's newest commit, rebuilds with fresh base images (`build --pull`, and `docker compose pull` for the images that aren't built: Postgres, Silo, Caddy), then backs up with `docker/backup.sh` (when there are new commits: the API applies new database migrations as it starts, and they can't be undone otherwise) and restarts, waiting until every service is healthy. The backup comes once the build has worked, so as little as possible is written between it and the migrations. If `docker/caddy/Caddyfile` changed, the new one is checked and Caddy restarted (it's mounted into its container, so `up -d` alone doesn't pick it up); a broken one is left out, with Caddy still running the old. At the end it lists the commits that came in and how to go back, naming the backup to restore; if it stops part-way, it says that too.
 
-New database migrations are applied automatically when the API starts.
+- `./docker/update.sh --check` shows what an update would bring (and whether it has migrations), changing nothing.
+- `./docker/update.sh --no-backup` skips the backup, when you've just taken one.
 
-If the update changed `docker/caddy/Caddyfile`, restart Caddy too. The file is mounted into the container, so `up -d` doesn't pick up changes to it:
+It refuses, changing nothing, if the checkout has changes of its own, or commits the branch doesn't (it only ever moves forward; it never merges on the server). Run it every few weeks even when Wikid hasn't changed: with nothing new it still rebuilds, so the base images get their security fixes.
+
+The same steps by hand:
 
 ```bash
-docker compose restart caddy
+git pull --ff-only
+docker compose pull --ignore-buildable
+docker compose build --pull
+./docker/backup.sh
+docker compose up -d --wait
+docker compose restart caddy     # only if docker/caddy/Caddyfile changed
+docker image prune -f
 ```
 
 ## Backups
