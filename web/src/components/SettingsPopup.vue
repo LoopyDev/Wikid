@@ -74,15 +74,18 @@ const handleRenameWorkspace = async () => {
     renamingWorkspace.value = false;
   }
 };
+// Said by the Delete button (it went to the Members tab's message, so nothing showed)
+const deleteWorkspaceError = ref('');
 const handleDeleteWorkspace = async () => {
   if (!activeWorkspaceId.value) return;
   deletingWorkspace.value = true;
+  deleteWorkspaceError.value = '';
   try {
     await workspace.deleteWorkspace(activeWorkspaceId.value);
     showDeleteWorkspaceConfirm.value = false;
     emit('close');
   } catch (err) {
-    membersError.value = err?.message || 'Failed to delete workspace';
+    deleteWorkspaceError.value = err?.message || "Couldn't delete the workspace";
   } finally {
     deletingWorkspace.value = false;
   }
@@ -297,8 +300,9 @@ watch(settingsTab, (tab) => {
                 <button class="ghost-btn ghost-btn-danger" type="button" :disabled="deletingWorkspace" @click="handleDeleteWorkspace">
                   {{ deletingWorkspace ? 'Deleting…' : 'Yes, delete workspace' }}
                 </button>
-                <button class="ghost-btn ghost-btn-background" type="button" @click="showDeleteWorkspaceConfirm = false">Cancel</button>
+                <button class="ghost-btn ghost-btn-background" type="button" @click="showDeleteWorkspaceConfirm = false; deleteWorkspaceError = ''">Cancel</button>
               </div>
+              <p v-if="deleteWorkspaceError" class="alert" role="alert">{{ deleteWorkspaceError }}</p>
             </div>
           </div>
         </div>

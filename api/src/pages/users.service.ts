@@ -15,6 +15,14 @@ export const WRONG_CURRENT_PASSWORD = 'Current password is incorrect';
 const MIN_PASSWORD_LENGTH = 8;
 
 // Users: login, profiles and preferences, password changes, and admin user management.
+// An email address: something@somewhere, no spaces. Without an "@" it isn't one, and the person (with
+// no username) could never sign in, as signing in takes an email or a username.
+function assertEmailAddress(value: string) {
+  if (!/^[^\s@]+@[^\s@]+$/.test(value.trim())) {
+    throw new BadRequestException('Enter an email address, like name@example.com');
+  }
+}
+
 @Injectable()
 export class UsersService {
   constructor(
@@ -110,6 +118,7 @@ export class UsersService {
     const { displayName, email, password } = payload;
     if (!displayName?.trim()) throw new BadRequestException('displayName is required');
     if (!email?.trim()) throw new BadRequestException('email is required');
+    assertEmailAddress(email);
     if (!password) throw new BadRequestException('password is required');
     const username = normalizeUsername(payload.username) || null;
     const existing = await this.prisma.user.findUnique({ where: { email: email.toLowerCase().trim() } });
@@ -144,6 +153,8 @@ export class UsersService {
     }
     if (typeof payload.email === 'string' && payload.email.trim()) {
       const emailNorm = payload.email.toLowerCase().trim();
+      // Only a new address is checked: an old one without an @ doesn't block renaming its person
+      if (emailNorm !== user.email) assertEmailAddress(payload.email);
       const clash = await this.prisma.user.findUnique({ where: { email: emailNorm } });
       if (clash && clash.id !== userId) throw new BadRequestException('A user with that email already exists');
       data.email = emailNorm;

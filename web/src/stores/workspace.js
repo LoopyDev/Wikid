@@ -298,17 +298,21 @@ export const useWorkspaceStore = defineStore('workspace', {
     },
     async deleteWorkspace(workspaceId) {
       await api.deleteWorkspace(workspaceId, { userId: this.activeUserId });
-      if (this.activeWorkspaceId === workspaceId) {
-        this.activeWorkspaceId = null;
-        this.activeWorkspaceRole = null;
-        this.pages = [];
-        this.binPages = [];
-        this.activePageId = null;
-        this.activePageWorkspaceId = null;
-        this.doc = fallbackDoc;
-        this.titleDraft = 'Untitled page';
-      }
+      const wasOpen = this.activeWorkspaceId === workspaceId;
       this.workspaces = this.workspaces.filter((entry) => entry.workspace?.id !== workspaceId);
+      if (!wasOpen) return;
+      this.activeWorkspaceId = null;
+      this.activeWorkspaceRole = null;
+      this.pages = [];
+      this.binPages = [];
+      this.activePageId = null;
+      this.activePageWorkspaceId = null;
+      this.doc = fallbackDoc;
+      this.titleDraft = 'Untitled page';
+      // On to another of yours (it said "No workspace", though there were others). The delete is
+      // done whatever happens here, so a failure opening the next isn't the delete's
+      const next = this.workspaces[0]?.workspace?.id;
+      if (next) await this.selectWorkspaceById(next).catch((err) => console.warn('Opening the next workspace failed', err));
     },
     async createWorkspace(name) {
       if (!this.activeUser || !this.hasApi) return null;
@@ -336,6 +340,8 @@ export const useWorkspaceStore = defineStore('workspace', {
         userName: this.activeUser.name,
         includeTemplates: true,
       });
+      // Another workspace was opened meanwhile: its pages, not these
+      if (this.activeWorkspaceId && this.activeWorkspaceId !== workspaceId) return;
       this.pages = Array.isArray(pages) ? pages : [];
       this.binPages = [];
       this.templates = null;
