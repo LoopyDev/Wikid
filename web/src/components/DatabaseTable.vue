@@ -1,5 +1,5 @@
 <script setup>
-import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, toRef, watch } from 'vue';
+import { computed, defineComponent, h, inject, nextTick, onBeforeUnmount, onMounted, ref, toRef, watch } from 'vue';
 import * as Y from 'yjs';
 import {
   FlexRender,
@@ -2066,6 +2066,14 @@ const choiceColorForValue = (field, value) => {
   return match?.color || null;
 };
 
+// Each cell renders on its own: what it shows (its value, who else is in it) is read in its own
+// render, so typing in one re-renders that cell, not every cell of the table
+const DatabaseCell = defineComponent({
+  name: 'DatabaseCell',
+  // (The same row and field objects from one render to the next, so a cell redraws only for its own changes)
+  props: { row: { type: Object, required: true }, field: { type: Object, required: true } },
+  setup: (props) => () => renderCellInput(props.row, props.field),
+});
 const { renderCellInput } = useCellRenderer({ choiceColorForValue, getChoiceLabel, isReadonly, markCellFocus, markCellBlur, openMultiSelectMenu, isChoiceMenuOpen, getCellPresence, cellEditor, caretLeftForCell, openAssetTagPreview, rowPageId, getRowPageTitle, openRowPageOverlay, pageMap, workspace, resolveRowPage, ensureRowPage, applyLocalPageTitleUpdate, schedulePageTitleUpdate, tableWrapRef, pendingEnsureRowPages, scheduleSortRefresh, handleCaretNavigate, handleCaretMouse, markCellTyping, updateCell, setCellInputRef, resolveRowLastEdited, relationOptionsByPageId, relationOptionsLoading, loadRelationOptions, relationOptionsForPage, relationOptionsLoadingForPage, relationOptionsErrorForPage, getFieldChoices, linkedRowsFor, getRelationLabel, getRelationColor, openRelatedRow: (field, rowId) => openRelatedRow(field, rowId) });
 
 const getColumnSizeForField = (fieldId) => {
@@ -2104,7 +2112,7 @@ const columns = computed(() => {
     id: field.id,
     accessorFn: (row) => displayValueForField(row, field),
     header: () => field.name || 'Field',
-    cell: ({ row }) => renderCellInput(row.original, field),
+    cell: ({ row }) => h(DatabaseCell, { row: row.original, field }),
     sortingFn: (rowA, rowB, columnId) => sortByType(field.type, rowA.getValue(columnId), rowB.getValue(columnId)),
     size: COLUMN_DEFAULT_SIZE,
     minSize: index === 0 ? FIRST_COLUMN_MIN_SIZE : COLUMN_MIN_SIZE,
@@ -2148,6 +2156,39 @@ const tableRows = computed(() => {
 });
 
 const { viewFilteredRows, viewSorting, shownRows, boardColumns, cardBodyFields, cardFieldCandidates, galleryCardField, galleryCardValue, openRowCard, rowTitle } = useViewRows({ fields, fieldById, tableRows, activeSavedView, isBoardView, hiddenFieldIdSet, displayValueForField, getChoiceLabel, rowPageId, openRowPageOverlay, ensureRowPage, isReadonly, workspace, sortedRows: () => table.getRowModel().rows.map((row) => row.original) });
+// A big database shows its first rows, and more on request: drawing thousands of rows took a second
+// or more to open, and every change drew them all again. The print page (PDF exports) shows them all.
+const ROWS_SHOWN_AT_ONCE = 100;
+const showsEveryRow = typeof window !== 'undefined' && window.location.pathname.startsWith('/print/');
+const rowsShownLimit = ref(ROWS_SHOWN_AT_ONCE);
+watch([activeViewId, () => props.pageId, globalFilter], () => {
+  rowsShownLimit.value = ROWS_SHOWN_AT_ONCE;
+});
+const firstRowsOf = (list) => (showsEveryRow ? list : list.slice(0, rowsShownLimit.value));
+const tableRowsShown = computed(() => firstRowsOf(table.getRowModel().rows));
+const rowsShownOf = computed(() => firstRowsOf(shownRows.value));
+const rowsNotShown = computed(() => (showsEveryRow ? 0 : Math.max(0, shownRows.value.length - rowsShownLimit.value)));
+const showMoreRows = () => {
+  rowsShownLimit.value += ROWS_SHOWN_AT_ONCE;
+};
+// "Show 100 more" under a big database's rows (and, printed, how many weren't shown)
+const MoreRows = (moreProps) =>
+  h('div', { class: 'db-more-rows' }, [
+    h('button', { class: 'db-more-rows-btn', type: 'button', onClick: showMoreRows }, [
+      `Show ${Math.min(moreProps.count, ROWS_SHOWN_AT_ONCE)} more `,
+      h('span', { class: 'muted' }, `(${moreProps.count.toLocaleString()} not shown)`),
+    ]),
+    h('span', { class: 'db-more-rows-print' }, `${moreProps.count.toLocaleString()} more rows not shown`),
+  ]);
+MoreRows.props = { count: { type: Number, required: true } };
+// A row that's in the database but past the rows shown: shown too (one just added, say). True once
+// it's in the rows
+const showRow = (rowId) => {
+  const index = table.getRowModel().rows.findIndex((row) => row.original.id === rowId);
+  if (index < 0) return false;
+  if (index >= rowsShownLimit.value) rowsShownLimit.value = index + 1;
+  return true;
+};
 
 // A gallery cover listing linked rows ("Linked from" or a relation): stacked cells that open them,
 // as many as the view says before "Show more"
@@ -3144,12 +3185,12 @@ const toggleRowSelection = (rowId) => {
   selectedRowIds.value = next;
 };
 
+// All the rows shown (not those past "Show more", nor those the view filters out): a bulk delete
+// takes only rows the person has seen
+const shownRowIds = computed(() => tableRowsShown.value.map((row) => row.original.id));
+const allShownSelected = computed(() => shownRowIds.value.length > 0 && shownRowIds.value.every((id) => selectedRowIds.value.has(id)));
 const toggleSelectAll = () => {
-  if (selectedRowIds.value.size === rows.value.length) {
-    selectedRowIds.value = new Set();
-  } else {
-    selectedRowIds.value = new Set(rows.value.map((r) => r.id));
-  }
+  selectedRowIds.value = allShownSelected.value ? new Set() : new Set(shownRowIds.value);
 };
 
 const clearSelection = () => {
@@ -3319,11 +3360,13 @@ const addRowAndFocus = async (event) => {
     return;
   }
   const started = Date.now();
+  let shownAdded = false;
   const tryFocus = () => {
     if (token !== addRowFocusToken) return;
     const focused = document.activeElement;
     if (focused && focused !== button && focused !== document.body) return;
     const fieldId = pageTitleFieldId.value || fields.value[0]?.id;
+    if (!shownAdded) shownAdded = showRow(rowId);
     if (fieldId && focusCellInput(rowId, fieldId)) return;
     if (Date.now() - started < 2000) requestAnimationFrame(tryFocus);
     else button?.blur?.();
@@ -3760,8 +3803,8 @@ onBeforeUnmount(() => {
                     v-if="headerIndex === 0 && selectedRowIds.size && !isReadonly"
                     type="checkbox"
                     class="db-row-checkbox db-select-all-checkbox"
-                    :checked="selectedRowIds.size === rows.length"
-                    :ref="(el) => { if (el) el.indeterminate = selectedRowIds.size > 0 && selectedRowIds.size < rows.length }"
+                    :checked="allShownSelected"
+                    :ref="(el) => { if (el) el.indeterminate = selectedRowIds.size > 0 && !allShownSelected }"
                     @click.stop="toggleSelectAll"
                   />
                   <template v-if="!header.isPlaceholder && header.column.id === ADD_COLUMN_ID">
@@ -3809,7 +3852,7 @@ onBeforeUnmount(() => {
           </thead>
           <tbody>
             <tr
-              v-for="row in table.getRowModel().rows"
+              v-for="row in tableRowsShown"
               :key="row.id"
               @contextmenu="!readonly && !$event.target.closest('input, textarea, select, [contenteditable]') && ($event.preventDefault(), openRowMenu(row.original, $event))"
               :class="['db-row', getAuditRowClass(row.original), { 'db-row--menu-open': rowMenu.open && rowMenu.rowId === row.id, 'db-row--selected': selectedRowIds.size && selectedRowIds.has(row.original.id) }]"
@@ -3860,8 +3903,13 @@ onBeforeUnmount(() => {
               </td>
             </tr>
           </tbody>
-          <tfoot v-if="showAddButtons">
-            <tr>
+          <tfoot v-if="rowsNotShown || showAddButtons">
+            <tr v-if="rowsNotShown">
+              <td class="db-more-rows-cell" :colspan="visibleColumnCount">
+                <MoreRows :count="rowsNotShown" />
+              </td>
+            </tr>
+            <tr v-if="showAddButtons">
               <td class="db-add-row-cell" :colspan="visibleColumnCount">
                 <button class="db-add-row-btn" type="button" :disabled="isReadonly" @click="addRowAndFocus">
                   {{ isWikiDatabase ? 'Add page' : 'Add row' }}
@@ -3922,7 +3970,7 @@ onBeforeUnmount(() => {
           <div v-if="!shownRows.length" class="database-table__empty muted">No matching rows.</div>
           <div v-else class="db-gallery__grid">
             <div
-              v-for="row in shownRows"
+              v-for="row in rowsShownOf"
               :key="row.id"
               role="button"
               tabindex="0"
@@ -3989,6 +4037,7 @@ onBeforeUnmount(() => {
               </div>
             </div>
           </div>
+          <MoreRows v-if="rowsNotShown" :count="rowsNotShown" />
         </div>
         <div v-else-if="isListView" class="db-list">
           <div v-if="!embedded" class="db-view-config-bar">
@@ -4015,7 +4064,7 @@ onBeforeUnmount(() => {
           </div>
           <div v-if="!shownRows.length" class="database-table__empty muted">No matching rows.</div>
           <ul v-else class="db-list__rows">
-            <li v-for="row in shownRows" :key="row.id" class="db-list__row">
+            <li v-for="row in rowsShownOf" :key="row.id" class="db-list__row">
               <template v-if="listOpenField && urlHref(row, listOpenField)">
                 <a class="db-list__title" :href="urlHref(row, listOpenField)" target="_blank" rel="noopener noreferrer">
                   <PageIcon class="db-list__icon" :icon="rowIcon(row)" fallback="📄" aria-hidden="true" />
@@ -4048,6 +4097,7 @@ onBeforeUnmount(() => {
               </span>
             </li>
           </ul>
+          <MoreRows v-if="rowsNotShown" :count="rowsNotShown" />
         </div>
         <div v-else-if="isBoardView" class="db-board">
           <div v-if="!embedded" class="db-view-config-bar">

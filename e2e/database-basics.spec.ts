@@ -61,4 +61,36 @@ test.describe('database basics', () => {
     await expect.poll(() => sideways().then((s) => s.page)).toBe(0);
     expect((await sideways()).table).toBeGreaterThan(0);
   });
+
+  test('a big database shows its first 100 rows, more on request, and a row added past them', async ({ alice: page, workspaceId }) => {
+    test.setTimeout(120_000);
+    const id = await createPage(page, workspaceId, { title: unique('Big'), kind: 'DATABASE' });
+    const titleField = (await (await page.request.get(`/api/pages/${id}/database`)).json()).fields[0].id;
+    for (let start = 0; start < 250; start += 25) {
+      await Promise.all(
+        Array.from({ length: 25 }, (_, i) =>
+          page.request.post(`/api/pages/${id}/database/rows`, { data: { data: { [titleField]: `Row ${start + i + 1}` } } }).then((res) => expect(res.status()).toBe(201))
+        )
+      );
+    }
+    await page.goto(`/doc/${id}`);
+    const rows = main(page).locator('tbody tr');
+    // Drawing every row of a big database took seconds to open, and again on each change
+    await expect(rows).toHaveCount(100, { timeout: 30_000 });
+    const more = main(page).getByRole('button', { name: /^Show 100 more/ });
+    await expect(more).toContainText('150 not shown');
+    // Selecting all selects the rows shown, not those past them: a bulk delete takes only what's seen
+    await rows.first().locator('.db-row-checkbox--hover').click({ force: true });
+    await main(page).locator('.db-select-all-checkbox').click();
+    await expect(main(page).locator('.db-bulk-bar__count')).toHaveText('100 rows selected');
+    await main(page).getByRole('button', { name: 'Cancel' }).click();
+    await more.click();
+    await expect(rows).toHaveCount(200);
+    await expect(main(page).getByRole('button', { name: /^Show 50 more/ })).toContainText('50 not shown');
+    // Added at the end, past the rows shown: shown, with the cursor in it
+    await main(page).getByRole('button', { name: 'Add row' }).click();
+    await expect(rowNames(page).last()).toBeFocused();
+    await page.keyboard.type('Added', { delay: 30 });
+    await expect(rowNames(page).last()).toHaveValue('Added');
+  });
 });

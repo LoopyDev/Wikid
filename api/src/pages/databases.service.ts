@@ -119,9 +119,10 @@ export class DatabasesService {
     if (wikiHomeId) {
       await this.wiki.ensureWikiRowsForHome(wikiHomeId);
     }
+    // Not its rows: a database can have thousands, and only reading the whole database needs them
+    // (getDatabase); every row added or changed loaded them all, slowing as the database grew
     const include = {
       fields: { orderBy: { position: 'asc' } },
-      rows: { orderBy: { position: 'asc' } },
       forms: { orderBy: { position: 'asc' } },
       views: { orderBy: { position: 'asc' } },
     } satisfies Prisma.DatabaseInclude;
@@ -530,8 +531,12 @@ export class DatabasesService {
     if (accessible.kind === PageKind.DATABASE) await this.materializer.catchUpDatabase(accessible.id, accessible.workspaceId);
     // Include the database page's current title: inline views only store a copy from when
     // they were inserted, so exports would otherwise show a stale name
-    const page = await this.prisma.page.findUnique({ where: { id: pageId }, select: { title: true } });
-    const database = { ...(await this.getDatabaseForPage(pageId, user)), title: page?.title ?? '' };
+    const found = await this.getDatabaseForPage(pageId, user);
+    const [page, rows] = await Promise.all([
+      this.prisma.page.findUnique({ where: { id: pageId }, select: { title: true } }),
+      this.prisma.databaseRow.findMany({ where: { databaseId: found.id }, orderBy: { position: 'asc' } }),
+    ]);
+    const database = { ...found, rows, title: page?.title ?? '' };
     if (!database.complianceMode || !database.rows?.length) {
       return database;
     }
