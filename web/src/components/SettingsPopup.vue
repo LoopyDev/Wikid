@@ -3,6 +3,8 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useWorkspaceStore } from '../stores/workspace';
 import { api } from '../api/client';
+import { formatDate } from '../utils/date-format';
+import { adminActionText } from '../utils/adminActions';
 
 // The settings popup: account (colour mode, password) and, for the open workspace, its name,
 // members and export. Colour mode and the exports belong to the app shell, so it asks for those.
@@ -92,13 +94,19 @@ const membersError = ref('');
 const inviteEmail = ref('');
 const inviteRole = ref('EDITOR');
 const memberActionLoading = ref({});
+// What the system admin has changed here (nothing an admin does to a workspace is silent)
+const adminActions = ref([]);
 const loadMembers = async () => {
   if (!activeWorkspaceId.value || !activeUser.value) return;
   membersLoading.value = true;
   membersError.value = '';
   try {
-    const data = await api.listWorkspaceMembers(activeWorkspaceId.value, { userId: activeUser.value.id });
+    const [data, actions] = await Promise.all([
+      api.listWorkspaceMembers(activeWorkspaceId.value, { userId: activeUser.value.id }),
+      api.listWorkspaceAdminActions(activeWorkspaceId.value).catch(() => []),
+    ]);
     members.value = Array.isArray(data) ? data : [];
+    adminActions.value = Array.isArray(actions) ? actions : [];
   } catch (err) {
     membersError.value = err?.message || 'Failed to load members';
   } finally {
@@ -297,6 +305,11 @@ watch(settingsTab, (tab) => {
         <div v-else-if="settingsTab === 'Members'">
           <h3>Members</h3>
           <span v-if="membersError" class="alert">{{ membersError }}</span>
+          <ul v-if="!membersLoading && adminActions.length" class="members-admin-actions" aria-label="Changes by the system admin">
+            <li v-for="action in adminActions" :key="action.id">
+              {{ adminActionText(action) }} · {{ formatDate(action.createdAt) }}
+            </li>
+          </ul>
           <div v-if="membersLoading" class="muted">Loading members...</div>
           <div v-else-if="members.length" class="members-list">
             <div v-for="member in members" :key="member.id" class="members-row">

@@ -10076,6 +10076,45 @@ button {
   gap: 8px;
 }
 
+/* The admin's Workspaces panel: confirming a deletion, removing a member, the admin's changes */
+.workspace-admin__confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  background: rgba(239, 68, 68, 0.08);
+}
+.workspace-admin__confirm span {
+  flex: 1 1 260px;
+}
+.workspace-admin__danger,
+.workspace-admin__danger-link {
+  color: #ef4444;
+}
+.workspace-admin__danger-link {
+  margin-top: 12px;
+}
+.workspace-admin__member .workspace-admin__remove {
+  margin-left: 8px;
+}
+.workspace-admin__history,
+.members-admin-actions {
+  list-style: none;
+  margin: 8px 0 12px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.85rem;
+}
+.members-admin-actions li {
+  color: var(--text-muted);
+}
+
 .workspace-admin__member {
   display: flex;
   align-items: center;

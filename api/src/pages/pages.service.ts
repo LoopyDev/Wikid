@@ -10,7 +10,7 @@ import { DatabaseSetupService } from './database-setup.service';
 import { CollabSyncService } from './collab-sync.service';
 import { WikiService } from './wiki.service';
 import { PageContentService } from './page-content.service';
-import { POSITION_INCREMENT, isSystemAdmin, canEdit, normalizePageTitle } from './pages.shared';
+import { POSITION_INCREMENT, canEdit, normalizePageTitle, canReadOthersPrivatePages } from './pages.shared';
 
 // Pages: listing, reading, editing, edit locks, visibility, moving, reordering, setup,
 // bin and permanent delete, and the legacy blocks API.
@@ -78,7 +78,7 @@ export class PagesService {
     const targetKey = workspaceId || `personal-${userId}`;
     const workspace = await this.access.resolveWorkspaceByKeyOrId(targetKey, userId, userName);
     const membership = await this.access.requireMembership(userId, workspace.id);
-    const isAdmin = isSystemAdmin(userId);
+    const isAdmin = canReadOthersPrivatePages(userId);
 
     const onlyBin = state === 'bin';
     const visibilityFilter = isAdmin

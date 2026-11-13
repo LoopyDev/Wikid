@@ -6,6 +6,7 @@ import { isUuid } from '../utils/uuid.util';
 import { PageAccessService } from './page-access.service';
 import { PagesService } from './pages.service';
 import { isSystemAdmin } from './pages.shared';
+import { SYSTEM_ADMIN_ID } from '../constants/system-admin.const';
 import { loginLookup } from './username.util';
 
 // Workspaces and their members, plus the admin reset of all workspaces.
@@ -32,33 +33,32 @@ export class WorkspacesService {
       id: true,
       name: true,
       createdAt: true,
+      updatedAt: true,
       _count: { select: { pages: { where: { isDeleted: false, isHidden: false } } } },
     };
-    if (adminId && isSystemAdmin(adminId)) {
+    // Every workspace (names, page counts, when a page in it last changed; not its pages), as
+    // if owned by `asUserId`: the admin panel, and the dev-only admin bypass
+    const listAll = async (asUserId: string) => {
       const workspaces = await this.prisma.workspace.findMany({
-        select: workspaceSelect,
+        select: { ...workspaceSelect, personalOwnerId: true },
         orderBy: { createdAt: 'asc' },
       });
+      const lastPageChange = await this.prisma.page.groupBy({ by: ['workspaceId'], _max: { updatedAt: true } });
+      const lastChangeById = new Map(lastPageChange.map((row) => [row.workspaceId, row._max.updatedAt]));
       return workspaces.map((workspace) => ({
-        userId: adminId,
+        userId: asUserId,
         workspaceId: workspace.id,
         role: WorkspaceRole.OWNER,
-        workspace,
+        workspace: { ...workspace, lastPageChangeAt: lastChangeById.get(workspace.id) ?? null },
       }));
+    };
+    // The admin panel. It checked the dev-only admin bypass, so in production an admin saw only their own.
+    if (adminId) {
+      this.access.ensureAdmin(adminId);
+      return listAll(adminId);
     }
     if (userId) {
-      if (isSystemAdmin(userId)) {
-        const workspaces = await this.prisma.workspace.findMany({
-          select: workspaceSelect,
-          orderBy: { createdAt: 'asc' },
-        });
-        return workspaces.map((workspace) => ({
-          userId,
-          workspaceId: workspace.id,
-          role: WorkspaceRole.OWNER,
-          workspace,
-        }));
-      }
+      if (isSystemAdmin(userId)) return listAll(userId);
       // The workspaces first, then this user's membership of each. Reading the memberships first
       // and then their workspaces failed outright ("workspace is required") when one was deleted
       // in between; this way a workspace deleted meanwhile is just left out.
@@ -114,12 +114,18 @@ export class WorkspacesService {
     if (!workspaceId || !userId) throw new BadRequestException('workspaceId and userId are required');
     const workspace = await this.prisma.workspace.findUnique({ where: { id: workspaceId } });
     if (!workspace) throw new NotFoundException('Workspace not found');
-    if (!isSystemAdmin(userId)) {
-      const membership = await this.access.getMembership(userId, workspaceId);
-      if (!membership || membership.role !== WorkspaceRole.OWNER) {
-        throw new ForbiddenException('Only workspace owners can delete this workspace');
-      }
+    // Its owners, or the system admin (cleaning up an abandoned one; in production too), but not
+    // someone's personal workspace: that's theirs alone
+    const membership = await this.access.getMembership(userId, workspaceId);
+    const byAdmin = userId === SYSTEM_ADMIN_ID && membership?.role !== WorkspaceRole.OWNER;
+    if (byAdmin && workspace.personalOwnerId) {
+      throw new ForbiddenException("The system admin can't delete someone's personal workspace");
     }
+    if (!byAdmin && (!membership || membership.role !== WorkspaceRole.OWNER)) {
+      throw new ForbiddenException('Only workspace owners can delete this workspace');
+    }
+    // Its own record of what the admin did goes with it: this one stays in the server's log
+    if (byAdmin) console.warn(`[admin] the system admin deleted workspace "${workspace.name}" (${workspaceId})`);
     // Postgres can pick this to cancel when it deadlocks with a database being saved from its live
     // document at the same moment; trying again then goes through
     for (let attempt = 1; ; attempt += 1) {
@@ -171,6 +177,12 @@ export class WorkspacesService {
       await this.access.requireWorkspaceRole(userId, workspaceId, [WorkspaceRole.OWNER]);
     }
     const role: WorkspaceRole = payload.role && Object.values(WorkspaceRole).includes(payload.role) ? payload.role : WorkspaceRole.EDITOR;
+    // The admin repairs a workspace (an owner for one nobody can manage); giving other people access
+    // is its owners' to do. Not a personal workspace: that's its person's alone.
+    if (adminId && role !== WorkspaceRole.OWNER) {
+      throw new ForbiddenException("The system admin can only set an owner; the workspace's owners add other members");
+    }
+    if (adminId) await this.ensureNotPersonal(workspaceId);
     const user = await this.findUserForMembership(payload);
     const workspace = await this.prisma.workspace.findUnique({ where: { id: workspaceId }, select: { personalOwnerId: true } });
     if (!workspace) {
@@ -187,10 +199,48 @@ export class WorkspacesService {
       if (existing.role === role) return existing;
       throw new ConflictException('Already a member: change their role in the members list');
     }
-    return this.prisma.userWorkspace.upsert({
-      where: { userId_workspaceId: { userId: user.id, workspaceId } },
-      update: { role },
-      create: { userId: user.id, workspaceId, role },
+    // Already an owner: nothing changes, and nothing's recorded
+    if (adminId && existing?.role === WorkspaceRole.OWNER) return existing;
+    // The change and its record together (neither without the other)
+    return this.prisma.$transaction(async (tx) => {
+      const saved = await tx.userWorkspace.upsert({
+        where: { userId_workspaceId: { userId: user.id, workspaceId } },
+        update: { role },
+        create: { userId: user.id, workspaceId, role },
+      });
+      if (adminId) await this.recordAdminAction(tx, workspaceId, 'SET_OWNER', user);
+      return saved;
+    });
+  }
+
+  private async ensureNotPersonal(workspaceId: string) {
+    const workspace = await this.prisma.workspace.findUnique({ where: { id: workspaceId }, select: { personalOwnerId: true } });
+    if (!workspace) throw new NotFoundException('Workspace not found');
+    if (workspace.personalOwnerId) throw new ForbiddenException("The system admin can't change someone's personal workspace");
+  }
+
+  /** Notes what the system admin changed in a workspace, for its members to see (listAdminActions). */
+  private async recordAdminAction(
+    tx: Prisma.TransactionClient,
+    workspaceId: string,
+    action: 'SET_OWNER' | 'REMOVE_MEMBER',
+    user: { id: string; displayName?: string | null; email?: string | null },
+  ) {
+    await tx.workspaceAdminAction.create({
+      data: { workspaceId, action, targetUserId: user.id, targetName: user.displayName || user.email || '' },
+    });
+  }
+
+  /** What the system admin has changed in a workspace, newest first: for its members (and the admin). */
+  async listAdminActions(userId: string | undefined, workspaceId: string) {
+    if (!userId) throw new BadRequestException('userId is required');
+    if (!isUuid(workspaceId)) throw new NotFoundException('Workspace not found');
+    if (userId !== SYSTEM_ADMIN_ID) await this.access.requireMembership(userId, workspaceId);
+    return this.prisma.workspaceAdminAction.findMany({
+      where: { workspaceId },
+      orderBy: { createdAt: 'desc' },
+      take: 20,
+      select: { id: true, action: true, targetUserId: true, targetName: true, createdAt: true },
     });
   }
 
@@ -230,6 +280,10 @@ export class WorkspacesService {
       await this.access.requireWorkspaceRole(userId, workspaceId, [WorkspaceRole.OWNER]);
     }
     const nextRole: WorkspaceRole = role && Object.values(WorkspaceRole).includes(role) ? role : WorkspaceRole.EDITOR;
+    if (adminId && nextRole !== WorkspaceRole.OWNER) {
+      throw new ForbiddenException("The system admin can only make someone an owner; the workspace's owners change other roles");
+    }
+    if (adminId) await this.ensureNotPersonal(workspaceId);
     const workspace = await this.prisma.workspace.findUnique({ where: { id: workspaceId }, select: { personalOwnerId: true } });
     if (!workspace) {
       throw new NotFoundException('Workspace not found');
@@ -245,9 +299,18 @@ export class WorkspacesService {
     if (membership.role === WorkspaceRole.OWNER && nextRole !== WorkspaceRole.OWNER) {
       await this.access.ensureNotLastOwner(workspaceId);
     }
-    return this.prisma.userWorkspace.update({
-      where: { id: membership.id },
-      data: { role: nextRole },
+    if (adminId && membership.role === nextRole) {
+      return this.prisma.userWorkspace.findUniqueOrThrow({ where: { id: membership.id } });
+    }
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.userWorkspace.update({
+        where: { id: membership.id },
+        data: { role: nextRole },
+        include: { user: { select: { id: true, displayName: true, email: true } } },
+      });
+      if (adminId) await this.recordAdminAction(tx, workspaceId, 'SET_OWNER', updated.user);
+      const { user: _user, ...membershipOnly } = updated;
+      return membershipOnly;
     });
   }
 
@@ -259,6 +322,7 @@ export class WorkspacesService {
     } else {
       await this.access.requireWorkspaceRole(userId, workspaceId, [WorkspaceRole.OWNER]);
     }
+    if (adminId) await this.ensureNotPersonal(workspaceId);
     const workspace = await this.prisma.workspace.findUnique({ where: { id: workspaceId }, select: { personalOwnerId: true } });
     if (!workspace) {
       throw new NotFoundException('Workspace not found');
@@ -268,7 +332,7 @@ export class WorkspacesService {
     }
     const membership = await this.prisma.userWorkspace.findFirst({
       where: { userId: memberId, workspaceId },
-      select: { id: true, role: true },
+      select: { id: true, role: true, user: { select: { id: true, displayName: true, email: true } } },
     });
     if (!membership) {
       return { count: 0 };
@@ -276,7 +340,11 @@ export class WorkspacesService {
     if (membership.role === WorkspaceRole.OWNER) {
       await this.access.ensureNotLastOwner(workspaceId);
     }
-    return this.prisma.userWorkspace.deleteMany({ where: { userId: memberId, workspaceId } });
+    return this.prisma.$transaction(async (tx) => {
+      const removed = await tx.userWorkspace.deleteMany({ where: { userId: memberId, workspaceId } });
+      if (adminId) await this.recordAdminAction(tx, workspaceId, 'REMOVE_MEMBER', membership.user);
+      return removed;
+    });
   }
 
   async resetAllWorkspaces(adminId?: string, confirm?: string) {

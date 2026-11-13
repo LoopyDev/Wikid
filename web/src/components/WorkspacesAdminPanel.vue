@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { api } from '../api/client';
 import { useApiMutation } from '../composables/useApiMutation';
 import { formatDate } from '../utils/date-format';
+import { adminActionText } from '../utils/adminActions';
 
 const props = defineProps({
   adminId: {
@@ -17,12 +18,13 @@ const membersByWorkspace = ref({});
 const membersLoading = ref({});
 const membersError = ref({});
 const assignDrafts = ref({});
-
-const ROLE_OPTIONS = [
-  { value: 'OWNER', label: 'Owner' },
-  { value: 'EDITOR', label: 'Editor' },
-  { value: 'VIEWER', label: 'Viewer' },
-];
+// What the admin has changed in each workspace (its members see these too)
+const actionsByWorkspace = ref({});
+// Confirmations waiting: a member's removal ("workspaceId:userId"), a workspace's deletion
+const confirmingRemove = ref('');
+const confirmingDelete = ref('');
+const busy = ref('');
+const actionError = ref({});
 
 const normalizeWorkspaceEntry = (entry) => {
   const workspace = entry?.workspace || entry || {};
@@ -32,6 +34,9 @@ const normalizeWorkspaceEntry = (entry) => {
     id,
     name: workspace.name || 'Workspace',
     createdAt: workspace.createdAt || entry?.createdAt || null,
+    // When a page in it last changed (the workspace's own date moves only on a rename)
+    lastChangeAt: workspace.lastPageChangeAt || workspace.updatedAt || null,
+    personal: !!workspace.personalOwnerId,
     pageCount: workspace._count?.pages ?? null,
   };
 };
@@ -50,7 +55,7 @@ const setExpanded = (workspaceId, value) => {
 };
 
 const draftFor = (workspaceId) =>
-  assignDrafts.value[workspaceId] || { email: '', role: 'EDITOR', saving: false, error: '' };
+  assignDrafts.value[workspaceId] || { email: '', saving: false, error: '' };
 
 const updateDraft = (workspaceId, patch) => {
   const current = draftFor(workspaceId);
@@ -81,9 +86,13 @@ const loadMembers = async (workspaceId, { force = false } = {}) => {
   setMembersLoading(workspaceId, true);
   setMembersError(workspaceId, '');
   try {
-    const data = await api.listWorkspaceMembers(workspaceId, { adminId: props.adminId });
+    const [data, actions] = await Promise.all([
+      api.listWorkspaceMembers(workspaceId, { adminId: props.adminId }),
+      api.listWorkspaceAdminActions(workspaceId).catch(() => []),
+    ]);
     const list = Array.isArray(data) ? data : [];
     setMembers(workspaceId, list);
+    actionsByWorkspace.value = { ...actionsByWorkspace.value, [workspaceId]: Array.isArray(actions) ? actions : [] };
   } catch (err) {
     setMembers(workspaceId, []);
     setMembersError(workspaceId, err?.message || 'Failed to load members');
@@ -100,26 +109,63 @@ const toggleWorkspace = (workspaceId) => {
   }
 };
 
-const assignMember = async (workspaceId) => {
+// An owner for a workspace nobody can manage (its owner gone or locked out). Only that: adding other
+// members is its owners' job.
+const setOwner = async (workspaceId) => {
   const draft = draftFor(workspaceId);
-  const email = (draft.email || '').trim();
-  if (!email) {
-    updateDraft(workspaceId, { error: 'Enter the email address of the person to add.' });
+  const login = (draft.email || '').trim();
+  if (!login) {
+    updateDraft(workspaceId, { error: 'Enter the email address or username of the new owner.' });
     return;
   }
   updateDraft(workspaceId, { saving: true, error: '' });
   try {
-    await api.addWorkspaceMember(
-      workspaceId,
-      { email, role: draft.role || 'EDITOR' },
-      { adminId: props.adminId }
-    );
+    await api.addWorkspaceMember(workspaceId, { login, role: 'OWNER' }, { adminId: props.adminId });
     updateDraft(workspaceId, { email: '', saving: false, error: '' });
     await loadMembers(workspaceId, { force: true });
   } catch (err) {
-    updateDraft(workspaceId, { saving: false, error: err?.message || 'Failed to assign user.' });
+    updateDraft(workspaceId, { saving: false, error: err?.message || "Couldn't set the owner." });
   }
 };
+const setActionError = (workspaceId, message) => {
+  actionError.value = { ...actionError.value, [workspaceId]: message };
+};
+const removeMember = async (workspaceId, member) => {
+  const key = `${workspaceId}:${member.userId}`;
+  if (confirmingRemove.value !== key) {
+    confirmingRemove.value = key;
+    // The "Remove?" waits a few seconds for the second click, then it's back to "Remove"
+    setTimeout(() => {
+      if (confirmingRemove.value === key) confirmingRemove.value = '';
+    }, 4000);
+    return;
+  }
+  confirmingRemove.value = '';
+  busy.value = key;
+  setActionError(workspaceId, '');
+  try {
+    await api.removeWorkspaceMember(workspaceId, member.userId, { adminId: props.adminId });
+    await loadMembers(workspaceId, { force: true });
+  } catch (err) {
+    setActionError(workspaceId, err?.message || "Couldn't remove them.");
+  } finally {
+    busy.value = '';
+  }
+};
+const deleteWorkspace = async (workspace) => {
+  busy.value = `delete:${workspace.id}`;
+  setActionError(workspace.id, '');
+  try {
+    await api.deleteWorkspace(workspace.id);
+    confirmingDelete.value = '';
+    await loadWorkspaces();
+  } catch (err) {
+    setActionError(workspace.id, err?.message || "Couldn't delete it.");
+  } finally {
+    busy.value = '';
+  }
+};
+const actionText = (action) => adminActionText(action, { forAdmin: true });
 
 const memberDisplayName = (member) => {
   return member?.user?.displayName || member?.user?.email || member?.userId || 'Member';
@@ -136,8 +182,11 @@ watch(
   <div class="workspace-admin">
     <div class="workspace-admin__header">
       <div>
-        <h3>Workspaces management</h3>
-        <p class="muted">Browse all workspaces and assign users to them.</p>
+        <h3>Workspaces</h3>
+        <p class="muted">
+          Every workspace on this server, with its members (not its pages). Set an owner for one nobody can
+          manage, remove a member, or delete one. Each change is shown to the workspace's members.
+        </p>
       </div>
       <div class="workspace-admin__actions">
         <button class="ghost-btn ghost-btn-background" type="button" @click="loadWorkspaces" :disabled="loading">
@@ -162,6 +211,8 @@ watch(
             <div class="workspace-admin__meta">
               <span>id: {{ workspace.id }}</span>
               <span v-if="workspace.createdAt">· created {{ formatDate(workspace.createdAt) }}</span>
+              <span v-if="workspace.personal">· personal</span>
+              <span v-if="workspace.lastChangeAt">· last changed {{ formatDate(workspace.lastChangeAt) }}</span>
               <span v-if="workspace.pageCount !== null">· {{ workspace.pageCount }} {{ workspace.pageCount === 1 ? 'page' : 'pages' }}</span>
             </div>
           </div>
@@ -173,6 +224,14 @@ watch(
             {{ expanded[workspace.id] ? 'Hide members' : 'Manage members' }}
           </button>
         </div>
+        <div v-if="confirmingDelete === workspace.id" class="workspace-admin__confirm" role="alertdialog" :aria-label="`Delete ${workspace.name}`">
+          <span>Delete "{{ workspace.name }}" and all its pages for good? This can't be undone.</span>
+          <button class="ghost-btn" type="button" @click="confirmingDelete = ''">Cancel</button>
+          <button class="ghost-btn ghost-btn-background workspace-admin__danger" type="button" :disabled="busy === `delete:${workspace.id}`" @click="deleteWorkspace(workspace)">
+            {{ busy === `delete:${workspace.id}` ? 'Deleting…' : 'Delete for good' }}
+          </button>
+        </div>
+        <div v-if="actionError[workspace.id]" class="alert">{{ actionError[workspace.id] }}</div>
 
         <div v-if="expanded[workspace.id]" class="workspace-admin__members">
           <div class="workspace-admin__members-header">
@@ -200,43 +259,52 @@ watch(
                 <div class="workspace-admin__member-meta">{{ member.user?.email || member.userId }}</div>
               </div>
               <span class="workspace-admin__member-role">{{ member.role }}</span>
+              <button
+                v-if="!workspace.personal"
+                class="ghost-btn workspace-admin__remove"
+                type="button"
+                :disabled="busy === `${workspace.id}:${member.userId}`"
+                @click="removeMember(workspace.id, member)"
+              >
+                {{ confirmingRemove === `${workspace.id}:${member.userId}` ? 'Remove?' : 'Remove' }}
+              </button>
+            </li>
+          </ul>
+          <ul v-if="(actionsByWorkspace[workspace.id] || []).length" class="workspace-admin__history" aria-label="Changes by the system admin">
+            <li v-for="action in actionsByWorkspace[workspace.id]" :key="action.id" class="muted">
+              {{ actionText(action) }} · {{ formatDate(action.createdAt) }}
             </li>
           </ul>
 
-          <div class="workspace-admin__assign">
-            <h4>Assign user</h4>
+          <p v-if="workspace.personal" class="muted workspace-admin__hint">A personal workspace is its person's alone: nothing here to change.</p>
+          <div v-else class="workspace-admin__assign">
+            <h4>Set an owner</h4>
             <div class="workspace-admin__assign-row">
               <input
                 class="workspace-admin__input"
-                type="email"
-                placeholder="Email address"
+                type="text"
+                placeholder="Email address or username"
                 autocomplete="off"
+                autocapitalize="none"
+                aria-label="New owner's email address or username"
                 :value="draftFor(workspace.id).email"
                 @input="updateDraft(workspace.id, { email: $event.target.value })"
-                @keydown.enter="assignMember(workspace.id)"
+                @keydown.enter="setOwner(workspace.id)"
               />
-              <select
-                class="workspace-admin__input workspace-admin__select"
-                :value="draftFor(workspace.id).role"
-                @change="updateDraft(workspace.id, { role: $event.target.value })"
-              >
-                <option v-for="role in ROLE_OPTIONS" :key="role.value" :value="role.value">
-                  {{ role.label }}
-                </option>
-              </select>
               <button
                 class="ghost-btn ghost-btn-background workspace-admin__assign-btn"
                 type="button"
                 :disabled="draftFor(workspace.id).saving"
-                @click="assignMember(workspace.id)"
+                @click="setOwner(workspace.id)"
               >
-                {{ draftFor(workspace.id).saving ? 'Assigning...' : 'Assign' }}
+                {{ draftFor(workspace.id).saving ? 'Setting…' : 'Make owner' }}
               </button>
             </div>
             <div v-if="draftFor(workspace.id).error" class="alert">{{ draftFor(workspace.id).error }}</div>
             <p class="muted workspace-admin__hint">
-              Use a UUID to attach an existing user. Providing a name will create a new user if no match exists.
+              For a workspace nobody can manage. Its owners add other members. Private pages stay their authors' only.
             </p>
+            <button class="ghost-btn workspace-admin__danger-link" type="button" @click="confirmingDelete = workspace.id">Delete workspace…</button>
           </div>
         </div>
       </article>

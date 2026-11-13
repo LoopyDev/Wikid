@@ -813,6 +813,12 @@ export class PagesController {
     return this.workspaces.removeWorkspaceMember(requesterId, workspaceId, memberId, adminId);
   }
 
+  // What the system admin has changed in a workspace (set an owner, removed a member): for its members
+  @Get('workspaces/:id/admin-actions')
+  listWorkspaceAdminActions(@Param('id') workspaceId: string, @CurrentUserId() userId?: string) {
+    return this.workspaces.listAdminActions(userId, workspaceId);
+  }
+
   // Admin: reset all workspaces, documents, and regenerate personal workspaces
   @Post('workspaces/admin/reset')
   resetAllWorkspaces(@Body('confirm') confirm: string, @AdminId() adminId?: string) {

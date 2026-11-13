@@ -47,7 +47,22 @@ model Workspace {
   databases       Database[]
   pages           Page[]
   memberships     UserWorkspace[]
+  adminActions    WorkspaceAdminAction[]
   personalOwner   User?           @relation("PersonalWorkspace", fields: [personalOwnerId], references: [id])
+}
+
+// What the system admin changed in a workspace (SET_OWNER, REMOVE_MEMBER), shown to its members:
+// nothing an admin does there is silent
+model WorkspaceAdminAction {
+  id           String    @id @default(uuid()) @db.Uuid
+  workspaceId  String    @db.Uuid
+  action       String
+  targetUserId String?   @db.Uuid
+  targetName   String    @default("")
+  createdAt    DateTime  @default(now())
+  workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, createdAt])
 }
 
 model UserWorkspace {
