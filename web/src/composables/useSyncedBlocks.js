@@ -9,7 +9,7 @@ import { parseBlockUrl } from '../utils/editorLinks';
 
 // Synced blocks: a block shown on several pages and kept in step. Sources and the pages that
 // reference them live in a workspace-wide collab document; locks say which sources can be edited.
-export function useSyncedBlocks({ props, workspace, activeWorkspaceId, getResolvedPage, collabDoc, isCollabEnabled, getEditor, getHoveredSyncedSourceId }) {
+export function useSyncedBlocks({ props, workspace, activeWorkspaceId, getResolvedPage, collabDoc, isCollabEnabled, getEditor, getHoveredSyncedSourceId, isContentIn = () => true }) {
   const syncedWorkspaceDocName = computed(() => {
     const workspaceId = activeWorkspaceId.value;
     if (!workspaceId) return null;
@@ -21,8 +21,9 @@ export function useSyncedBlocks({ props, workspace, activeWorkspaceId, getResolv
     if (!getEditor()?.schema) return null;
     try {
       const user = workspace.activeUser || {};
-      const page = await api.getPage(pageId, { userId: user.id, userName: user.name });
-      const docJson = editorDocToTiptap(page?.content || page);
+      // As it is now: the block may have been typed moments ago
+      const content = await api.getPageContent(pageId, { userId: user.id, userName: user.name });
+      const docJson = editorDocToTiptap(content);
       const pmDoc = getEditor().schema.nodeFromJSON(docJson);
       return findBlockById(pmDoc, blockId);
     } catch (err) {
@@ -36,17 +37,14 @@ export function useSyncedBlocks({ props, workspace, activeWorkspaceId, getResolv
     if (resolved && unlockedSyncedSources.value.has(resolved)) return false;
     return !unlockedSyncedSources.value.has(sourceId);
   };
+  // Whether some page refers to this block (by its workspace key)
+  const hasRefs = (key) => {
+    const entry = key ? syncedWorkspaceRefsMap.value?.get(key) : null;
+    return entry instanceof Y.Map && entry.size > 0;
+  };
   const hasWorkspaceSyncedReference = (blockId) => {
     if (!blockId || !props.pageId) return false;
-    const map = syncedWorkspaceRefsMap.value;
-    if (!map) return false;
-    const key = workspaceSyncedKey(props.pageId, blockId);
-    if (!key) return false;
-    const entry = map.get(key);
-    if (entry instanceof Y.Map) {
-      return entry.size > 0;
-    }
-    return false;
+    return hasRefs(workspaceSyncedKey(props.pageId, blockId));
   };
   const syncedWorkspaceDoc = ref(null);
   const syncedWorkspaceProvider = ref(null);
@@ -177,7 +175,7 @@ export function useSyncedBlocks({ props, workspace, activeWorkspaceId, getResolv
   const updateSyncedWorkspaceSourcesFromDoc = () => {
     const map = syncedWorkspaceMap.value;
     const doc = syncedWorkspaceDoc.value;
-    if (!map || !doc || !getEditor() || !props.pageId) return;
+    if (!map || !doc || !getEditor() || !props.pageId || !isContentIn()) return;
     const localSourceKeys = new Set();
     getEditor().state.doc.descendants((node) => {
       if (!node.isBlock) return;
@@ -198,7 +196,9 @@ export function useSyncedBlocks({ props, workspace, activeWorkspaceId, getResolv
       if (isReference) {
         if (localSourceKeys.has(key)) return;
         if (isSyncedLocked(syncedFrom)) return;
-      } else if (!blockId) {
+      } else if (!blockId || !hasRefs(key)) {
+        // Only blocks something is synced from: the document goes to everyone in the workspace
+        // (every block of every page opened made it megabytes, private pages' blocks included)
         return;
       }
       const payload = serializeSyncedNode(node);
@@ -215,7 +215,9 @@ export function useSyncedBlocks({ props, workspace, activeWorkspaceId, getResolv
   const updateSyncedWorkspaceRefsFromDoc = () => {
     const refsMap = syncedWorkspaceRefsMap.value;
     const doc = syncedWorkspaceDoc.value;
-    if (!refsMap || !doc || !getEditor() || !props.pageId) return;
+    // Not before the page's content is in: counted on a page still empty, its references would be
+    // taken away, and with them (on the server) the blocks they show
+    if (!refsMap || !doc || !getEditor() || !props.pageId || !isContentIn()) return;
     const pageId = props.pageId;
     const counts = new Map();
     getEditor().state.doc.descendants((node) => {
@@ -280,7 +282,7 @@ export function useSyncedBlocks({ props, workspace, activeWorkspaceId, getResolv
   };
   const unbindSyncedWorkspaceRefsMap = () => {
     if (syncedWorkspaceRefsMap.value && syncedWorkspaceRefsObserver.value) {
-      syncedWorkspaceRefsMap.value.unobserve(syncedWorkspaceRefsObserver.value);
+      syncedWorkspaceRefsMap.value.unobserveDeep(syncedWorkspaceRefsObserver.value);
     }
     syncedWorkspaceRefsObserver.value = null;
     syncedWorkspaceRefsMap.value = null;
@@ -291,8 +293,13 @@ export function useSyncedBlocks({ props, workspace, activeWorkspaceId, getResolv
     if (!doc) return;
     const map = doc.getMap('syncedRefs');
     syncedWorkspaceRefsMap.value = map;
-    const observer = () => scheduleSyncedWorkspaceDecorationRefresh();
-    map.observe(observer);
+    // (Deep: each block's entry is a map of the pages referring to it)
+    const observer = (_events, transaction) => {
+      scheduleSyncedWorkspaceDecorationRefresh();
+      // A block here may have just become one a page is synced from: send it as it is now
+      if (transaction?.origin !== 'synced-ref-update') scheduleSyncedWorkspaceSourceUpdate();
+    };
+    map.observeDeep(observer);
     syncedWorkspaceRefsObserver.value = observer;
     scheduleSyncedWorkspaceDecorationRefresh();
   };
@@ -433,20 +440,30 @@ export function useSyncedBlocks({ props, workspace, activeWorkspaceId, getResolv
       window.alert('Block not found in this workspace.');
       return;
     }
-    if (syncedWorkspaceMap.value && syncedWorkspaceDoc.value && workspaceKey) {
-      const payload = serializeSyncedNode(sourceNode);
-      if (payload) {
-        const existing = syncedWorkspaceMap.value.get(workspaceKey);
-        if (!existing || JSON.stringify(syncedPayloadContent(existing)) !== JSON.stringify(payload)) {
-          syncedWorkspaceDoc.value.transact(() => {
-            syncedWorkspaceMap.value.set(workspaceKey, withSyncedOrigin(payload, targetPageId));
-          }, 'synced-source-update');
-        }
-      }
-    }
     const fromKey = sourceKey(targetPageId === props.pageId ? null : targetPageId, parsed.blockId);
     const node = createSyncedNodeFromSource(sourceNode, fromKey);
-    if (!node) return;
+    // (The page may have been left while the block was fetched)
+    if (!node || !getEditor() || getEditor().isDestroyed) return;
+    if (syncedWorkspaceMap.value && syncedWorkspaceDoc.value && workspaceKey) {
+      const payload = serializeSyncedNode(sourceNode);
+      const existing = syncedWorkspaceMap.value.get(workspaceKey);
+      syncedWorkspaceDoc.value.transact(() => {
+        if (payload && (!existing || JSON.stringify(syncedPayloadContent(existing)) !== JSON.stringify(payload))) {
+          syncedWorkspaceMap.value.set(workspaceKey, withSyncedOrigin(payload, targetPageId));
+        }
+        // With this page referring to it, in the same change: the server takes out blocks nothing
+        // refers to (the count is set exactly once the copy is in the page)
+        const refsMap = syncedWorkspaceRefsMap.value;
+        if (refsMap && props.pageId) {
+          let entry = refsMap.get(workspaceKey);
+          if (!(entry instanceof Y.Map)) {
+            entry = new Y.Map();
+            refsMap.set(workspaceKey, entry);
+          }
+          entry.set(props.pageId, (entry.get(props.pageId) || 0) + 1);
+        }
+      }, 'synced-source-update');
+    }
     const { state, view } = getEditor();
     const tr = state.tr.replaceSelectionWith(node, false).scrollIntoView();
     view.dispatch(tr);

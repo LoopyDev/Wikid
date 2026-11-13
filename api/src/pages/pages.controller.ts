@@ -152,6 +152,13 @@ export class PagesController {
     return this.pages.getPage(id, { userId, userName });
   }
 
+  // The page's content as it is now: its live document's, saved first if it's open (GET pages/:id
+  // has the stored copy, which can be behind what's being typed)
+  @Get('pages/:id/content')
+  async getPageContent(@Param('id') id: string, @CurrentUserId() userId?: string, @CurrentUserName() userName?: string) {
+    return { type: 'doc', content: await this.pageContent.readContent(id, { userId, userName }) };
+  }
+
   @Put('pages/:id/content')
   updatePageContent(
     @Param('id') id: string,

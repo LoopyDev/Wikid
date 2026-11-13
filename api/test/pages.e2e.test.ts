@@ -128,6 +128,16 @@ describe('editing pages', () => {
     expect(paragraphTexts((await alice.get(`/pages/${page.id}`)).body.content)).toEqual(['One', 'Two']);
   });
 
+  it('returns the content as it is now, to those who may read the page', async () => {
+    const page = await createPage(alice, workspaceId);
+    await alice.put(`/pages/${page.id}/content`, { content: docWithParagraphs('Now') });
+    const res = await bob.get(`/pages/${page.id}/content`);
+    expect(res.status).toBe(200);
+    expect(paragraphTexts(res.body)).toEqual(['Now']);
+    const secret = await createPage(alice, workspaceId, { visibility: 'PRIVATE' });
+    expect((await bob.get(`/pages/${secret.id}/content`)).status).toBe(403);
+  });
+
   it('refuses content saves while someone else has the page open', async () => {
     const page = await createPage(alice, workspaceId);
     await alice.get(`/pages/${page.id}`); // alice now holds the edit lock
