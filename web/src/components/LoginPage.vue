@@ -33,6 +33,7 @@ const handleLogin = async () => {
           Wikid
         </div>
         <h1 class="login-title">Sign in</h1>
+        <p v-if="workspace.sessionExpired" class="login-notice" role="status">Your session expired. Sign in again to carry on where you were.</p>
         <p class="login-subtitle">Use your email address or username.</p>
       </header>
       <form class="login-form" @submit.prevent="handleLogin">
