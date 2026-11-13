@@ -114,6 +114,25 @@ test.describe('live updates', () => {
     expect(lists).not.toContain('everything');
   });
 
+  test('catches up with changes made while the connection was down', async ({ alice, bob, workspaceId }) => {
+    // The live connection drops (the collab server restarting, say) while the API stays up, so no
+    // "Not connected" and no reload of everything
+    const sockets: { close: () => Promise<void> }[] = [];
+    await alice.routeWebSocket(/\/collab/, (ws) => {
+      ws.connectToServer();
+      sockets.push(ws);
+    });
+    await openPage(alice, await createPage(alice, workspaceId, { title: 'Open here' }));
+    const other = await createPage(alice, workspaceId, { title: 'Before the drop' });
+    const sidebar = alice.locator('aside.sidebar');
+    await expect(sidebar.getByText('Before the drop', { exact: true })).toBeVisible();
+    expect(sockets.length).toBeGreaterThan(0);
+    await Promise.all(sockets.splice(0).map((ws) => ws.close()));
+    // Announced while Alice can't hear it (she reconnects about a second later)
+    await bob.request.patch(`/api/pages/${other}`, { data: { title: 'Renamed while away' } });
+    await expect(sidebar.getByText('Renamed while away', { exact: true })).toBeVisible();
+  });
+
   test('making a page a wiki catches others up with the pages under it too', async ({ alice, bob, workspaceId }) => {
     const home = await createPage(alice, workspaceId, { title: 'Wiki home' });
     const child = await createPage(alice, workspaceId, { title: 'Under the home', parentId: home });

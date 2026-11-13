@@ -106,6 +106,7 @@ describe('the page list', () => {
     expect(repeated.map((p) => p.id).sort()).toEqual([a.id, b.id].sort());
     expect((await alice.get(`/pages?workspaceId=${workspaceId}&ids=${a.id},nope`)).status).toBe(400);
     const tooMany = Array.from({ length: 101 }, () => a.id).join(',');
+    expect((await alice.get(`/pages?workspaceId=${workspaceId}&ids=`)).status).toBe(400);
     expect((await alice.get(`/pages?workspaceId=${workspaceId}&ids=${tooMany}`)).status).toBe(400);
   });
 });

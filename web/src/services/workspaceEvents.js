@@ -7,13 +7,20 @@ import { createCollabProvider } from './collabSocket';
 
 /**
  * Joins a workspace's events channel. `getToken` returns a collab token (it's called again on
- * reconnect, so an expired token is replaced). Returns a function that leaves the channel.
+ * reconnect, so an expired token is replaced); `onReconnected` is called when it's back after a drop.
+ * Returns a function that leaves the channel.
  */
-export function connectWorkspaceEvents({ url, workspaceId, getToken, onPagesChanged, onDatabaseChanged }) {
+export function connectWorkspaceEvents({ url, workspaceId, getToken, onPagesChanged, onDatabaseChanged, onReconnected }) {
+  let syncedBefore = false;
   const provider = createCollabProvider({
     url,
     name: `ws:${workspaceId}:events`,
     token: getToken,
+    // Synced again after the connection dropped: messages sent meanwhile were missed
+    onSynced: () => {
+      if (syncedBefore) onReconnected?.();
+      syncedBefore = true;
+    },
     onStateless: ({ payload }) => {
       let message = null;
       try {

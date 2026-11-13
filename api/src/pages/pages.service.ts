@@ -76,8 +76,8 @@ export class PagesService {
   async listPages(params: { workspaceId?: string; userId?: string; userName?: string; includeDeleted?: boolean; state?: string; includeTemplates?: boolean; ids?: string[] }) {
     const { workspaceId, userId, userName, includeDeleted, state, includeTemplates } = params;
     const ids = params.ids;
-    if (ids && (ids.length > MAX_LISTED_IDS || !ids.every((id) => isUuid(id)))) {
-      throw new BadRequestException(`ids must be up to ${MAX_LISTED_IDS} page ids`);
+    if (ids && (!ids.length || ids.length > MAX_LISTED_IDS || !ids.every((id) => isUuid(id)))) {
+      throw new BadRequestException(`ids must be 1 to ${MAX_LISTED_IDS} page ids`);
     }
     if (!userId) {
       throw new BadRequestException('userId is required');
