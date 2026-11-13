@@ -51,7 +51,8 @@ test.describe('synced blocks', () => {
 /** Connects to the workspace's synced-blocks document as someone with the workspace open. */
 async function connectSyncedBlocksDoc(page: Page, workspaceId: string) {
   const { token } = await (await page.request.post('/api/collab/token', { data: { workspaceId } })).json();
-  const base = new URL(process.env.WIKID_BASE_URL || 'http://localhost:8089');
+  // The stack the browser tests run against (playwright.config's baseURL)
+  const base = new URL(test.info().project.use.baseURL!);
   const url = `${base.protocol === 'https:' ? 'wss:' : 'ws:'}//${base.host}/collab`;
   const doc = new Y.Doc();
   const provider = new HocuspocusProvider({ url, name: `ws:${workspaceId}:synced-blocks`, token, document: doc });
