@@ -161,7 +161,7 @@ watch(settingsTab, (tab) => {
 
 <template>
   <div class="settings-popup-backdrop" @click.self="emit('close')">
-    <div class="settings-popup-card">
+    <div v-dialog class="settings-popup-card" aria-label="Settings">
       <button class="settings-close-btn" type="button" aria-label="Close settings" @click="emit('close')">×</button>
       <div class="settings-popup-nav">
         <span class="settings-nav-section-label">Account</span>

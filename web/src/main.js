@@ -4,6 +4,7 @@ import './style.css';
 import 'bootstrap-icons/font/bootstrap-icons.css';
 import App from './App.vue';
 import PrintApp from './PrintApp.vue';
+import { dialog } from './directives/dialog';
 
 const isPrint = window.location.pathname.startsWith('/print/');
 const app = createApp(isPrint ? PrintApp : App);
@@ -20,5 +21,6 @@ if (debugErrors) {
     console.error('[error-debug] unhandledrejection', event.reason);
   });
 }
+app.directive('dialog', dialog);
 app.use(createPinia());
 app.mount('#app');

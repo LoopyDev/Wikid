@@ -27,7 +27,7 @@ const submitCreateWorkspace = async () => {
 
 <template>
   <div class="modal-backdrop" @click.self="emit('close')">
-    <div class="modal-card">
+    <div v-dialog="() => emit('close')" class="modal-card">
       <h3>New workspace</h3>
       <form @submit.prevent="submitCreateWorkspace">
         <input

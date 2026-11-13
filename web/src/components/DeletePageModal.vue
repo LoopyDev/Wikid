@@ -12,7 +12,7 @@ const emit = defineEmits(['cancel', 'confirm']);
 
 <template>
   <div class="modal-backdrop" @click.self="emit('cancel')">
-    <div class="modal-card delete-modal-card">
+    <div v-dialog="() => emit('cancel')" class="modal-card delete-modal-card">
       <h3>Delete page</h3>
       <p class="muted">
         You are about to delete "{{ page?.title || 'Untitled page' }}" and its sub-pages.

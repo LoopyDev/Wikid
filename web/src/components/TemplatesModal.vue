@@ -110,7 +110,7 @@ onMounted(() => workspace.loadTemplates());
 
 <template>
   <div class="modal-backdrop" @click.self="emit('close')">
-    <div class="modal-card templates-modal" role="dialog" aria-labelledby="templates-modal-title">
+    <div v-dialog="() => emit('close')" class="modal-card templates-modal" role="dialog" aria-labelledby="templates-modal-title">
       <h3 id="templates-modal-title">Templates</h3>
       <p class="muted">
         Start a page from a template, or open one to change it. To make one from a page you've written, use

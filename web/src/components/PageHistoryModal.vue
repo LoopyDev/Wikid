@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue';
+import { computed, onMounted, ref, shallowRef } from 'vue';
 import { api } from '../api/client';
 import TiptapEditor from './TiptapEditor.vue';
 import { changesStyle, compareVersions, outermost } from '../utils/versionChanges';
@@ -112,12 +112,7 @@ const restore = async () => {
   }
 };
 
-const onKeydown = (event) => {
-  if (event.key === 'Escape') emit('close');
-};
-
 onMounted(async () => {
-  window.addEventListener('keydown', onKeydown);
   try {
     versions.value = await api.listPageVersions(props.pageId);
     if (versions.value.length) await select(versions.value[0].id);
@@ -127,14 +122,13 @@ onMounted(async () => {
     loading.value = false;
   }
 });
-onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
 
 const noOp = () => {};
 </script>
 
 <template>
   <div class="modal-backdrop page-history-backdrop" @click.self="emit('close')">
-    <div class="modal-card page-history" role="dialog" aria-labelledby="page-history-title">
+    <div v-dialog="() => emit('close')" class="modal-card page-history" role="dialog" aria-labelledby="page-history-title">
       <header class="page-history__header">
         <h3 id="page-history-title">Page history</h3>
         <button class="ghost-btn page-history__close" type="button" aria-label="Close" @click="emit('close')">×</button>
