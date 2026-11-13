@@ -87,7 +87,7 @@ export class DatabasesService {
     const parentId = wikiHomeId || databasePage.id;
     const pageTitle = title || 'Untitled page';
     const authorId = isUuid(user?.userId) ? user?.userId : null;
-    return this.prisma.page.create({
+    const page = await this.prisma.page.create({
       data: {
         workspaceId: databasePage.workspaceId,
         parentId,
@@ -101,6 +101,9 @@ export class DatabasesService {
         isHidden: !wikiHomeId,
       },
     });
+    // Others' page lists fetch only the pages announced
+    this.collabSync.announcePagesChanged(page.workspaceId, [page.id]);
+    return page;
   }
 
   async getDatabaseForPage(
@@ -1058,6 +1061,7 @@ export class DatabasesService {
           { id: pageRecord.id, workspaceId: pageRecord.workspaceId, kind: pageRecord.kind },
           pageRecord.title
         );
+        this.collabSync.announcePagesChanged(pageRecord.workspaceId, [pageRecord.id]);
         if (updateData.data && typeof updateData.data === 'object' && !Array.isArray(updateData.data)) {
           (updateData.data as Record<string, any>).__pageId = pageId;
         }
@@ -1146,6 +1150,7 @@ export class DatabasesService {
           { id: updatedPage.id, workspaceId: updatedPage.workspaceId, kind: updatedPage.kind },
           updatedPage.title
         );
+        this.collabSync.announcePagesChanged(updatedPage.workspaceId, [updatedPage.id]);
         return { row, page: updatedPage };
       }
       return { row, page };

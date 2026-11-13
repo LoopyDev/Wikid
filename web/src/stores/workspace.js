@@ -451,6 +451,12 @@ export const useWorkspaceStore = defineStore('workspace', {
           return res?.token || '';
         },
         onPagesChanged: (message) => this.handlePagesChanged(message),
+        // Changes made while the connection was down were never announced here: the whole list
+        onReconnected: () => {
+          if (this.activeWorkspaceId === workspaceId) {
+            this.loadPageList(workspaceId, { keepBin: true }).catch((err) => console.warn('Page list refresh failed', err));
+          }
+        },
         onDatabaseChanged: (message) => {
           if (message?.pageId) this.databaseChangedAt = { ...this.databaseChangedAt, [message.pageId]: Date.now() };
         },
@@ -493,8 +499,16 @@ export const useWorkspaceStore = defineStore('workspace', {
       }
       const openTitle = this.currentPage?.title || '';
       // Only the pages that changed (all of them again only for a big change, many pages at once)
-      if (changedIds.size <= CHANGED_PAGES_FETCH_LIMIT) await this.loadChangedPages(workspaceId, changedIds);
-      else await this.loadPageList(workspaceId, { keepBin: true });
+      if (changedIds.size > CHANGED_PAGES_FETCH_LIMIT) await this.loadPageList(workspaceId, { keepBin: true });
+      else {
+        try {
+          await this.loadChangedPages(workspaceId, changedIds);
+        } catch (err) {
+          // Not caught up, and nothing would catch this change up later: the whole list instead
+          console.warn('Live page refresh failed', err);
+          await this.loadPageList(workspaceId, { keepBin: true });
+        }
+      }
       // The open page left the list, and not for the Bin (that has its notice): moved to another
       // workspace, or made private by someone else. It used to vanish without a word
       const openId = this.activePageId;
@@ -1063,7 +1077,9 @@ export const useWorkspaceStore = defineStore('workspace', {
     upsertPage(page) {
       const existing = this.pages.find((p) => p.id === page.id);
       const pending = this.pendingTitleUpdates?.[page.id] || null;
-      let nextPage = existing ? { ...existing, ...page } : page;
+      // Not its content: the list holds every page's entry, and the open page's content is in `doc`
+      const { content: _content, ...entry } = page;
+      let nextPage = existing ? { ...existing, ...entry } : entry;
       if (pending && typeof pending.title === 'string') {
         if ((page.title ?? '') === pending.title) {
           this.clearPendingTitle(page.id);
@@ -1248,17 +1264,7 @@ export const useWorkspaceStore = defineStore('workspace', {
         if (res?.databasePage) {
           this.upsertPage(res.databasePage);
         }
-        if (this.activeWorkspaceId) {
-          const pages = await api.listPages({
-            workspaceId: this.activeWorkspaceId,
-            userId: this.activeUser.id,
-            userName: this.activeUser.name,
-            includeTemplates: true,
-          });
-          if (Array.isArray(pages)) {
-            this.pages = pages;
-          }
-        }
+        if (this.activeWorkspaceId) await this.loadPageList(this.activeWorkspaceId, { keepBin: true });
         return res;
       } catch (err) {
         console.warn('Convert to wiki failed', err);
