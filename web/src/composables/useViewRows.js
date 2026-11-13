@@ -1,7 +1,7 @@
 import { computed } from 'vue';
 import { isPageField, normalizeFieldOptions } from '../utils/database/fieldOptions';
 import { getMultiSelectValues, stringifyValue, valueForField } from '../utils/database/cellValues';
-import { toComparableDate } from '../utils/database/views';
+import { operatorNeedsValue, toComparableDate } from '../utils/database/views';
 
 // The rows a saved view shows: its filters and sort applied to the table's rows, and the board's
 // columns and gallery's cards built from them. sortedRows gives them after the table's sort and
@@ -32,9 +32,13 @@ export function useViewRows({ fields, fieldById, tableRows, activeSavedView, isB
     }
 
     if (field.type === 'NUMBER') {
-      const a = Number(valueForField(row, field));
+      // An empty cell isn't 0 (Number('') is): it's "not" any number, and never more or less than one
+      const raw = valueForField(row, field);
       const b = Number(rule.value);
-      if (Number.isNaN(a) || Number.isNaN(b)) return false;
+      if (Number.isNaN(b)) return false;
+      if (raw === '' || raw == null) return operator === 'is_not';
+      const a = Number(raw);
+      if (Number.isNaN(a)) return false;
       switch (operator) {
         case 'is':
           return a === b;
@@ -105,7 +109,11 @@ export function useViewRows({ fields, fieldById, tableRows, activeSavedView, isB
   const viewFilteredRows = computed(() => {
     const base = tableRows.value;
     const view = activeSavedView.value;
-    const rules = (view?.config?.filters?.rules || []).filter((rule) => fieldById.value.has(rule.fieldId));
+    // A rule still waiting for its value isn't one yet (a new filter, "Name is …", hid every row; as a
+    // rule that let every row through, it would undo the others in a "match any" view)
+    const rules = (view?.config?.filters?.rules || []).filter(
+      (rule) => fieldById.value.has(rule.fieldId) && (!operatorNeedsValue(rule.operator) || String(rule.value ?? '').trim() !== '')
+    );
     if (!rules.length) return base;
     const mode = view.config.filters.match === 'OR' ? 'some' : 'every';
     return base.filter((row) => rules[mode]((rule) => matchesFilterRule(row, rule)));

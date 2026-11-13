@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { handleNumberKeydown, isNumberInputCandidateValid, sanitizeNumberInput } from './cellInput';
+import { handleNumberKeydown, isNumberInputCandidateValid, isUnfinishedNumber, sanitizeNumberInput } from './cellInput';
 import { colorFromId, presencePalette } from '../presenceColor';
 
 const keydown = (key, value, selectionStart = value.length, selectionEnd = selectionStart) => {
@@ -40,4 +40,10 @@ describe('presence colours', () => {
     expect(presencePalette).toContain(colorFromId('user-2'));
     expect(presencePalette).toContain(colorFromId());
   });
+
+  it("knows the start of a number that isn't one yet", () => {
+    for (const unfinished of ['-', '.', '-.']) expect(isUnfinishedNumber(unfinished), unfinished).toBe(true);
+    for (const number of ['', '0', '.5', '-.25', '1.', '-3']) expect(isUnfinishedNumber(number), number).toBe(false);
+  });
 });
+

@@ -4,7 +4,7 @@ import { AUTO_SIZE_MULTI_MEMBERS_PLACEHOLDER, AUTO_SIZE_MULTI_PLACEHOLDER, AUTO_
 import { formatDateTime } from '../utils/date-format';
 import { getAssetTagValue, getMultiSelectValues, getRelationEntries, valueForField } from '../utils/database/cellValues';
 import { getRelationConfig, isAssetTagField, isFieldReadOnly, isLastEditedField, isLinkedFromField, isPageField, isPageFieldEditable, isPeopleField, isPersonField } from '../utils/database/fieldOptions';
-import { handleCellConfirmKeydown, handleNumberKeydown, handleNumberPaste, sanitizeNumberInput } from '../utils/database/cellInput';
+import { handleCellConfirmKeydown, handleNumberKeydown, handleNumberPaste, isUnfinishedNumber, sanitizeNumberInput } from '../utils/database/cellInput';
 import { multiSelectPillStyle, rowColor } from '../utils/database/colors';
 import { keptValueFor, keptValueText, notFitText } from '../utils/database/typeChange';
 import { linkHref } from '../utils/database/links';
@@ -13,6 +13,8 @@ import { linkHref } from '../utils/database/links';
 // pills, relations, members, asset tags, page titles (with their page link) and read-only values,
 // with the editing caret and who-is-here presence.
 export function useCellRenderer({ choiceColorForValue, getChoiceLabel, isReadonly, markCellFocus, markCellBlur, openMultiSelectMenu, isChoiceMenuOpen, getCellPresence, cellEditor, caretLeftForCell, openAssetTagPreview, rowPageId, getRowPageTitle, openRowPageOverlay, pageMap, workspace, resolveRowPage, ensureRowPage, applyLocalPageTitleUpdate, schedulePageTitleUpdate, tableWrapRef, pendingEnsureRowPages, scheduleSortRefresh, handleCaretNavigate, handleCaretMouse, markCellTyping, updateCell, setCellInputRef, resolveRowLastEdited, relationOptionsByPageId, relationOptionsLoading, loadRelationOptions, relationOptionsForPage, relationOptionsLoadingForPage, relationOptionsErrorForPage, getFieldChoices, linkedRowsFor, getRelationLabel, getRelationColor, openRelatedRow }) {
+  // Numbers being typed that aren't numbers yet, by "rowId:fieldId" (see the NUMBER cell below)
+  const unfinishedNumbers = new Map();
   const renderMultiSelectCell = (row, field) => {
     const values = getMultiSelectValues(row, field);
     const placeholder =
@@ -407,7 +409,9 @@ export function useCellRenderer({ choiceColorForValue, getChoiceLabel, isReadonl
         inputmode: 'decimal',
         pattern: '^-?\\d*\\.?\\d*$',
           step: 'any',
-          value: kept === undefined ? valueForField(row, field) : '',
+          // A number being typed that isn't one yet ("-", "."): drawn from what was typed, not the saved
+          // value (the table redraws as you type, and that put the saved value back over it)
+          value: unfinishedNumbers.has(`${row.id}:${field.id}`) ? unfinishedNumbers.get(`${row.id}:${field.id}`) : kept === undefined ? valueForField(row, field) : '',
           disabled: cellDisabled,
           onKeydown: (event) => {
             handleNumberKeydown(event);
@@ -423,10 +427,25 @@ export function useCellRenderer({ choiceColorForValue, getChoiceLabel, isReadonl
               event.target.value = cleaned;
             }
             markCellTyping(row.id, field.id, event.target);
+            // Not saved until it's a number (see isUnfinishedNumber)
+            const key = `${row.id}:${field.id}`;
+            if (isUnfinishedNumber(cleaned)) {
+              unfinishedNumbers.set(key, cleaned);
+              return;
+            }
+            unfinishedNumbers.delete(key);
             updateCell(row, field, cleaned, { raw: true, deferSort: true });
           },
           onBlur: (event) => {
             const cleaned = sanitizeNumberInput(event.target.value);
+            unfinishedNumbers.delete(`${row.id}:${field.id}`);
+            // Left as "-" or ".": what's saved comes back (clearing it could wipe a value someone else
+            // saved meanwhile)
+            if (isUnfinishedNumber(cleaned)) {
+              event.target.value = valueForField(row, field) ?? '';
+              markCellBlur();
+              return;
+            }
             if (event.target.value !== cleaned) {
               event.target.value = cleaned;
               updateCell(row, field, cleaned, { deferSort: true });
@@ -434,7 +453,11 @@ export function useCellRenderer({ choiceColorForValue, getChoiceLabel, isReadonl
             markCellBlur();
             scheduleSortRefresh();
           },
-          ref: setCellInputRef(row.id, field.id),
+          // (the draft goes with the box: a row a filter hides, another view)
+          ref: ((setRef) => (el) => {
+            setRef(el);
+            if (!el) unfinishedNumbers.delete(`${row.id}:${field.id}`);
+          })(setCellInputRef(row.id, field.id)),
         })
       );
     }
