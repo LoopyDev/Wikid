@@ -1792,6 +1792,11 @@ const handleEmojiKeydown = (event) => {
     if (showSettingsPopup.value) {
       event.preventDefault();
       closeSettingsPopup();
+    } else if (showUserMenu.value) {
+      // The user menu closes too (it didn't), and focus goes back to its button
+      event.preventDefault();
+      showUserMenu.value = false;
+      document.querySelector('aside.sidebar .user-switch')?.focus({ preventScroll: true });
     } else {
       closeEmojiPicker();
     }

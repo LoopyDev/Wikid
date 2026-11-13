@@ -261,7 +261,7 @@ const submit = () => {
 
 <template>
   <div class="modal-backdrop" @click.self="emit('cancel')">
-    <div class="modal-card compliance-setup-modal">
+    <div v-dialog class="modal-card compliance-setup-modal">
       <h3>Create compliance database</h3>
       <p class="muted">Define the data model and compliance workflow for this database.</p>
       <div class="compliance-setup__body">

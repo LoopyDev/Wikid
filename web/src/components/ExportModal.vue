@@ -200,7 +200,7 @@ onMounted(() => {
 
 <template>
   <div class="modal-backdrop" @click.self="close">
-    <div class="modal-card export-html-modal">
+    <div v-dialog="close" class="modal-card export-html-modal">
       <h3>Export</h3>
       <div class="export-format-bar">
         <button type="button" :class="['export-format-btn', { active: exportFormat === 'html' }]" @click="exportFormat = 'html'">HTML</button>

@@ -48,7 +48,7 @@ const confirmMoveToWorkspace = async () => {
 
 <template>
   <div class="modal-backdrop" @click.self="emit('close')">
-    <div class="modal-card move-workspace-modal">
+    <div v-dialog="() => emit('close')" class="modal-card move-workspace-modal">
       <h3>Move to workspace</h3>
       <p class="muted">The following pages will be moved out of this workspace.</p>
       <div class="move-workspace-modal__body">

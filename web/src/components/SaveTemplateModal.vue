@@ -41,7 +41,7 @@ const openTemplate = async () => {
 
 <template>
   <div class="modal-backdrop" @click.self="emit('close')">
-    <div class="modal-card save-template-modal" role="dialog" aria-labelledby="save-template-title">
+    <div v-dialog="() => emit('close')" class="modal-card save-template-modal" role="dialog" aria-labelledby="save-template-title">
       <h3 id="save-template-title">Save as template</h3>
       <template v-if="!saved">
         <p class="muted">

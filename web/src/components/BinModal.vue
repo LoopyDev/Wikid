@@ -41,6 +41,12 @@ const canRestore = computed(() => workspace.canEditActiveWorkspace);
 // The owner (as the server has it, a system admin too)
 const canDestroy = computed(() => workspace.activeWorkspaceRole === 'OWNER' || workspace.activeUser?.id === SYSTEM_ADMIN_ID);
 const confirmingDestroy = ref(false);
+// Escape backs out of a question first (delete for good, where to restore to), then closes
+const escape = () => {
+  if (confirmingDestroy.value) confirmingDestroy.value = false;
+  else if (choosing.value) choosing.value = null;
+  else emit('close');
+};
 const binCount = computed(() => workspace.binPages.length);
 const destroyBin = async () => {
   confirmingDestroy.value = false;
@@ -53,7 +59,7 @@ const destroyBin = async () => {
 
 <template>
   <div class="modal-backdrop" @click.self="emit('close')">
-    <div class="modal-card delete-modal-card">
+    <div v-dialog="escape" class="modal-card delete-modal-card">
       <h3>Rubbish bin</h3>
       <p class="muted">Recently deleted pages. Restore to bring them back into the workspace.</p>
       <div v-if="choosing" class="bin-choice" role="group" aria-label="Where to restore the page">

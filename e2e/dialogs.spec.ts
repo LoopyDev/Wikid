@@ -155,4 +155,82 @@ test.describe('dialogs', () => {
     await expect(setup).toHaveCount(0);
     await expect.poll(async () => (await (await page.request.get(`/api/pages/${id}`)).json()).kind).toBe('DATABASE');
   });
+
+  test("Tab stays inside a dialog, not reaching the page behind; Escape closes it and focus goes back", async ({ alice: page, workspaceId }) => {
+    const id = await createPage(page, workspaceId, { title: 'Behind the dialog' });
+    expect((await page.request.put(`/api/pages/${id}/content`, { data: { content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Text' }] }] } } })).status()).toBe(200);
+    await openPage(page, id);
+    await main(page).getByRole('button', { name: 'Page actions' }).click();
+    await page.getByText('Export', { exact: true }).click();
+    const exporting = dialog(page, 'Export');
+    await expect(exporting).toBeVisible();
+    await expect(exporting).toHaveAttribute('role', 'dialog');
+    const focusInside = () => exporting.evaluate((el) => el.contains(document.activeElement));
+    await expect.poll(focusInside).toBe(true);
+    for (let i = 0; i < 12; i += 1) {
+      await page.keyboard.press(i % 4 === 3 ? 'Shift+Tab' : 'Tab');
+      expect(await focusInside()).toBe(true);
+    }
+    // The page's text wasn't indented by those Tabs (it was, each one)
+    const indent = await page.evaluate(() => (document.querySelector('.ProseMirror') as any).editor.getJSON().content[0].attrs.indent);
+    expect(indent ?? 0).toBe(0);
+    await page.keyboard.press('Escape');
+    await expect(exporting).toHaveCount(0);
+    await expect(main(page).getByRole('button', { name: 'Page actions' })).toBeFocused();
+  });
+
+  test('Escape closes every dialog, and the user menu', async ({ alice: page, workspaceId }) => {
+    const title = unique('Dialog page');
+    await openPage(page, await createPage(page, workspaceId, { title }));
+    const closesOnEscape = async (heading: string) => {
+      const open = dialog(page, heading);
+      await expect(open).toBeVisible();
+      await page.keyboard.press('Escape');
+      await expect(open).toHaveCount(0);
+    };
+
+    await sidebar(page).getByRole('button', { name: '🗑️ Bin' }).click();
+    await closesOnEscape('Rubbish bin');
+    await sidebar(page).getByRole('button', { name: '📋 Templates' }).click();
+    await closesOnEscape('Templates');
+    await main(page).getByRole('button', { name: 'Page actions' }).click();
+    await page.getByText('Save as template…', { exact: true }).click();
+    await closesOnEscape('Save as template');
+
+    const item = sidebarItem(page, title);
+    for (const [action, heading] of [['Move to workspace…', 'Move to workspace'], ['Delete', 'Delete page']]) {
+      await item.hover();
+      await item.locator('.page-menu-btn').click();
+      await page.locator('.page-menu').getByRole('button', { name: action }).click();
+      // Not with focus on a button there, where Enter would act (Delete deleted the page)
+      await expect(dialog(page, heading)).toBeVisible();
+      await expect.poll(() => page.evaluate(() => document.activeElement?.tagName)).not.toBe('BUTTON');
+      await closesOnEscape(heading);
+    }
+    await expect(sidebarItem(page, title)).toBeVisible();
+
+    await sidebar(page).locator('.user-switch').click();
+    const menu = page.locator('.popover-card.context-menu');
+    await expect(menu).toBeVisible();
+    await menu.getByRole('button', { name: 'Create workspace' }).click();
+    await closesOnEscape('New workspace');
+    await sidebar(page).locator('.user-switch').click();
+    await expect(menu).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(menu).toHaveCount(0);
+    await expect(sidebar(page).locator('.user-switch')).toBeFocused();
+
+    // In the Bin, Escape backs out of "delete for good" first, then closes it
+    expect((await page.request.delete(`/api/pages/${await createPage(page, workspaceId, { title: 'Binned' })}`)).status()).toBe(200);
+    await sidebar(page).getByRole('button', { name: '🗑️ Bin' }).click();
+    const bin = dialog(page, 'Rubbish bin');
+    await bin.getByRole('button', { name: 'Delete all' }).click();
+    await expect(bin.getByRole('alertdialog')).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(bin.getByRole('alertdialog')).toHaveCount(0);
+    await expect(bin).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(bin).toHaveCount(0);
+  });
 });
+

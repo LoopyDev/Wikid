@@ -88,7 +88,7 @@ onBeforeUnmount(() => clearTimeout(timer));
 
 <template>
   <div class="search-backdrop" @mousedown.self="emit('close')">
-    <div class="search-dialog" role="dialog" aria-modal="true" aria-label="Search">
+    <div v-dialog class="search-dialog" role="dialog" aria-modal="true" aria-label="Search">
       <div class="search-dialog__field">
         <i class="bi bi-search" aria-hidden="true"></i>
         <input
