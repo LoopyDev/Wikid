@@ -166,9 +166,7 @@ export class PageAccessService {
         isTemplate: true,
       },
     });
-    if (page.isDeleted && !options.allowDeleted) {
-      throw new NotFoundException('Page is in the bin');
-    }
+    // Who may see it first: only someone who could open the page learns that it's in the bin
     const membership = await this.requireMembership(userId, page.workspaceId);
     if (page.visibility === PageVisibility.PRIVATE && !isAdmin) {
       if (membership.role === WorkspaceRole.VIEWER) {
@@ -177,6 +175,9 @@ export class PageAccessService {
       if (!page.authorId || page.authorId !== userId) {
         throw new ForbiddenException('Forbidden: private page access denied');
       }
+    }
+    if (page.isDeleted && !options.allowDeleted) {
+      throw new NotFoundException({ message: 'Page is in the bin', code: 'PAGE_IN_BIN' });
     }
     if (options.requireWrite && !canEdit(membership.role)) {
       throw new ForbiddenException('Forbidden: editor access required');

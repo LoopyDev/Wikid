@@ -1211,6 +1211,18 @@ const handleTitleInput = (event) => {
 const titleHistory = useTextHistory({ apply: (el) => handleTitleInput({ target: el }) });
 watch(activePageId, () => titleHistory.reset());
 
+// Restore on the "page is in the Bin" screen
+const restoringProblemPage = ref(false);
+const restoreProblemPage = async () => {
+  if (restoringProblemPage.value) return;
+  restoringProblemPage.value = true;
+  try {
+    await workspace.restoreProblemPage();
+  } finally {
+    restoringProblemPage.value = false;
+  }
+};
+
 const handleTitleEnter = (event) => {
   if (!canEditPage.value) return;
   if (isDatabasePage.value) return;
@@ -1833,7 +1845,9 @@ const parseFormIdFromPath = () => {
 };
 const updateUrlForPage = (pageId) => {
   if (isDevMode.value || typeof window === 'undefined') return;
-  const target = pageId ? `/doc/${pageId}` : '/';
+  // A page that couldn't be opened keeps its address, to try again or pass on
+  const id = pageId || workspace.pageProblem?.pageId;
+  const target = id ? `/doc/${id}` : '/';
   const hash = window.location.hash || '';
   if (window.location.pathname !== target || window.location.hash !== hash) {
     window.history.replaceState({}, '', `${target}${hash}`);
@@ -2516,6 +2530,39 @@ if (typeof window !== 'undefined') {
             <button class="ghost-btn ghost-btn-background" type="button" @click="createWorkspace">Create workspace</button>
           </div>
         </template>
+        <template v-else-if="workspace.pageProblem && !workspace.currentPage">
+          <div v-if="isSidebarHidden" class="empty-state-topbar">
+            <button type="button" class="ghost-btn topbar-sidebar-toggle" aria-label="Show sidebar" title="Show sidebar" @click="showSidebar">
+              <PageIcon class="topbar-sidebar-icon" icon="icon:list" fallback="Menu" aria-hidden="true" />
+            </button>
+          </div>
+          <div class="empty-state page-problem" role="status">
+            <template v-if="workspace.pageProblem.kind === 'binned'">
+              <h1>This page is in the Bin</h1>
+              <p v-if="canEditWorkspace" class="muted">Restore it to open it again.</p>
+              <p v-else class="muted">Someone who can edit the workspace can restore it.</p>
+              <button v-if="canEditWorkspace" class="ghost-btn ghost-btn-background" type="button" :disabled="restoringProblemPage" @click="restoreProblemPage">
+                {{ restoringProblemPage ? 'Restoring…' : 'Restore' }}
+              </button>
+              <p v-if="workspace.pageProblem.restoreError" class="alert">{{ workspace.pageProblem.restoreError }}</p>
+            </template>
+            <template v-else-if="workspace.pageProblem.kind === 'missing'">
+              <h1>This page doesn't exist</h1>
+              <p class="muted">It may have been deleted for good, or the link is wrong.</p>
+            </template>
+            <template v-else-if="workspace.pageProblem.kind === 'forbidden'">
+              <h1>You can't open this page</h1>
+              <p class="muted">It's private, or in a workspace you're not a member of.</p>
+            </template>
+            <template v-else>
+              <h1>This page couldn't be loaded</h1>
+              <p class="muted">{{ workspace.pageProblem.message }}</p>
+              <button class="ghost-btn ghost-btn-background" type="button" :disabled="loadingDoc" @click="workspace.loadPageDoc(workspace.pageProblem.pageId)">
+                {{ loadingDoc ? 'Trying…' : 'Try again' }}
+              </button>
+            </template>
+          </div>
+        </template>
         <template v-else-if="!workspace.currentPage">
           <div v-if="isSidebarHidden" class="empty-state-topbar">
             <button
@@ -2610,8 +2657,12 @@ if (typeof window !== 'undefined') {
               class="page-body-slot"
               :class="{ 'page-body-slot--holding': pageHoldStage }"
             >
-            <div v-if="error" class="alert">{{ error }}</div>
-            <div v-else-if="loadingDoc" class="muted">Loading page...</div>
+            <!-- Something that went wrong (a rename, a move): above the page, until dismissed or another page -->
+            <div v-if="error" class="alert alert--banner" role="alert">
+              <span>{{ error }}</span>
+              <button class="alert__dismiss" type="button" aria-label="Dismiss" title="Dismiss" @click="workspace.error = null">×</button>
+            </div>
+            <div v-if="loadingDoc" class="muted">Loading page...</div>
             <section
               v-else
               class="page-body"
