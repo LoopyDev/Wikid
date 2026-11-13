@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test';
-import { test, expect, createPage, openPage, editor, outline, placeCursor, waitForSaved } from './fixtures';
+import { test, expect, createPage, openPage, editor, outline, blockTexts, placeCursor, waitForSaved } from './fixtures';
 
 // The editor's menus: the slash menu, the block menu behind the drag handle, and dragging blocks.
 
@@ -500,6 +500,9 @@ test.describe('editor menus', () => {
     // Bob adds a line at the top, which moves everything after it
     await placeCursor(bob, 0, 'start');
     await bob.keyboard.press('Enter');
+    // The new line is there before Bob moves up to it: keys a few milliseconds apart sometimes lost
+    // it (about 1 run in 75, a separate race; noted in the to-do)
+    await expect.poll(() => blockTexts(bob)).toEqual(['', 'alpha', 'beta', 'gamma target']);
     await bob.keyboard.press('ArrowUp');
     await bob.keyboard.type('new top', { delay: 20 });
     await expect.poll(() => outline(alice)).toEqual(['paragraph: new top', 'paragraph: alpha', 'paragraph: beta', 'paragraph: gamma target']);
