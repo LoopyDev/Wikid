@@ -10,7 +10,7 @@ import { DatabaseSetupService } from './database-setup.service';
 import { CollabSyncService } from './collab-sync.service';
 import { WikiService } from './wiki.service';
 import { PageContentService } from './page-content.service';
-import { POSITION_INCREMENT, canEdit, normalizePageTitle, canReadOthersPrivatePages } from './pages.shared';
+import { MAX_LISTED_IDS, POSITION_INCREMENT, canEdit, normalizePageTitle, canReadOthersPrivatePages } from './pages.shared';
 
 // Pages: listing, reading, editing, edit locks, visibility, moving, reordering, setup,
 // bin and permanent delete, and the legacy blocks API.
@@ -70,8 +70,15 @@ export class PagesService {
     return last.position.plus(POSITION_INCREMENT);
   }
 
-  async listPages(params: { workspaceId?: string; userId?: string; userName?: string; includeDeleted?: boolean; state?: string; includeTemplates?: boolean }) {
+  // The workspace's pages for its sidebar, without their content (each page's own request has that:
+  // with it, the list ran to megabytes, fetched again on every live change). `ids`: only these, for
+  // catching up with a live change.
+  async listPages(params: { workspaceId?: string; userId?: string; userName?: string; includeDeleted?: boolean; state?: string; includeTemplates?: boolean; ids?: string[] }) {
     const { workspaceId, userId, userName, includeDeleted, state, includeTemplates } = params;
+    const ids = params.ids;
+    if (ids && (ids.length > MAX_LISTED_IDS || !ids.every((id) => isUuid(id)))) {
+      throw new BadRequestException(`ids must be up to ${MAX_LISTED_IDS} page ids`);
+    }
     if (!userId) {
       throw new BadRequestException('userId is required');
     }
@@ -99,8 +106,10 @@ export class PagesService {
         // Templates have their own list (the web app asks for them too, and keeps them out of its
         // page tree); a deleted one is in the Bin with the rest
         ...(onlyBin || includeTemplates ? {} : { isTemplate: false }),
+        ...(ids ? { id: { in: ids } } : {}),
         ...visibilityFilter,
       },
+      omit: { content: true },
       orderBy: [{ position: 'asc' }, { createdAt: 'asc' }],
     });
     const databasePageIds = pages.filter((page) => page.kind === PageKind.DATABASE).map((page) => page.id);
@@ -858,6 +867,9 @@ export class PagesService {
     const targetWikiHomeId = parentId
       ? (await this.prisma.page.findUnique({ where: { id: parentId }, select: { wikiHomeId: true } }))?.wikiHomeId ?? null
       : null;
+    // Every page written here is announced, siblings renumbered and pages moved into or out of a
+    // wiki with all under them: others' page lists fetch only the pages announced
+    const changedIds = new Set<string>(fullOrder);
     if (orderedPages.length) {
       for (const page of orderedPages) {
         if (!page) continue;
@@ -875,12 +887,13 @@ export class PagesService {
           },
           data: { wikiHomeId: targetWikiHomeId },
         });
+        descendantIds.forEach((id) => changedIds.add(id));
       }
     }
     if (targetWikiHomeId) {
       await this.wiki.ensureWikiRowsForHome(targetWikiHomeId);
     }
-    this.collabSync.announcePagesChanged(workspaceId, [...orderedIds, parentId]);
+    this.collabSync.announcePagesChanged(workspaceId, [...changedIds, parentId]);
     return { count: orderedIds.length, normalized: normalize };
   }
 }

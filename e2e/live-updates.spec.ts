@@ -92,4 +92,41 @@ test.describe('live updates', () => {
     await expect(deletedNotice(alice)).toHaveCount(0);
     await expect.poll(() => isEditable(alice)).toBe(true);
   });
+
+  test("catching up with someone else's change fetches only the pages that changed", async ({ alice, bob, workspaceId }) => {
+    const ids: string[] = [];
+    for (const title of ['Keep', 'Rename me', 'Bin me']) ids.push(await createPage(alice, workspaceId, { title }));
+    await openPage(alice, ids[0]);
+    const lists: string[] = [];
+    alice.on('request', (r) => {
+      const params = new URL(r.url()).searchParams;
+      // (The Bin has a list of its own)
+      if (/\/api\/pages\?workspaceId=/.test(r.url()) && !params.get('state')) lists.push(params.get('ids') || 'everything');
+    });
+    const sidebar = alice.locator('aside.sidebar');
+    await bob.request.patch(`/api/pages/${ids[1]}`, { data: { title: 'Renamed by Bob' } });
+    await expect(sidebar.getByText('Renamed by Bob', { exact: true })).toBeVisible();
+    expect((await bob.request.delete(`/api/pages/${ids[2]}`)).status()).toBe(200);
+    await expect(sidebar.getByText('Bin me', { exact: true })).toHaveCount(0);
+    await expect(sidebar.getByText('Keep', { exact: true })).toBeVisible();
+    // Only the changed pages each time, never the whole list again
+    expect(lists.length).toBeGreaterThan(0);
+    expect(lists).not.toContain('everything');
+  });
+
+  test('making a page a wiki catches others up with the pages under it too', async ({ alice, bob, workspaceId }) => {
+    const home = await createPage(alice, workspaceId, { title: 'Wiki home' });
+    const child = await createPage(alice, workspaceId, { title: 'Under the home', parentId: home });
+    await openPage(alice, home);
+    const fetched = new Set<string>();
+    alice.on('request', (r) => {
+      const ids = new URL(r.url()).searchParams.get('ids');
+      if (/\/api\/pages\?workspaceId=/.test(r.url()) && ids) ids.split(',').forEach((id) => fetched.add(id));
+    });
+    expect((await bob.request.post(`/api/pages/${home}/wiki`)).status()).toBe(201);
+    // The page under it joined the wiki too: without that, its old entry (no wiki) stayed in the list
+    await expect.poll(() => fetched.has(home)).toBe(true);
+    expect(fetched.has(child)).toBe(true);
+  });
 });
+

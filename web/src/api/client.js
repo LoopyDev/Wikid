@@ -135,8 +135,10 @@ function buildQs(params) {
 }
 
 export const api = {
-  async listPages({ workspaceId, userId, userName, includeDeleted, state, includeTemplates } = {}) {
-    return request(`/pages${buildQs({ workspaceId, userId, userName, includeDeleted, state, includeTemplates })}`);
+  // `ids`: only these pages (catching up with a live change, not the whole list again)
+  async listPages({ workspaceId, userId, userName, includeDeleted, state, includeTemplates, ids } = {}) {
+    const only = Array.isArray(ids) && ids.length ? ids.join(',') : undefined;
+    return request(`/pages${buildQs({ workspaceId, userId, userName, includeDeleted, state, includeTemplates, ids: only })}`);
   },
   async getPage(pageId, { userId, userName, priority } = {}) {
     return request(`/pages/${pageId}${buildQs({ userId, userName })}`, priority ? { priority } : {});

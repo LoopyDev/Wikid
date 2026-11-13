@@ -4,6 +4,10 @@ import { SYSTEM_ADMIN_ID } from '../constants/system-admin.const';
 // Constants and small helpers shared by the page, database, workspace and user services.
 
 export const POSITION_INCREMENT = new Prisma.Decimal(1);
+
+// The most pages one list request can name (`ids`, about 4 KB of address): a client catching up with a bigger change
+// fetches the whole list instead
+export const MAX_LISTED_IDS = 100;
 export const COMPLIANCE_RECORD_KEY = '__complianceRecordId';
 // A database row's own colour (a hex colour), which pills linking to it are shown in
 export const ROW_COLOR_KEY = '__color';
