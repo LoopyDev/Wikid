@@ -48,7 +48,8 @@ export class WikiService {
       data: { wikiConfig: nextConfig, wikiHomeId },
     });
 
-    this.collabSync.announcePagesChanged(page.workspaceId, [page.id, databasePage.id]);
+    // Every page under it joined the wiki too
+    this.collabSync.announcePagesChanged(page.workspaceId, [page.id, ...descendantIds, databasePage.id]);
     return { page: updated, databasePage };
   }
 

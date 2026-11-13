@@ -79,6 +79,7 @@ export class PagesController {
     @Query('includeDeleted') includeDeleted?: string,
     @Query('state') state?: string,
     @Query('includeTemplates') includeTemplates?: string,
+    @Query('ids') ids?: string | string[],
   ) {
     return this.pages.listPages({
       workspaceId,
@@ -87,6 +88,8 @@ export class PagesController {
       includeDeleted: includeDeleted === 'true',
       state,
       includeTemplates: includeTemplates === 'true',
+      // ?ids=a,b or ?ids=a&ids=b
+      ids: ids === undefined ? undefined : [ids].flat().flatMap((value) => String(value).split(',')).filter(Boolean),
     });
   }
 

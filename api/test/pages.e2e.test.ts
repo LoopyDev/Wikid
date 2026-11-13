@@ -81,6 +81,35 @@ describe('creating and reading pages', () => {
   });
 });
 
+describe('the page list', () => {
+  it("leaves out each page's content, and lists only the pages asked for, as their reader may see them", async () => {
+    const page = await createPage(alice, workspaceId, { title: unique('Listed') });
+    expect((await alice.put(`/pages/${page.id}/content`, { content: docWithParagraphs('Some text') })).status).toBe(200);
+    const listed = ((await alice.get(`/pages?workspaceId=${workspaceId}`)).body as any[]).find((p) => p.id === page.id);
+    expect(listed.title).toBe(page.title);
+    expect(listed).not.toHaveProperty('content');
+
+    const other = await createPage(alice, workspaceId, { title: unique('Not asked for') });
+    const secret = await createPage(alice, workspaceId, { title: unique('Private'), visibility: 'PRIVATE' });
+    const only = (await alice.get(`/pages?workspaceId=${workspaceId}&ids=${page.id},${secret.id}`)).body as any[];
+    expect(only.map((p) => p.id).sort()).toEqual([page.id, secret.id].sort());
+    expect(only.map((p) => p.id)).not.toContain(other.id);
+    // Asking for someone else's private page by id doesn't show it
+    const asBob = (await bob.get(`/pages?workspaceId=${workspaceId}&ids=${page.id},${secret.id}`)).body as any[];
+    expect(asBob.map((p) => p.id)).toEqual([page.id]);
+  });
+
+  it('takes ids either way, and refuses ones that are not page ids', async () => {
+    const a = await createPage(alice, workspaceId);
+    const b = await createPage(alice, workspaceId);
+    const repeated = (await alice.get(`/pages?workspaceId=${workspaceId}&ids=${a.id}&ids=${b.id}`)).body as any[];
+    expect(repeated.map((p) => p.id).sort()).toEqual([a.id, b.id].sort());
+    expect((await alice.get(`/pages?workspaceId=${workspaceId}&ids=${a.id},nope`)).status).toBe(400);
+    const tooMany = Array.from({ length: 101 }, () => a.id).join(',');
+    expect((await alice.get(`/pages?workspaceId=${workspaceId}&ids=${tooMany}`)).status).toBe(400);
+  });
+});
+
 describe('editing pages', () => {
   it('renames a page and sets its icon', async () => {
     const page = await createPage(alice, workspaceId);

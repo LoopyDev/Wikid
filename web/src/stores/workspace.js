@@ -5,6 +5,16 @@ import { SYSTEM_ADMIN_ID } from '../constants/system-admin';
 import { connectWorkspaceEvents } from '../services/workspaceEvents';
 
 // The live events channel for the active workspace (kept outside the reactive state)
+// Page list loads run one at a time, so an older answer never lands after a newer one
+let pageListQueue = Promise.resolve();
+const queuePageListLoad = (load) => {
+  const run = pageListQueue.then(load, load);
+  pageListQueue = run.catch(() => {});
+  return run;
+};
+// A live change to more pages than this fetches the whole list rather than each page (the API takes
+// up to this many ids, its MAX_LISTED_IDS)
+const CHANGED_PAGES_FETCH_LIMIT = 100;
 const liveEvents = { workspaceId: null, disconnect: null, refreshTimer: null, changedIds: new Set(), settingUp: new Set() };
 
 // The live-editing pass covers a whole workspace, so moving between its pages reuses it instead of
@@ -356,26 +366,64 @@ export const useWorkspaceStore = defineStore('workspace', {
     // Titles still being typed here are kept.
     async loadPageList(workspaceId, { keepBin = false } = {}) {
       if (!workspaceId || !this.activeUser || !this.hasApi) return;
-      const pages = await api.listPages({
-        workspaceId,
-        userId: this.activeUser.id,
-        userName: this.activeUser.name,
-        includeTemplates: true,
+      await queuePageListLoad(async () => {
+        const pages = await api.listPages({
+          workspaceId,
+          userId: this.activeUser.id,
+          userName: this.activeUser.name,
+          includeTemplates: true,
+        });
+        // Ignore the answer if the user has moved to another workspace meanwhile
+        if (workspaceId !== this.activeWorkspaceId) return;
+        // In the list's order (by position), which code picking "the first page" goes by
+        const order = new Map((Array.isArray(pages) ? pages : []).map((p, index) => [p.id, index]));
+        this.pages = this.mergeListedPages(pages, () => true).sort(
+          (a, b) => (order.get(a.id) ?? Infinity) - (order.get(b.id) ?? Infinity)
+        );
+        if (!keepBin) this.binPages = [];
       });
-      // Ignore the answer if the user has moved to another workspace meanwhile
-      if (workspaceId !== this.activeWorkspaceId) return;
+    },
+    /**
+     * Catches the page list up with a live change to some pages: only those are fetched (the whole
+     * list came again for every change anyone made), and each is put in, updated, or taken out if
+     * it's gone (to the Bin, private, another workspace).
+     */
+    async loadChangedPages(workspaceId, changedIds) {
+      const ids = [...changedIds];
+      const covered = new Set(ids);
+      if (!ids.length || !workspaceId || !this.activeUser || !this.hasApi) return;
+      await queuePageListLoad(async () => {
+        const fetched = await api.listPages({
+          workspaceId,
+          userId: this.activeUser.id,
+          userName: this.activeUser.name,
+          includeTemplates: true,
+          ids,
+        });
+        if (workspaceId !== this.activeWorkspaceId) return;
+        this.pages = this.mergeListedPages(fetched, (id) => covered.has(id));
+      });
+    },
+    /**
+     * The page list with the pages a list request returned put in: of those it covered (`covers`),
+     * the ones it returned are updated, the rest taken out; the others stay as they are. Titles still
+     * being typed here are kept, and so is the open page when someone else moved it to the Bin
+     * (marked deleted, so the sidebar leaves it out, but the page and its notice stay on screen).
+     */
+    mergeListedPages(listed, covers) {
       const pending = this.pendingTitleUpdates || {};
-      const next = (Array.isArray(pages) ? pages : []).map((p) =>
-        typeof pending[p.id]?.title === 'string' ? { ...p, title: pending[p.id].title } : p
-      );
-      // Someone else moved the open page to the Bin: keep it (marked deleted, so the sidebar
-      // leaves it out) until it's restored or closed, so the page and its notice stay on screen.
-      if (this.activePageRemotelyDeleted && !next.some((p) => p.id === this.activePageId)) {
-        const open = this.pages.find((p) => p.id === this.activePageId);
-        if (open) next.push({ ...open, isDeleted: true });
+      const byId = new Map((Array.isArray(listed) ? listed : []).map((p) => [p.id, p]));
+      const next = [];
+      for (const page of this.pages) {
+        const row = byId.get(page.id);
+        if (row) {
+          next.push({ ...page, ...row });
+          byId.delete(page.id);
+        } else if (!covers(page.id)) next.push(page);
+        else if (this.activePageRemotelyDeleted && page.id === this.activePageId) next.push({ ...page, isDeleted: true });
       }
-      this.pages = next;
-      if (!keepBin) this.binPages = [];
+      next.push(...byId.values());
+      return next.map((p) => (typeof pending[p.id]?.title === 'string' ? { ...p, title: pending[p.id].title } : p));
     },
     // Keeps the live events channel open for the active workspace, so the sidebar and the open
     // page follow changes other people make. Viewers don't get collab tokens, so they go without.
@@ -438,7 +486,9 @@ export const useWorkspaceStore = defineStore('workspace', {
         await this.loadPageDoc(this.activePageId);
       }
       const openTitle = this.currentPage?.title || '';
-      await this.loadPageList(workspaceId, { keepBin: true });
+      // Only the pages that changed (all of them again only for a big change, many pages at once)
+      if (changedIds.size <= CHANGED_PAGES_FETCH_LIMIT) await this.loadChangedPages(workspaceId, changedIds);
+      else await this.loadPageList(workspaceId, { keepBin: true });
       // The open page left the list, and not for the Bin (that has its notice): moved to another
       // workspace, or made private by someone else. It used to vanish without a word
       const openId = this.activePageId;
