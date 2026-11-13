@@ -458,7 +458,44 @@ const MIN_SIDEBAR_WIDTH = 220;
 const MAX_SIDEBAR_WIDTH = 520;
 const SIDEBAR_HANDLE_WIDTH = 8;
 const sidebarWidth = ref(280);
-const indentStep = computed(() => Math.max(16, Math.min(28, Math.floor(sidebarWidth.value / 10))));
+// The sidebar tree's levels share out its width: each level the same step in, as far as the deepest
+// level shown leaves room for titles. Close together in a narrow sidebar, a phone's drawer or a deep
+// tree; further apart in a wide one (a step of a tenth of the width ran deep titles out of room,
+// and never changed in the drawer)
+const TREE_STEP_MIN = 10;
+const TREE_STEP_MAX = 28;
+// What's kept for a title: the row's left edge, its icon, a readable title and its buttons
+const TREE_TITLE_ROOM = 6 + 28 + 150;
+const sidebarTreeWidth = ref(0);
+const deepestShownLevel = computed(() => {
+  let deepest = 0;
+  const lists = [workspace.privateOpen ? privatePages.value : [], workspace.publicOpen ? publicPages.value : []];
+  for (const list of lists) {
+    const byParent = new Map();
+    for (const page of list) {
+      const key = page.parentId ?? null;
+      if (!byParent.has(key)) byParent.set(key, []);
+      byParent.get(key).push(page);
+    }
+    const visit = (parentId, depth) => {
+      for (const page of byParent.get(parentId) || []) {
+        deepest = Math.max(deepest, depth);
+        if (!isExpanded(page.id)) continue;
+        // (An open page with nothing inside still shows a line one level in: "No pages inside")
+        if (!byParent.has(page.id)) deepest = Math.max(deepest, depth + 1);
+        visit(page.id, depth + 1);
+      }
+    };
+    visit(null, 0);
+  }
+  return deepest;
+});
+const indentStep = computed(() => {
+  const width = sidebarTreeWidth.value || sidebarWidth.value;
+  if (!deepestShownLevel.value) return TREE_STEP_MAX;
+  const step = Math.floor((width - TREE_TITLE_ROOM) / deepestShownLevel.value);
+  return Math.max(TREE_STEP_MIN, Math.min(TREE_STEP_MAX, step));
+});
 const isResizing = ref(false);
 
 // Split pane
@@ -524,6 +561,20 @@ const showNarrowMenuButton = computed(() => isNarrow.value && (isSysadminView.va
 const sidebarHeaderButtonLabel = computed(() => (isNarrow.value ? 'Close sidebar' : isSidebarHidden.value ? 'Pin sidebar' : 'Unpin sidebar'));
 const isSidebarHovered = ref(false);
 const sidebarRef = ref(null);
+// The sidebar's width as drawn (dragged, or a phone's drawer), for the tree's levels (indentStep)
+let sidebarResizeObserver = null;
+watch(sidebarRef, (el) => {
+  sidebarResizeObserver?.disconnect();
+  sidebarResizeObserver = null;
+  if (!el || typeof ResizeObserver === 'undefined') return;
+  sidebarResizeObserver = new ResizeObserver(([entry]) => {
+    // (A closed drawer measures nothing: kept at what it was when last shown)
+    const width = Math.round(entry.contentRect.width);
+    if (width > 0) sidebarTreeWidth.value = width;
+  });
+  sidebarResizeObserver.observe(el);
+});
+onBeforeUnmount(() => sidebarResizeObserver?.disconnect());
 const sidebarPeekTimeout = ref(null);
 const pointerStartX = ref(0);
 const widthAtStart = ref(sidebarWidth.value);
@@ -2334,6 +2385,7 @@ if (typeof window !== 'undefined') {
             :add-child="addChildPage"
             :on-reorder="canEditWorkspace ? reorderPages : null"
             :indent-step="indentStep"
+            :show-lines="workspace.userPreferences?.hideTreeLines !== true"
             :can-edit="canEditWorkspace"
           />
         </div>
@@ -2386,6 +2438,7 @@ if (typeof window !== 'undefined') {
             :add-child="addChildPage"
             :on-reorder="canEditWorkspace ? reorderPages : null"
             :indent-step="indentStep"
+            :show-lines="workspace.userPreferences?.hideTreeLines !== true"
             :can-edit="canEditWorkspace"
           />
         </div>

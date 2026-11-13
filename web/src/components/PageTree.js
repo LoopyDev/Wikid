@@ -30,6 +30,8 @@ export default defineComponent({
     // Called with a page the pointer has rested on, to start loading it before the click
     prefetch: { type: Function, required: false },
     indentStep: { type: Number, default: 16 },
+    // Lines joining each page to the one it's in (an account setting)
+    showLines: { type: Boolean, default: true },
   },
   setup(props) {
     const suppressClickUntil = ref(0);
@@ -94,7 +96,29 @@ export default defineComponent({
     };
     onBeforeUnmount(() => clearTimeout(branchClearTimer));
 
-    const renderNode = (page, depth, rootId = page.id) => {
+    // Tree lines (├ └ │) joining each page to the one it's in: for a row `depth` levels in, one
+    // column per level above it. `through` lists, for each column but the last, whether the page
+    // there has more pages after it, so its line carries on down past this row; the last column is
+    // this row's own join, ├ if more pages follow it, └ if it's the last. An open page with pages
+    // inside also draws the top of the line down to them (`stem`), from under its icon.
+    // Each line runs down from the middle of the icon above; the icon itself is narrower than its
+    // slot, so the line passes clear of it even at the smallest step.
+    const LINE_ICON_CENTRE = 14;
+    const ICON_INSET = 6;
+    const treeLines = (depth, through, isLast, stem = false) => {
+      if (!props.showLines || (!depth && !stem)) return null;
+      const step = props.indentStep;
+      const lineAt = (column) => 6 + column * step + LINE_ICON_CENTRE;
+      const armWidth = Math.max(2, step - (LINE_ICON_CENTRE - ICON_INSET) - 1);
+      const kinds = depth ? [...through.map((goesOn) => (goesOn ? 'through' : 'none')), isLast ? 'elbow' : 'tee'] : [];
+      const lines = kinds.map((kind, column) =>
+        h('span', { class: `tree-line tree-line--${kind}`, 'data-line': kind, style: { left: `${lineAt(column)}px`, width: `${armWidth}px` } })
+      );
+      if (stem) lines.push(h('span', { class: 'tree-line tree-line--stem', style: { left: `${lineAt(depth)}px` } }));
+      return h('span', { class: 'tree-lines', 'aria-hidden': 'true' }, lines);
+    };
+
+    const renderNode = (page, depth, rootId = page.id, through = [], isLast = true) => {
           const isOpen = props.isExpanded(page.id);
           const children = childrenOf(page.id);
           const subtreeFullyExpanded = isSubtreeFullyExpanded(page.id);
@@ -231,6 +255,7 @@ export default defineComponent({
           },
         },
         [
+          treeLines(depth, through, isLast, isOpen),
           h(
             'div',
             { class: 'page-icon-slot' },
@@ -330,10 +355,17 @@ export default defineComponent({
         ]
       );
 
+      // A top-level page draws no line of its own (nothing above it to join)
+      const childThrough = depth ? [...through, !isLast] : [];
       const childrenNodes = isOpen
         ? children.length
-          ? children.map((child) => renderNode(child, depth + 1, rootId))
-          : [h('div', { class: 'page-empty', style: { paddingLeft: `${(depth + 1) * 12}px` } }, 'No pages inside')]
+          ? children.map((child, index) => renderNode(child, depth + 1, rootId, childThrough, index === children.length - 1))
+          : [
+              h('div', { class: 'page-empty', style: { '--sidebar-item-indent': `${(depth + 1) * props.indentStep}px` } }, [
+                treeLines(depth + 1, childThrough, true),
+                'No pages inside',
+              ]),
+            ]
         : [];
 
       return h(Fragment, null, [row, ...childrenNodes]);

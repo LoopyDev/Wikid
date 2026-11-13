@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test';
-import { test, expect, createPage, openPage, unique, editor } from './fixtures';
+import { test, expect, createPage, openPage, unique, editor, signIn, USERS, DEMO_PASSWORD } from './fixtures';
 
 const sidebar = (page: Page) => page.getByRole('complementary');
 const main = (page: Page) => page.getByRole('main');
@@ -297,6 +297,113 @@ test.describe('sidebar', () => {
     await expect(bin).toBeInViewport();
     await last.click();
     await expect(main(page).getByRole('textbox', { name: 'Untitled page' })).toHaveValue(titles[titles.length - 1]);
+  });
+});
+
+test.describe('nested pages in the sidebar', () => {
+  // A chain eight levels deep (Level 1 > Level 2 > ... > Level 8), Level 2 with a sister after it
+  async function deepTree(page: Page, workspaceId: string) {
+    const titles = Array.from({ length: 8 }, (_, i) => unique(`Level ${i + 1}`));
+    const sister = unique('Sister');
+    const ids: string[] = [];
+    for (const title of titles) ids.push(await createPage(page, workspaceId, { title, ...(ids.length ? { parentId: ids[ids.length - 1] } : {}) }));
+    // Made last, so it comes after Level 2
+    await createPage(page, workspaceId, { title: sister, parentId: ids[0] });
+    await openPage(page, await createPage(page, workspaceId));
+    for (const title of titles.slice(0, -1)) {
+      await sidebarItem(page, title).hover();
+      await sidebarItem(page, title).locator('.page-chevron').click();
+    }
+    await expect(sidebarItem(page, titles[7])).toBeVisible();
+    return { titles, sister };
+  }
+  const titleBox = async (page: Page, title: string) => (await sidebarItem(page, title).locator('.sidebar__title').boundingBox())!;
+  // How far each level is from the one above it, from the first level to the deepest
+  const levelStep = async (page: Page, titles: string[]) => ((await titleBox(page, titles[7])).x - (await titleBox(page, titles[0])).x) / 7;
+  async function dragSidebarEdgeTo(page: Page, x: number) {
+    const handle = (await page.locator('[role="separator"][aria-orientation="vertical"]').first().boundingBox())!;
+    await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(x, handle.y + handle.height / 2, { steps: 5 });
+    await page.mouse.up();
+  }
+
+  test("levels share out the sidebar's width: closer together when it's narrow, further apart when it's wide", async ({ alice: page, workspaceId }) => {
+    const { titles } = await deepTree(page, workspaceId);
+    await dragSidebarEdgeTo(page, 220);
+    // Each level a fixed step in from the last ran the deepest titles out of room
+    expect((await titleBox(page, titles[7])).width).toBeGreaterThan(80);
+    const narrow = await levelStep(page, titles);
+    await dragSidebarEdgeTo(page, 520);
+    const wide = await levelStep(page, titles);
+    expect(wide).toBeGreaterThan(narrow + 4);
+    const side = (await sidebar(page).boundingBox())!;
+    const deepest = await titleBox(page, titles[7]);
+    expect(deepest.x + deepest.width).toBeLessThanOrEqual(side.x + side.width);
+  });
+
+  test('tree lines join each page to the one it is in', async ({ alice: page, workspaceId }) => {
+    const { titles, sister } = await deepTree(page, workspaceId);
+    // (Each row's joins; an open page's stem down to its pages isn't one)
+    const lines = (title: string) => sidebarItem(page, title).locator('.tree-line[data-line]').evaluateAll((els) => els.map((el) => (el as HTMLElement).dataset.line));
+    expect(await lines(titles[0])).toEqual([]);
+    // Level 2 has its sister after it, so its line carries on down to her
+    expect(await lines(titles[1])).toEqual(['tee']);
+    expect(await lines(sister)).toEqual(['elbow']);
+    // Level 3, in Level 2: Level 1's line passes it on the way to the sister
+    expect(await lines(titles[2])).toEqual(['through', 'elbow']);
+    expect(await lines(titles[3])).toEqual(['through', 'none', 'elbow']);
+  });
+
+  test("the lines can be turned off in Settings, and stay off for the account", async ({ browser }) => {
+    // An account of its own: the setting is the account's, and the other tests' accounts are shared
+    const adminContext = await browser.newContext();
+    await signIn(adminContext, USERS.admin.email);
+    const admin = adminContext.request;
+    const email = `lines-${Date.now().toString(36)}@example.com`;
+    const created = await admin.post('/api/admin/users?adminId=x', { data: { displayName: 'Lines', email, password: DEMO_PASSWORD, mustChangePassword: false } });
+    expect(created.status()).toBe(201);
+    const userId = (await created.json()).id;
+    const context = await browser.newContext();
+    try {
+      await signIn(context, email);
+      const page = await context.newPage();
+      const made = await page.request.post('/api/workspaces', { data: { name: unique('Lines') } });
+      expect(made.status(), await made.text()).toBe(201);
+      const workspaceId = (await made.json()).workspace.id;
+      const { titles } = await deepTree(page, workspaceId);
+      const linesOf = (title: string) => sidebarItem(page, title).locator('.tree-line[data-line]');
+      await expect(linesOf(titles[2])).toHaveCount(2);
+      const setLines = async (on: boolean) => {
+        await page.locator('.user-switch').click();
+        await page.locator('.popover-card').getByRole('button', { name: 'Settings' }).click();
+        await page.getByLabel('Show lines between nested pages').setChecked(on);
+        await page.keyboard.press('Escape');
+      };
+      await setLines(false);
+      await expect(sidebar(page).locator('.tree-line')).toHaveCount(0);
+      // Kept for the account: still off after a reload (which closes the pages up again)
+      await page.reload();
+      await sidebarItem(page, titles[0]).hover();
+      await sidebarItem(page, titles[0]).locator('.page-chevron').click();
+      await expect(sidebarItem(page, titles[1])).toBeVisible();
+      await expect(sidebar(page).locator('.tree-line')).toHaveCount(0);
+      await setLines(true);
+      await expect(linesOf(titles[1])).toHaveCount(1);
+      await page.request.delete(`/api/workspaces/${workspaceId}`);
+    } finally {
+      await context.close();
+      await admin.delete(`/api/admin/users/${userId}?adminId=x`);
+      await adminContext.close();
+    }
+  });
+
+  test('on a phone, the levels close up to fit the drawer', async ({ alice: page, workspaceId }) => {
+    const { titles } = await deepTree(page, workspaceId);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.locator('.narrow-menu-btn, .topbar-sidebar-toggle').first().click();
+    await expect(sidebarItem(page, titles[7])).toBeVisible();
+    expect((await titleBox(page, titles[7])).width).toBeGreaterThan(80);
   });
 });
 

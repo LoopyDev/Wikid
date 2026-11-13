@@ -866,9 +866,78 @@ button {
 }
 
 .page-empty {
+  --sidebar-item-indent: 0;
+  position: relative;
   color: #94a3b8;
   font-size: 0.9rem;
   padding: 6px 0;
+  padding-left: calc(var(--sidebar-item-indent) + 12px);
+}
+
+/* Tree lines joining each sidebar page to the one it's in (PageTree.js treeLines): a column per
+   level, the row's own join last. Drawn behind the row's content, the full height of the row, so
+   the rows' lines meet up. */
+.tree-lines {
+  position: absolute;
+  /* Over the row's 1px border too, so one row's lines meet the next's */
+  inset: -1px 0;
+  pointer-events: none;
+}
+
+.page-empty .tree-lines,
+/* (Inside the open page's outline, not across it) */
+.sidebar__item.active .tree-lines {
+  inset: 0;
+}
+
+.tree-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  --tree-line-color: color-mix(in srgb, var(--sidebar-text) 22%, transparent);
+}
+
+/* │: a page above has more pages after it, so its line carries on down */
+.tree-line--through,
+.tree-line--tee {
+  border-left: 1px solid var(--tree-line-color);
+}
+
+/* The top of the line down to an open page's pages, from under its icon */
+.tree-line--stem {
+  top: 50%;
+  bottom: -1px;
+  border-left: 1px solid var(--tree-line-color);
+}
+
+/* └: the last page in its parent, so the line stops here */
+.tree-line--elbow {
+  bottom: 50%;
+  border-left: 1px solid var(--tree-line-color);
+}
+
+/* ─: out to the row's icon */
+.tree-line--tee::after,
+.tree-line--elbow::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-top: 1px solid var(--tree-line-color);
+}
+
+.tree-line--tee::after {
+  top: 50%;
+}
+
+.tree-line--elbow::after {
+  bottom: -1px;
+}
+
+/* The hovered page's branch: its lines a little stronger */
+.sidebar__item:hover .tree-line,
+.sidebar__item.tree-hovered .tree-line {
+  --tree-line-color: color-mix(in srgb, var(--sidebar-text) 40%, transparent);
 }
 
 .sidebar__item {
@@ -916,6 +985,8 @@ button {
   margin-top: -2px;
   margin-bottom: -2px;
   padding: 8px 6px 8px 0;
+  /* Still indented, under its tree lines */
+  padding-left: calc(var(--sidebar-item-indent) + 6px);
   box-shadow: none;
 }
 

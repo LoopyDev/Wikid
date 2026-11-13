@@ -38,6 +38,7 @@ export class UsersService {
     if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
       if (typeof payload.sidebarHidden === 'boolean') prefs.sidebarHidden = payload.sidebarHidden;
       if (typeof payload.hideAi === 'boolean') prefs.hideAi = payload.hideAi;
+      if (typeof payload.hideTreeLines === 'boolean') prefs.hideTreeLines = payload.hideTreeLines;
     }
     return prefs;
   }

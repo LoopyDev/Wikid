@@ -870,33 +870,30 @@ export const useWorkspaceStore = defineStore('workspace', {
         this.aiAvailable = false;
       }
     },
-    async setHideAiPreference(hidden) {
-      const next = !!hidden;
-      this.userPreferences = { ...this.userPreferences, hideAi: next };
+    // An account setting (kept on the server for the account, so it follows the person between
+    // browsers): set here at once, then saved
+    async setUserPreference(key, value) {
+      this.userPreferences = { ...this.userPreferences, [key]: value };
       if (!this.activeUser || !this.hasApi) return;
       try {
         await api.updateUserPreferences(
           this.activeUser.id,
-          { hideAi: next },
+          { [key]: value },
           { userId: this.activeUser.id, userName: this.activeUser.name }
         );
       } catch (err) {
         console.warn('Save user preferences failed', err);
       }
     },
-    async setSidebarHiddenPreference(hidden) {
-      const next = !!hidden;
-      this.userPreferences = { ...this.userPreferences, sidebarHidden: next };
-      if (!this.activeUser || !this.hasApi) return;
-      try {
-        await api.updateUserPreferences(
-          this.activeUser.id,
-          { sidebarHidden: next },
-          { userId: this.activeUser.id, userName: this.activeUser.name }
-        );
-      } catch (err) {
-        console.warn('Save user preferences failed', err);
-      }
+    setHideAiPreference(hidden) {
+      return this.setUserPreference('hideAi', !!hidden);
+    },
+    setSidebarHiddenPreference(hidden) {
+      return this.setUserPreference('sidebarHidden', !!hidden);
+    },
+    // The lines joining nested pages in the sidebar
+    setHideTreeLinesPreference(hidden) {
+      return this.setUserPreference('hideTreeLines', !!hidden);
     },
     // save false: kept here but not saved (a new page's first editor, whose content goes to the live
     // one when it takes over; saved too, the server would fill the live document with it as well)
