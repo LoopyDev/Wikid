@@ -1,4 +1,4 @@
-import { test, expect, createPage, openPage, editor, blockTexts, outline, placeCursor } from './fixtures';
+import { test, expect, createPage, openPage, editor, blockTexts, outline, placeCursor, pastePlainText } from './fixtures';
 
 // Everyday editing that used to go wrong.
 
@@ -424,6 +424,22 @@ test.describe('editing basics', () => {
     await expect(title).toHaveValue('');
     await page.keyboard.press('ControlOrMeta+Shift+z');
     await expect(title).toHaveValue('Plan for the week');
+  });
+
+  test('--- makes a divider, typed or pasted as Markdown', async ({ alice: page, workspaceId }) => {
+    await openPage(page, await createPage(page, workspaceId));
+    await editor(page).click();
+    // Typed (the shortcut made the first two dashes an em dash, so it gave "—-")
+    await page.keyboard.type('Above', { delay: 20 });
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('---', { delay: 30 });
+    await page.keyboard.type('Below', { delay: 20 });
+    await expect.poll(() => outline(page)).toEqual(['paragraph: Above', 'horizontalRule', 'paragraph: Below']);
+
+    // Pasted Markdown with a --- in it (the divider was dropped)
+    await page.keyboard.press('Enter');
+    await pastePlainText(page, '## Pasted\n\nIntro\n\n---\n\nAfter');
+    await expect.poll(() => outline(page)).toEqual(['paragraph: Above', 'horizontalRule', 'paragraph: Below', 'heading2: Pasted', 'paragraph: Intro', 'horizontalRule', 'paragraph: After']);
   });
 });
 
