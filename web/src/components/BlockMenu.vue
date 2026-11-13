@@ -19,7 +19,8 @@ const props = defineProps({
   // pageLinkDatabaseLoading, pageLinkDatabaseErrors.
   pageLinkAttributes: { type: Object, required: true },
 });
-const emit = defineEmits(['close']);
+// panel-entered: a panel (Turn into, Colour…) has slid in, for focus to go to its first item
+const emit = defineEmits(['close', 'panel-entered']);
 
 const workspace = useWorkspaceStore();
 const editor = computed(() => props.editor);
@@ -545,7 +546,7 @@ watch(
 
 <template>
   <div class="block-menu__panel-stack">
-    <transition :name="tuneMenuDir === 'backward' ? 'block-menu-slide-back' : 'block-menu-slide'" mode="out-in">
+    <transition :name="tuneMenuDir === 'backward' ? 'block-menu-slide-back' : 'block-menu-slide'" mode="out-in" @after-enter="emit('panel-entered')">
       <div :key="panelState" class="block-menu__panel">
         <template v-if="panelState === 'root'">
           <div class="block-menu__panel-scroll block-menu__panel-scroll--root">

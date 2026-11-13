@@ -667,6 +667,9 @@ editor = useEditor({
     isCollabEnabled,
     isSyncedLocked,
     hasWorkspaceSyncedReference,
+    focusTitle: () => focusPageTitle(),
+    openBlockMenu: () => openTuneMenuForCursor(),
+    closeMenus: () => closeMenusOnEscape(),
     pageLinks: {
       resolvePage: getResolvedPage,
       createChildPage,
@@ -746,10 +749,20 @@ editor = useEditor({
   },
   onSelectionUpdate({ editor: ed }) {
     clearClickPlaceholderIfNeeded(ed?.view);
+    followCursorCodeBlock(ed);
     updateActiveTable();
     lastKnownCursorPos.value = ed.state.selection.from;
   },
-  onBlur({ editor: ed }) {
+  onBlur({ editor: ed, event }) {
+    // The language picker the cursor brought up goes when focus goes somewhere else (the title, a
+    // click away); not on Escape out of the page (nowhere yet: the next Tab reaches the picker), nor
+    // into the picker itself
+    const to = event?.relatedTarget;
+    const intoPicker = to instanceof Element && !!to.closest('.codeblock-bubble-menu, .code-lang-menu');
+    if (codeBlockFromCursor && !codeLangMenuOpen.value && to && !intoPicker) {
+      codeBlockFromCursor = false;
+      clearHoveredCodeBlock();
+    }
     activeTableEl.value = null;
     // Preserve position so serializeBlocksForAi works after focus moves to AI panel
     if (ed?.state?.selection) lastKnownCursorPos.value = ed.state.selection.from;
@@ -807,6 +820,21 @@ editor = useEditor({
 // Background block summarizer — runs after editor settles, uses Haiku to build
 // a per-block context cache that makes AI edit requests 60–85% cheaper on large pages
 const { pending: summarizationPending, stats: summarizationStats, summarize: summarizeForAi } = useBlockSummarizer(editor);
+
+// ArrowUp on the first line: to the page's title, the cursor at its end (see keyboardWayOut.js)
+const focusPageTitle = () => {
+  const title = editor.value?.view?.dom?.closest?.('.page-surface')?.querySelector('textarea.page-title');
+  if (!title || title.readOnly) return false;
+  title.focus({ preventScroll: true });
+  title.setSelectionRange(title.value.length, title.value.length);
+  return true;
+};
+// ArrowDown from the title: to the start of the page
+const focusStart = () => {
+  if (!editor.value || editor.value.isDestroyed) return false;
+  editor.value.chain().focus('start').run();
+  return true;
+};
 
 // Enter in the title: the cursor to a new empty first line of the page (an empty one already there
 // does). At once, not a frame later as the editor's own focus is, or a key typed straight after
@@ -867,6 +895,9 @@ watch(
 const sameContent = (a, b) => JSON.stringify(a || []) === JSON.stringify(b || []);
 
 const handleDragHandleChange = ({ node, pos }) => {
+  // The block menu keeps the block it was opened for (from the keyboard, the pointer's elsewhere, and
+  // the handle reported no block under it, leaving the menu nothing to act on)
+  if (showTuneMenu.value) return;
   const nextPos = typeof pos === 'number' ? pos : -1;
   if (!node) {
     handleState.value = { node: null, pos: -1 };
@@ -995,6 +1026,30 @@ const followDocChange = (transaction) => {
   if (hoveredSyncedSource.value) hoveredSyncedSource.value = followBlock(hoveredSyncedSource.value, transaction);
 };
 
+// A code block's language picker shows while the cursor's in it, not only under the pointer (a
+// keyboard couldn't reach it): set from the cursor, and gone when the cursor leaves (if not hovered)
+let codeBlockFromCursor = false;
+const followCursorCodeBlock = (ed) => {
+  if (!ed || ed.isDestroyed) return;
+  const { $from } = ed.state.selection;
+  for (let depth = $from.depth; depth > 0; depth -= 1) {
+    const node = $from.node(depth);
+    if (node.type.name !== 'codeBlock') continue;
+    const pos = $from.before(depth);
+    const dom = ed.view.nodeDOM(pos);
+    const element = dom instanceof HTMLElement ? dom.closest('.tiptap-codeblock') || dom.querySelector?.('.tiptap-codeblock') : null;
+    if (element && (hoveredCodeBlock.value?.pos !== pos || hoveredCodeBlock.value?.element !== element)) {
+      hoveredCodeBlock.value = { pos, element, id: node.attrs?.id ?? null };
+    }
+    codeBlockFromCursor = !!element;
+    return;
+  }
+  if (codeBlockFromCursor) {
+    codeBlockFromCursor = false;
+    clearHoveredCodeBlock();
+  }
+};
+
 const clearHoveredCodeBlock = () => {
   if (codeLangMenuOpen.value) return;
   hoveredCodeBlock.value = null;
@@ -1091,6 +1146,7 @@ const handleHoverMove = (event) => {
   const onCodeBlock = !!blockEl;
   const onImage = !!imageEl;
   if (blockEl) {
+    codeBlockFromCursor = false;
     setHoveredCodeBlockFromElement(blockEl);
   }
   if (imageEl) {
@@ -1101,7 +1157,7 @@ const handleHoverMove = (event) => {
   } else if (!isSyncedBubble) {
     clearHoveredSyncedSource();
   }
-  if (!onCodeBlock && !isBubble && !isDropdown && !codeLangMenuOpen.value) {
+  if (!onCodeBlock && !isBubble && !isDropdown && !codeLangMenuOpen.value && !codeBlockFromCursor) {
     clearHoveredCodeBlock();
   }
   if (!onImage && !event.target?.closest?.('.image-bubble-menu')) {
@@ -1384,6 +1440,7 @@ const closeTuneMenu = () => {
 };
 
 const openTuneMenu = async (event) => {
+  tuneMenuFromKeyboard = false;
   const rect = event?.currentTarget?.getBoundingClientRect?.();
   tuneMenuFlipped.value = false;
   if (rect) {
@@ -1417,6 +1474,110 @@ const openTuneMenu = async (event) => {
     }
     tuneMenuPos.value = { top, left };
   }
+};
+
+// The block menu from the keyboard: arrows move between its items, Right goes into a submenu and
+// Left back out, Enter or Space picks, Escape closes it and puts the cursor back in the page
+const tuneMenuItems = () => [...(tuneMenuRef.value?.querySelectorAll('.block-menu__panel button:not([disabled])') || [])].filter((el) => el.offsetParent !== null);
+const focusFirstTuneMenuItem = () => {
+  const [first] = tuneMenuItems().filter((el) => !el.classList.contains('block-menu__back'));
+  (first || tuneMenuItems()[0])?.focus({ preventScroll: true });
+};
+// Moving between panels from the keyboard: focus waits on the menu itself while the old panel
+// slides out (its focused item goes, and focus fell out of the menu, keys going elsewhere), and goes
+// to the new panel's first item once it has slid in (BlockMenu's panel-entered)
+let tunePanelFromKeys = false;
+const focusTuneMenuItemSoon = () => {
+  tunePanelFromKeys = true;
+  tuneMenuRef.value?.focus({ preventScroll: true });
+};
+const handleTunePanelEntered = () => {
+  if (!tunePanelFromKeys) return;
+  tunePanelFromKeys = false;
+  focusFirstTuneMenuItem();
+};
+const handleTuneMenuKeydown = (event) => {
+  const items = tuneMenuItems();
+  const at = items.indexOf(document.activeElement);
+  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+    event.preventDefault();
+    if (!items.length) return;
+    const step = event.key === 'ArrowDown' ? 1 : -1;
+    // (from no item: Down to the first, Up to the last)
+    const next = at === -1 ? (step === 1 ? 0 : items.length - 1) : (at + step + items.length) % items.length;
+    items[next].focus({ preventScroll: true });
+  } else if (event.key === 'ArrowRight' && document.activeElement?.classList.contains('block-menu__item--submenu')) {
+    event.preventDefault();
+    document.activeElement.click();
+    focusTuneMenuItemSoon();
+  } else if (event.key === 'ArrowLeft') {
+    const back = tuneMenuRef.value?.querySelector('.block-menu__back');
+    if (!back) return;
+    event.preventDefault();
+    back.click();
+    focusTuneMenuItemSoon();
+  } else if (event.key === 'Escape') {
+    event.preventDefault();
+    event.stopPropagation();
+    // Back to typing if it was opened from there (Ctrl/Cmd+/); opened with the pointer, it just closes
+    const fromKeyboard = tuneMenuFromKeyboard;
+    closeTuneMenu();
+    // (at once: Tiptap's focus waits a frame, and a key straight after went nowhere)
+    if (fromKeyboard && editor.value && !editor.value.isDestroyed) editor.value.view.focus();
+  } else if ((event.key === 'Enter' || event.key === ' ') && document.activeElement?.classList.contains('block-menu__item--submenu')) {
+    // Opened here, not by the browser's own click on the key (focus moves on to the menu meanwhile)
+    event.preventDefault();
+    document.activeElement.click();
+    focusTuneMenuItemSoon();
+  }
+};
+// Escape for a block menu opened with the pointer (focus is still in the page, or on the handle):
+// it closes, and the page keeps the cursor. True if there was something to close.
+const closeMenusOnEscape = () => {
+  if (codeLangMenuOpen.value) {
+    closeCodeLangMenu();
+    return true;
+  }
+  if (showTuneMenu.value) {
+    closeTuneMenu();
+    return true;
+  }
+  return false;
+};
+const handleDocumentEscape = (event) => {
+  if (event.key !== 'Escape' || event.defaultPrevented || !showTuneMenu.value) return;
+  if (tuneMenuRef.value?.contains(event.target) || editor.value?.view.dom.contains(event.target)) return;
+  closeTuneMenu();
+};
+// Ctrl/Cmd+/ in the page: the block menu for the block the cursor is in
+let tuneMenuFromKeyboard = false;
+const openTuneMenuForCursor = () => {
+  const ed = editor.value;
+  if (!ed || ed.isDestroyed || !ed.isEditable) return false;
+  // (one open from the pointer goes first: this one's for the cursor's block)
+  if (showTuneMenu.value) closeTuneMenu();
+  const { $from } = ed.state.selection;
+  if ($from.depth < 1) return false;
+  // In a list, the item the cursor's in (as its own handle does), not the whole list
+  let depth = 1;
+  for (let d = $from.depth; d > 0; d -= 1) {
+    if (['listItem', 'taskItem'].includes($from.node(d).type.name)) {
+      depth = d;
+      break;
+    }
+  }
+  const pos = $from.before(depth);
+  const node = ed.state.doc.nodeAt(pos);
+  const dom = ed.view.nodeDOM(pos);
+  if (!node || !(dom instanceof HTMLElement)) return false;
+  handleDragHandleChange({ node, pos });
+  const opening = openTuneMenu({ currentTarget: dom });
+  // At once (an Escape straight after reads it), and focus in only if it's still open
+  tuneMenuFromKeyboard = true;
+  opening.then(() => {
+    if (showTuneMenu.value) focusFirstTuneMenuItem();
+  });
+  return true;
 };
 
 const openListTuneMenu = (event) => {
@@ -1636,6 +1797,7 @@ const handleMainframeScroll = () => {
 onMounted(() => {
   window.addEventListener('beforeunload', warnBeforeLeavingUnsaved);
   document.addEventListener('mousedown', handleOutsideClick);
+  document.addEventListener('keydown', handleDocumentEscape);
   document.addEventListener('dragstart', handleGlobalDragStart);
   document.addEventListener('dragend', handleGlobalDragEnd);
   document.addEventListener('mousemove', handleHoverMove);
@@ -1670,6 +1832,7 @@ onBeforeUnmount(() => {
   stopUnsyncedWatcher();
   clearSavedDelay();
   document.removeEventListener('mousedown', handleOutsideClick);
+  document.removeEventListener('keydown', handleDocumentEscape);
   document.removeEventListener('dragstart', handleGlobalDragStart);
   document.removeEventListener('dragend', handleGlobalDragEnd);
   document.removeEventListener('mousemove', handleHoverMove);
@@ -1697,6 +1860,7 @@ const replaceContent = (doc) => {
 
 defineExpose({
   replaceContent,
+  focusStart,
   collabDoc,
   collabProvider,
   collabReady,
@@ -1853,6 +2017,10 @@ defineExpose({
         v-if="showTuneMenu"
         ref="tuneMenuRef"
         class="block-menu"
+        role="menu"
+        aria-label="Block menu"
+        tabindex="-1"
+        @keydown="handleTuneMenuKeydown"
         :style="{ top: `${tuneMenuPos.top}px`, left: `${tuneMenuPos.left}px`, position: 'fixed', transform: tuneMenuFlipped ? 'translate(0, 0)' : 'translate(-100%, -50%)', zIndex: 2100 }"
       >
         <BlockMenu
@@ -1862,6 +2030,7 @@ defineExpose({
           :get-resolved-page="getResolvedPage"
           :page-link-attributes="{ getPageLinkAttributeData, loadPageLinkAttributes, pageLinkDatabaseLoading, pageLinkDatabaseErrors }"
           @close="closeTuneMenu"
+          @panel-entered="handleTunePanelEntered"
         />
       </div>
     </Teleport>

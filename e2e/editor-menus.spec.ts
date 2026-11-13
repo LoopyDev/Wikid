@@ -192,8 +192,12 @@ test.describe('editor menus', () => {
     });
     const before = await outline(page);
     for (const index of [0, 1, 2]) {
+      // The callout's own handle is by its icon (over its text, the handle is its line's, which has
+      // Turn into); the table's by a cell. This passed before only because Escape didn't close the
+      // menu, so the divider's stayed open throughout.
       if (index === 2) await editor(page).locator('td').hover();
-      await (index === 2 ? page.locator('.drag-handle--floating:not(.drag-handle--list) .drag-handle__btn--drag') : await handleFor(page, index)).click();
+      if (index === 1) await page.getByRole('button', { name: 'Choose callout icon' }).hover();
+      await (index === 0 ? await handleFor(page, index) : page.locator('.drag-handle--floating:not(.drag-handle--list) .drag-handle__btn--drag')).click();
       await expect(menuItem(page, 'Delete')).toBeVisible();
       await expect(menuItem(page, 'Turn into…')).toHaveCount(0);
       await page.keyboard.press('Escape');

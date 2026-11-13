@@ -1253,6 +1253,16 @@ const restoreProblemPage = async () => {
   }
 };
 
+// ArrowDown on the title's last line: into the page, at its start (ArrowUp there comes back)
+const handleTitleArrowDown = (event) => {
+  const el = event.target;
+  // At the end of the title (from its last line, the first ArrowDown gets there; it can wrap); not
+  // while an input method is picking characters
+  if (event.isComposing || event.keyCode === 229) return;
+  if (event.shiftKey || event.altKey || event.metaKey || event.ctrlKey || el.selectionStart !== el.value.length) return;
+  if (tiptapEditorRef.value?.focusStart?.()) event.preventDefault();
+};
+
 const handleTitleEnter = (event) => {
   if (!canEditPage.value) return;
   if (isDatabasePage.value) return;
@@ -2682,6 +2692,7 @@ if (typeof window !== 'undefined') {
                 @input="handleTitleInput"
                 @keydown="titleHistory.onKeyDown"
                 @keydown.enter.prevent="handleTitleEnter"
+                @keydown.down="handleTitleArrowDown"
                 placeholder="Untitled page"
               ></textarea>
               <div v-if="showWikiViewSelect" class="wiki-view-selector">
