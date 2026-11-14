@@ -189,15 +189,13 @@ const choiceValue = (choice) => (typeof choice === 'string' ? choice : choice?.v
 function formatDatabase({ db, fields, rows }) {
   const columns = fields.map((f) => {
     const choices = (f.options?.choices ?? []).map(choiceValue).filter(Boolean);
-    const relation = f.options?.relation?.pageId ? `: to database ${f.options.relation.pageId}${f.options.relation.allowMultiple !== false ? ', several rows' : ''}` : '';
+    const relation = f.options?.relation?.pageId ? `: to database ${f.options.relation.pageId}${f.options.relation.allowMultiple === true ? ', several rows' : ''}` : '';
     return `- ${f.name} (${f.type.toLowerCase()}${choices.length ? `: ${choices.join(', ')}` : relation})`;
   });
   return [`# ${db.title || 'Untitled database'}`, '', 'Columns:', ...columns, '', `Rows (${rows.length}):`, JSON.stringify(rows, null, 2)].join('\n');
 }
 
-// The column types these tools make: not "linked from" (shown in the app, from a relation). A
-// column's type isn't changed, nor a choice renamed or removed, as only the app moves the cells over
-// when it is.
+// The column types these tools make: not "linked from" (shown in the app, from a relation)
 const COLUMN_TYPES = ['text', 'number', 'date', 'checkbox', 'select', 'multi_select', 'url', 'person', 'relation'];
 const HAS_CHOICES = new Set(['select', 'multi_select']);
 // "Multi-select", "multi select", "multiselect": all multi_select
@@ -454,14 +452,19 @@ tool(
 
 tool(
   'update_database_column',
-  "Rename a database column, or add choices to a select or multi_select. A column's type can't be changed here, nor a choice renamed or removed (the cells using it would be lost): do that in Wikid.",
+  "Change a database column: rename it, change its type, or add, rename and remove a select's choices. The cells follow: on a type change each is converted, and one that doesn't fit is kept aside (shown greyed in Wikid until replaced; changing the type back brings it back); a renamed choice is renamed in every cell, and a removed one is kept aside the same way. Not in a compliance database, where each record changed needs a reason: there, only renaming and adding choices.",
   {
     pageId: z.string().describe('Page id of the database'),
     column: z.string().describe('The column, by name or id'),
     name: z.string().optional().describe('Its new name'),
+    type: z.string().optional().describe(`Its new type: ${COLUMN_TYPES.join(', ')}. A select made from another type gets a choice for each value in it`),
+    relatesTo: z.string().optional().describe('Changing to a relation: the page id of the database whose rows it links to'),
+    multiple: z.boolean().optional().describe('Changing to a relation: whether a cell can link to more than one row'),
     addChoices: z.array(z.string()).optional().describe('Choices to add (those there already are left as they are)'),
+    renameChoices: z.record(z.string(), z.string()).optional().describe('Choices to rename, old name to new'),
+    removeChoices: z.array(z.string()).optional().describe('Choices to remove'),
   },
-  async ({ pageId, column, name, addChoices }) => {
+  async ({ pageId, column, name, type, relatesTo, multiple, addChoices, renameChoices, removeChoices }) => {
     const { fields } = await getDatabase(pageId);
     const field = findColumn(fields, column);
     const body = {};
@@ -471,14 +474,56 @@ tool(
       if (fields.some((f) => f.id !== field.id && sameName(f.name, trimmed))) throw new Error(`There's already a column "${trimmed}"`);
       body.name = trimmed;
     }
-    if (addChoices?.length) {
-      if (!HAS_CHOICES.has(field.type.toLowerCase())) throw new Error(`Only a select or multi_select column has choices; "${field.name}" is ${field.type.toLowerCase()}`);
-      const options = field.options && typeof field.options === 'object' ? field.options : {};
-      body.options = { ...options, choices: withChoices(options.choices ?? [], addChoices) };
+    const options = field.options && typeof field.options === 'object' ? field.options : {};
+    let moving = false;
+    if (type !== undefined) {
+      const kind = columnType(type);
+      if (!kind) throw new Error(`Not a column type these tools make: "${type}". Types: ${COLUMN_TYPES.join(', ')}`);
+      if (kind.toUpperCase() !== field.type) {
+        if (field.id === titleColumn(fields)?.id) throw new Error(`"${field.name}" is the title column (each row's title); it stays text`);
+        if (kind === 'relation' && !relatesTo) throw new Error('A relation needs relatesTo: the page id of the database it links to');
+        body.type = kind.toUpperCase();
+        // A relation's options; otherwise Wikid's (a select keeps its choices to a multi-select)
+        if (kind === 'relation') body.options = { relation: { pageId: id(relatesTo), allowMultiple: multiple === true } };
+        moving = true;
+      }
     }
-    if (!Object.keys(body).length) throw new Error('Give a new name, or choices to add');
-    await api(`/database-fields/${id(field.id)}`, { method: 'PATCH', body });
-    return `Updated column "${body.name ?? field.name}".`;
+    if ((relatesTo !== undefined || multiple !== undefined) && body.type !== 'RELATION') {
+      throw new Error("relatesTo and multiple are for changing a column to a relation; a relation's target is changed in Wikid");
+    }
+    const renames = Object.entries(renameChoices ?? {});
+    if (addChoices?.length || renames.length || removeChoices?.length) {
+      const kind = String(body.type ?? field.type).toLowerCase();
+      if (!HAS_CHOICES.has(kind)) throw new Error(`Only a select or multi_select column has choices; "${field.name}" is ${kind}`);
+      if (body.type && (renames.length || removeChoices?.length)) throw new Error("Change the type first, then rename or remove its choices");
+      let choices = (body.options?.choices ?? options.choices ?? []).map((c) => (typeof c === 'string' ? { value: c, color: null } : c));
+      const find = (value) => {
+        const choice = choices.find((c) => sameName(String(c.value), value));
+        if (!choice) throw new Error(`No choice "${value}" in "${field.name}". Choices: ${choices.map((c) => c.value).join(', ') || 'none'}`);
+        return choice;
+      };
+      const removing = new Set((removeChoices ?? []).map((value) => find(value).value));
+      const renaming = new Map(renames.map(([from, to]) => [find(from).value, to.trim()]));
+      for (const [from, to] of renaming) {
+        if (!to) throw new Error(`Give "${from}" a new name`);
+        // Not even a removed one's: its cells would quietly become this one's
+        if (choices.some((c) => c.value !== from && sameName(String(c.value), to))) throw new Error(`There's already a choice "${to}"`);
+      }
+      choices = choices.filter((c) => !removing.has(c.value)).map((c) => (renaming.has(c.value) ? { ...c, value: renaming.get(c.value) } : c));
+      body.options = { ...(body.options ?? options), choices: withChoices(choices, addChoices ?? []) };
+      if (renaming.size || removing.size) {
+        body.renames = Object.fromEntries([...renaming].filter(([from, to]) => from !== to));
+        moving = true;
+      }
+    }
+    if (!Object.keys(body).length) throw new Error('Give a new name or type, or choices to add, rename or remove');
+    if (!moving) {
+      await api(`/database-fields/${id(field.id)}`, { method: 'PATCH', body });
+      return `Updated column "${body.name ?? field.name}".`;
+    }
+    const { changed, kept } = await api(`/database-fields/${id(field.id)}/change`, { method: 'POST', body });
+    const keptNote = kept ? `, ${kept} kept aside (they didn't fit)` : '';
+    return `Updated column "${body.name ?? field.name}": ${changed} cell${changed === 1 ? '' : 's'} changed${keptNote}.`;
   },
 );
 

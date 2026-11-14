@@ -13,6 +13,7 @@ import { WikiService } from './wiki.service';
 import { PagesService } from './pages.service';
 import { CollabMaterializerService } from '../collab/collab-materializer.service';
 import { KEPT_VALUE_PREFIX, keptValueKey, normalizeKeptValue } from '../utils/cell-values.util';
+import { planChoiceChange, planTypeChange, type CellChange } from '../utils/column-change.util';
 import { POSITION_INCREMENT, COMPLIANCE_RECORD_KEY, DEFAULT_COMPLIANCE_WORKFLOW, ROW_COLOR_KEY, normalizePageTitle, normalizeRowColor, getFieldSource } from './pages.shared';
 
 // Databases: reading a database, its fields and rows, row pages, relations between
@@ -814,6 +815,125 @@ export class DatabasesService {
       await this.collabSync.syncCollabDatabaseField({ pageId: database.pageId, workspaceId: database.workspaceId }, updated);
     }
     return updated;
+  }
+
+  /**
+   * Changes a column and moves its cells with it, as the app does in the live document: to a new
+   * type, each cell converted and what doesn't fit kept beside it (and brought back when the type
+   * changes back); with choices renamed (`renames`, old name to new) or removed, each cell following
+   * its choice or keeping it aside. The column and its cells change together.
+   */
+  async changeDatabaseField(
+    id: string,
+    payload: { name?: unknown; type?: unknown; options?: unknown; renames?: unknown },
+    user?: { userId?: string; userName?: string }
+  ) {
+    const field = await this.prisma.databaseField.findUnique({
+      where: { id },
+      select: { id: true, databaseId: true, name: true, type: true, options: true },
+    });
+    if (!field) throw new NotFoundException('Field not found');
+    const database = await this.prisma.database.findUnique({
+      where: { id: field.databaseId },
+      select: { id: true, pageId: true, workspaceId: true, complianceMode: true },
+    });
+    if (!database) throw new NotFoundException('Database not found');
+    await this.access.requirePageAccess(database.pageId, user, { requireWrite: true });
+    if (database.complianceMode) {
+      throw new BadRequestException("In a compliance database, each record changed needs a reason: change this column's type or choices in Wikid");
+    }
+    const fieldOptions = field.options && typeof field.options === 'object' && !Array.isArray(field.options) ? (field.options as Record<string, any>) : {};
+    const type = payload.type === undefined ? field.type : (payload.type as DatabaseFieldType);
+    if (!Object.values(DatabaseFieldType).includes(type)) throw new BadRequestException(`Not a column type: ${String(payload.type)}`);
+    const typeChanged = type !== field.type;
+    if (typeChanged && (type === DatabaseFieldType.LINKED_FROM || field.type === DatabaseFieldType.LINKED_FROM)) {
+      throw new BadRequestException('A Linked from column shows the rows linking here; it is made and removed in Wikid');
+    }
+    if (typeChanged && (fieldOptions.source || field.id === (await this.databaseSetup.resolveDatabaseTitleFieldId(database.id)))) {
+      throw new BadRequestException(`"${field.name}" is kept by Wikid (each row's title, say); its type can't be changed`);
+    }
+    if (payload.options !== undefined && (!payload.options || typeof payload.options !== 'object' || Array.isArray(payload.options))) {
+      throw new BadRequestException('options must be an object');
+    }
+    const renames = new Map<string, string>();
+    if (payload.renames !== undefined) {
+      if (!payload.renames || typeof payload.renames !== 'object' || Array.isArray(payload.renames)) throw new BadRequestException('renames must map old choice names to new');
+      for (const [from, to] of Object.entries(payload.renames as Record<string, unknown>)) {
+        if (typeof to !== 'string' || !to.trim()) throw new BadRequestException(`renames: "${from}" needs a new name`);
+        renames.set(from, to.trim());
+      }
+    }
+    // A select's choices (their colours too) stay unless others are given: from select to
+    // multi-select and back, or when other options change
+    const isSelect = (value: string) => value === DatabaseFieldType.SELECT || value === DatabaseFieldType.MULTI_SELECT;
+    const keptChoices = isSelect(type) && isSelect(field.type) && Array.isArray(fieldOptions.choices) ? { choices: fieldOptions.choices } : {};
+    let options: Record<string, any> = (payload.options as Record<string, any> | undefined) ?? (typeChanged ? keptChoices : fieldOptions);
+    if (!Array.isArray((payload.options as Record<string, any> | undefined)?.choices) && keptChoices.choices) {
+      // Renamed choices, with nothing else given: the choices there, renamed
+      const renamed = renames.size ? keptChoices.choices.map((choice: any) => {
+        const value = typeof choice === 'string' ? choice : choice?.value;
+        if (!renames.has(value)) return choice;
+        return typeof choice === 'string' ? renames.get(value) : { ...choice, value: renames.get(value) };
+      }) : keptChoices.choices;
+      options = { ...options, choices: renamed };
+    }
+    const name = typeof payload.name === 'string' && payload.name.trim() ? payload.name.trim() : field.name;
+
+    let people: Array<{ id: string; name: string }> = [];
+    if (typeChanged) {
+      const members = await this.prisma.userWorkspace.findMany({ where: { workspaceId: database.workspaceId }, select: { user: { select: { id: true, displayName: true } } } });
+      people = members.map((member) => ({ id: member.user.id, name: member.user.displayName }));
+    }
+    // What a select becomes is known before the cells are (it gets a choice for each value), so
+    // the options are checked after
+    const planFor = (rows: Array<{ id: string; data: Record<string, any> }>) => {
+      if (typeChanged) return planTypeChange(rows, field, type, options, { people });
+      if (isSelect(type) && Array.isArray(options.choices)) return { ...planChoiceChange(rows, field, options.choices, renames), options };
+      return { cells: [] as CellChange[], keptCount: 0, options };
+    };
+    // The live document's rows saved first, so the cells are worked out from them as they are now
+    await this.materializer.catchUpDatabase(database.pageId, database.workspaceId);
+    const keptKey = keptValueKey(field.id);
+    const plainData = (data: Prisma.JsonValue) => (data && typeof data === 'object' && !Array.isArray(data) ? (data as Record<string, any>) : {});
+    const preview = planFor(
+      (await this.prisma.databaseRow.findMany({ where: { databaseId: database.id }, orderBy: { position: 'asc' }, select: { id: true, data: true } })).map((row) => ({
+        id: row.id,
+        data: plainData(row.data),
+      }))
+    );
+    let sanitized: Prisma.InputJsonValue = await this.databaseSetup.sanitizeDatabaseFieldOptions(database, type, preview.options as Prisma.InputJsonValue);
+    if (type === DatabaseFieldType.RELATION) sanitized = await this.ensureRelationHistoryOptions(database, name, sanitized, user);
+
+    // The rows locked, read again and changed with the column: only this column's cells change, so
+    // an edit to another cell in the meantime stays
+    const { updated, plan } = await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "DatabaseRow" WHERE "databaseId" = ${database.id}::uuid FOR UPDATE`;
+      const rows = (await tx.databaseRow.findMany({ where: { databaseId: database.id }, orderBy: { position: 'asc' }, select: { id: true, data: true } })).map((row) => ({
+        id: row.id,
+        data: plainData(row.data),
+      }));
+      const plan = planFor(rows);
+      const dataById = new Map(rows.map((row) => [row.id, row.data]));
+      for (const cell of plan.cells) {
+        const data = { ...(dataById.get(cell.rowId) ?? {}) };
+        if (cell.value === undefined) delete data[field.id];
+        else data[field.id] = cell.value;
+        if (cell.kept === undefined) delete data[keptKey];
+        else data[keptKey] = cell.kept;
+        await tx.databaseRow.update({ where: { id: cell.rowId }, data: { data } });
+      }
+      // A select's choices from the rows as read now (one may have come in since the preview)
+      const finalOptions = typeChanged && isSelect(type) ? ({ ...(sanitized as Record<string, any>), choices: plan.options.choices } as Prisma.InputJsonValue) : sanitized;
+      const updated = await tx.databaseField.update({ where: { id }, data: { name, type, options: finalOptions } });
+      return { updated, plan };
+    }, { timeout: 60_000 });
+    // Into the live document too, the column and its cells in one change
+    await this.collabSync.syncCollabColumnChange(
+      { pageId: database.pageId, workspaceId: database.workspaceId },
+      updated as { id: string; name: string; type: string; options: Prisma.JsonValue },
+      plan.cells.map((cell) => ({ rowId: cell.rowId, values: { [field.id]: cell.value ?? null, [keptKey]: cell.kept ?? null } }))
+    );
+    return { field: updated, changed: plan.cells.length, kept: plan.keptCount };
   }
 
   async deleteDatabaseField(id: string, user?: { userId?: string; userName?: string }) {

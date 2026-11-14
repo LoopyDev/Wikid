@@ -3,6 +3,7 @@ import * as Y from 'yjs';
 import { coerceCellValue, keptValueFor, keptValueKey, planTypeChange } from './typeChange';
 // The same examples the API's rules are checked against
 import fixture from '../../../../api/test/fixtures/cell-values.json';
+import changes from '../../../../api/test/fixtures/column-changes.json';
 
 const ZONE = '11111111-1111-4111-8111-111111111111';
 
@@ -22,6 +23,12 @@ describe('the values a cell of each type keeps', () => {
 });
 
 describe('changing a column type', () => {
+  it('matches the server (the shared examples)', () => {
+    for (const c of changes.typeChanges) {
+      expect(JSON.parse(JSON.stringify(planTypeChange(c.rows, c.field, c.nextType, c.nextOptions ?? {}, { people: changes.people }))), c.name).toEqual(c.expected);
+    }
+  });
+
   const field = { id: 'f1', type: 'TEXT', options: {} };
   const rows = (...values) => values.map((value, idx) => ({ id: `r${idx}`, data: value === undefined ? {} : { f1: value } }));
   const byRow = (plan) => Object.fromEntries(plan.cells.map((cell) => [cell.rowId, cell.kept !== undefined ? { kept: cell.kept } : cell.value]));

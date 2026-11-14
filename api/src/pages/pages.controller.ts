@@ -380,6 +380,17 @@ export class PagesController {
     return this.databases.updateDatabaseField(id, data, { userId, userName });
   }
 
+  // A column's type or choices changed, its cells moved with it (see changeDatabaseField)
+  @Post('database-fields/:id/change')
+  changeDatabaseField(
+    @Param('id') id: string,
+    @Body() body: any,
+    @CurrentUserId() userId?: string,
+    @CurrentUserName() userName?: string,
+  ) {
+    return this.databases.changeDatabaseField(id, body ?? {}, { userId, userName });
+  }
+
   @Delete('database-fields/:id')
   deleteDatabaseField(@Param('id') id: string, @CurrentUserId() userId?: string, @CurrentUserName() userName?: string) {
     return this.databases.deleteDatabaseField(id, { userId, userName });

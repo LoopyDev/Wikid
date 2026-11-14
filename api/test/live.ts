@@ -6,12 +6,15 @@ import { API_URL, Session } from './helpers';
 
 const COLLAB_URL = API_URL.replace(/^http/, 'ws').replace(/\/api$/, '/collab');
 
-/** Opens a page's live document and keeps it open; `paragraphs()` reads what it holds. */
-export async function openLiveDocument(session: Session, workspaceId: string, pageId: string) {
+/**
+ * Opens a page's live document and keeps it open; `paragraphs()` reads what it holds. A database's
+ * document (its columns and rows) with `{ database: true }`.
+ */
+export async function openLiveDocument(session: Session, workspaceId: string, pageId: string, { database = false } = {}) {
   const token = (await session.post('/collab/token', { workspaceId })).body.token as string;
   const doc = new Y.Doc();
   const socket = new HocuspocusProviderWebsocket({ url: COLLAB_URL });
-  const provider = new HocuspocusProvider({ websocketProvider: socket, name: `ws:${workspaceId}:${pageId}`, document: doc, token });
+  const provider = new HocuspocusProvider({ websocketProvider: socket, name: `ws:${workspaceId}:${database ? 'db:' : ''}${pageId}`, document: doc, token });
   provider.attach();
   await new Promise<void>((resolve) => provider.on('synced', () => resolve()));
   return {

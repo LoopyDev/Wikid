@@ -7,6 +7,8 @@ import {
   deleteCollabDatabaseFieldState,
   deleteCollabDatabaseRowState,
   updateCollabDatabaseFieldState,
+  updateCollabColumnChangeState,
+  type CollabCellChange,
   updateCollabDatabaseRowState,
 } from '../collab/collab-database.util';
 import jwt from 'jsonwebtoken';
@@ -206,6 +208,26 @@ export class CollabSyncService {
       fieldId: field.id,
     });
     await this.pushCollab('/collab/push/db-field', { documentName, field: change }, { documentName, fieldId: field.id });
+  }
+
+  /** A column changed with its cells (see changeDatabaseField), into the live document in one change. */
+  async syncCollabColumnChange(
+    database: { pageId: string; workspaceId: string },
+    field: { id: string; name: string; type: string; options?: Prisma.JsonValue | null },
+    cells: CollabCellChange[]
+  ) {
+    if (!database?.pageId || !database.workspaceId || !field?.id) return;
+    const documentName = `ws:${database.workspaceId}:db:${database.pageId}`;
+    const change: CollabFieldChange = {
+      id: field.id,
+      name: field.name,
+      type: field.type,
+      options: field.options && typeof field.options === 'object' && !Array.isArray(field.options) ? (field.options as Record<string, any>) : {},
+    };
+    await this.applyCollabStateUpdate(documentName, (state) => updateCollabColumnChangeState(state, change, cells), 'Failed to sync collab db column change', {
+      fieldId: field.id,
+    });
+    await this.pushCollab('/collab/push/db-column', { documentName, field: change, cells }, { documentName, fieldId: field.id });
   }
 
   // A field deleted through the API, out of the live document (or the next save brings it back)
