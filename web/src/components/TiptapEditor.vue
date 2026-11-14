@@ -881,6 +881,9 @@ editor = useEditor({
       restorePage,
       getHostPageId: () => props.pageId || null,
     },
+    markdownLinks: {
+      listPages: listWorkspacePages,
+    },
     pageMentions: {
       resolvePage: getResolvedPage,
       listPages: listWorkspacePages,
