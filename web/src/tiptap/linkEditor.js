@@ -18,7 +18,9 @@ export const LinkEditorExtension = Extension.create({
         if (!this.editor.isEditable || typeof this.options.open !== 'function') return false;
         const { selection, schema } = this.editor.state;
         const inLink = schema.marks.link && getMarkRange(selection.$from, schema.marks.link);
-        if (selection.empty && !inLink) return false;
+        // (A page mention next to the cursor counts as a link: ⌘K edits it)
+        const atMention = [selection.$from.nodeBefore, selection.$from.nodeAfter].some((node) => node?.type.name === 'pageMention');
+        if (selection.empty && !inLink && !atMention) return false;
         this.options.open();
         return true;
       },

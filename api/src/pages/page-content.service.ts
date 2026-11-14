@@ -9,6 +9,7 @@ import { contentUpdateForState, titleUpdateForState, normalizeCollabDocState } f
 import { PageAccessService } from './page-access.service';
 import { CollabSyncService } from './collab-sync.service';
 import { normalizeEditorContent } from './editor-doc.util';
+import { isUuid } from '../utils/uuid.util';
 import type { ContentNode } from './markdown/markdown-to-content.util';
 import {
   BlockOperationError,
@@ -121,18 +122,60 @@ export class PageContentService {
     return normalized.content as ContentNode[];
   }
 
-  private view(page: DocPage, content: ContentNode[]) {
+  private async view(page: DocPage, content: ContentNode[], user: User) {
+    // Page mentions as Markdown links, with their pages' titles for this reader
+    const readable = await this.mentionsAsLinks(content, user, (id) => `/doc/${id}`);
     return {
       id: page.id,
       title: page.title,
       // Which version of the content this is: a whole-page rewrite gives it back, and is refused
       // if the page has changed since (someone typing), rather than writing over it
       revision: revisionOf(content),
-      markdown: contentToMarkdown(content),
+      markdown: contentToMarkdown(readable),
       // The same, each block preceded by a comment with its id, for a tool to change it by id
-      annotated: contentToMarkdown(content, { sections: true, markers: true }),
-      blocks: markdownUnits(content),
+      annotated: contentToMarkdown(readable, { sections: true, markers: true }),
+      blocks: markdownUnits(readable),
     };
+  }
+
+  /**
+   * Page mentions given what they're written out as in Markdown, "[@Title](<href>)" (and read back
+   * as). A mention holds only its page's id: the title is the page's as it is now, for this
+   * reader, so someone else's private page (or one in a workspace they're not in) reads as
+   * "Private page", and one in the Bin as "Deleted page".
+   */
+  private async mentionsAsLinks(content: ContentNode[], user: User, href: (pageId: string) => string): Promise<ContentNode[]> {
+    const ids = new Set<string>();
+    const collect = (nodes: ContentNode[] | undefined) =>
+      (nodes ?? []).forEach((node) => {
+        if (node.type === 'pageMention' && typeof node.attrs?.pageId === 'string' && isUuid(node.attrs.pageId)) ids.add(node.attrs.pageId);
+        collect(node.content);
+      });
+    collect(content);
+    if (!ids.size) return content;
+    // Each page as opening it would allow (the same rules: the system admin, a VIEWER's own
+    // private page...), and in the Bin or not
+    const label = new Map<string, string>();
+    const titles = new Map((await this.prisma.page.findMany({ where: { id: { in: [...ids] } }, select: { id: true, title: true } })).map((p) => [p.id, p.title]));
+    for (const pageId of ids) {
+      try {
+        const { page } = await this.access.requirePageAccess(pageId, user, { allowDeleted: true });
+        label.set(pageId, page.isDeleted ? 'Deleted page' : titles.get(pageId) || 'Untitled page');
+      } catch {
+        label.set(pageId, 'Private page');
+      }
+    }
+    // (Still a mention, given its title and address to be written out with: written as text, it ran
+    // into text beside it with the same link, and bold put its "**" inside the brackets)
+    const rewrite = (nodes: ContentNode[] | undefined): ContentNode[] | undefined =>
+      nodes?.map((node) => {
+        if (node.type === 'pageMention') {
+          const pageId = String(node.attrs?.pageId ?? '');
+          return { ...node, attrs: { ...node.attrs, label: label.get(pageId) ?? 'Private page', href: href(pageId) } };
+        }
+        return node.content ? { ...node, content: rewrite(node.content) } : node;
+      });
+    return rewrite(content) ?? [];
   }
 
   /** Content written by the API as page JSON (PUT /pages/:id/content). */
@@ -179,7 +222,7 @@ export class PageContentService {
   async getMarkdown(pageId: string, user: User) {
     const page = await this.docPage(pageId, user, false);
     const { content } = await this.current(page);
-    return this.view(page, content);
+    return this.view(page, content, user);
   }
 
   /**
@@ -190,7 +233,10 @@ export class PageContentService {
   async getExportMarkdown(pageId: string, user: User) {
     const page = await this.docPage(pageId, user, false);
     const { content } = await this.current(page);
-    return { id: page.id, title: page.title, markdown: contentToMarkdown(content, { forExport: true }) };
+    // (A mention as a link to wikid-page:<id>, which the export points at that page's file, as for a
+    // page link)
+    const readable = await this.mentionsAsLinks(content, user, (id) => `wikid-page:${id}`);
+    return { id: page.id, title: page.title, markdown: contentToMarkdown(readable, { forExport: true }) };
   }
 
   /** Changes the page's content with one of the block operations, as Markdown in and out. */
@@ -207,7 +253,7 @@ export class PageContentService {
       if (err instanceof BlockOperationError) throw new BadRequestException(err.message);
       throw err;
     }
-    return this.view(page, await this.write(page, next, state, user));
+    return this.view(page, await this.write(page, next, state, user), user);
   }
 
   replaceMarkdown(pageId: string, markdown: string, user: User, revision?: string) {

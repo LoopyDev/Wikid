@@ -140,3 +140,43 @@ describe('page content as Markdown', () => {
     expect((await alice.put(`/pages/${page.id}/markdown`, {})).status).toBe(400);
   });
 });
+
+describe('page mentions in Markdown', () => {
+  const mentionOf = (pageId: string) => ({ type: 'pageMention', attrs: { pageId } });
+  const mentionsIn = (doc: any): string[] => {
+    const found: string[] = [];
+    const walk = (node: any) => {
+      if (node?.type === 'pageMention') found.push(node.attrs?.pageId);
+      (node?.content || []).forEach(walk);
+    };
+    walk(doc);
+    return found;
+  };
+
+  it("reads as a link to the page with its title now, and keeps being a mention when written back", async () => {
+    const target = await createPage(alice, workspaceId, { title: 'Onboarding' });
+    const page = await createPage(alice, workspaceId);
+    const content = { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'See ' }, mentionOf(target.id)] }] };
+    expect((await alice.put(`/pages/${page.id}/content`, { content })).status).toBe(200);
+    expect((await alice.get(`/pages/${page.id}/markdown`)).body.markdown).toBe(`See [@Onboarding](/doc/${target.id})`);
+    // The title as it is now, not as it was when mentioned
+    await alice.patch(`/pages/${target.id}`, { title: 'Onboarding, renamed' });
+    expect((await alice.get(`/pages/${page.id}/markdown`)).body.markdown).toBe(`See [@Onboarding, renamed](/doc/${target.id})`);
+    // Written back (the MCP server's way): still a mention, whatever the words in the brackets
+    const written = await alice.put(`/pages/${page.id}/markdown`, { markdown: `Read [@anything](/doc/${target.id}) and [this](/doc/${target.id}).` });
+    expect(written.status).toBe(200);
+    const saved = (await alice.get(`/pages/${page.id}/content`)).body;
+    expect(mentionsIn(saved)).toEqual([target.id]);
+  });
+
+  it("shows someone else's private page as a private page, not by its title", async () => {
+    const secret = await createPage(alice, workspaceId, { title: 'Alice only', visibility: 'PRIVATE' });
+    const page = await createPage(alice, workspaceId);
+    const content = { type: 'doc', content: [{ type: 'paragraph', content: [mentionOf(secret.id)] }] };
+    expect((await alice.put(`/pages/${page.id}/content`, { content })).status).toBe(200);
+    expect((await alice.get(`/pages/${page.id}/markdown`)).body.markdown).toBe(`[@Alice only](/doc/${secret.id})`);
+    const asBob = (await bob.get(`/pages/${page.id}/markdown`)).body.markdown as string;
+    expect(asBob).toBe(`[@Private page](/doc/${secret.id})`);
+    expect(asBob).not.toContain('Alice only');
+  });
+});

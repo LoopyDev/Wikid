@@ -17,6 +17,7 @@ import Link from '@tiptap/extension-link';
 import Typography from '@tiptap/extension-typography';
 import { Markdown } from '@tiptap/markdown';
 import { LinkEditorExtension } from './linkEditor';
+import PageMention from './pageMention';
 // The marked version @tiptap/markdown is built for (18 trims the blank lines it reads as empty paragraphs)
 import { Marked } from 'marked-tiptap';
 import { all, createLowlight } from 'lowlight';
@@ -71,7 +72,7 @@ lowlight.register('lua', lua);
  * The page editor's extensions.
  * - collab: { document, provider, user } for live editing (provider null until it's ready), or null.
  * - isCollabEnabled (ref), isSyncedLocked, hasWorkspaceSyncedReference: for block ids and synced blocks.
- * - pageLinks, databaseViews, slashCommands, links: the options for those extensions.
+ * - pageLinks, pageMentions, databaseViews, slashCommands, links: the options for those extensions.
  * - getPlaceholder: the page's own placeholder text, if any.
  * - lastTextInputAt, lastTextInputInfo: when and what was last typed (for the selection guard).
  * - lastPointerDownAt: when the editor was last clicked (a cursor move then is meant).
@@ -97,6 +98,7 @@ export function createEditorExtensions({
   isSyncedLocked,
   hasWorkspaceSyncedReference,
   pageLinks,
+  pageMentions,
   databaseViews,
   slashCommands,
   links,
@@ -224,6 +226,7 @@ export function createEditorExtensions({
       ToggleHeading,
       Callout,
       PageLink.configure(pageLinks),
+      PageMention.configure(pageMentions),
       LinkEditorExtension.configure(links),
       DatabaseView.configure(databaseViews),
       DatabaseForm.configure({

@@ -29,6 +29,7 @@ import TextBubbleMenu from './TextBubbleMenu.vue';
 import { useEditorAi } from '../composables/useEditorAi';
 import { createSlashItems } from '../tiptap/slashItems';
 import { pageLinkTarget } from '../utils/editorLinks';
+import { mentionLabel } from '../tiptap/pageMentionLabel';
 import LinkEditor from './LinkEditor.vue';
 import { useBlockHandles } from '../composables/useBlockHandles';
 import { useSyncedBlocks } from '../composables/useSyncedBlocks';
@@ -155,6 +156,38 @@ const openLinkEditor = ({ newLink = false } = {}) => {
   const { state, view } = ed;
   const linkType = state.schema.marks.link;
   const { selection } = state;
+  // A page mention next to the cursor (just before it, else just after): edited as one, to change
+  // its page or make it linked words
+  const { $from } = selection;
+  const mentionBefore = selection.empty && $from.nodeBefore?.type.name === 'pageMention' ? $from.nodeBefore : null;
+  const mentionAfter = selection.empty && !mentionBefore && $from.nodeAfter?.type.name === 'pageMention' ? $from.nodeAfter : null;
+  const mentionNode = mentionBefore || mentionAfter;
+  if (!newLink && mentionNode) {
+    const mentionFrom = mentionBefore ? $from.pos - mentionNode.nodeSize : $from.pos;
+    const mentionTo = mentionFrom + mentionNode.nodeSize;
+    const at = view.coordsAtPos(mentionFrom);
+    const page = getResolvedPage(mentionNode.attrs.pageId);
+    const sync = liveSync(state);
+    linkEditorState.value = {
+      from: mentionFrom,
+      to: mentionTo,
+      live: sync
+        ? {
+            from: absolutePositionToRelativePosition(mentionFrom, sync.type, sync.binding.mapping),
+            to: absolutePositionToRelativePosition(mentionTo, sync.type, sync.binding.mapping),
+          }
+        : null,
+      text: '',
+      href: `/doc/${mentionNode.attrs.pageId}`,
+      editing: true,
+      mention: true,
+      mentionTitle: mentionLabel(page),
+      mentionPage: { id: mentionNode.attrs.pageId, title: mentionLabel(page), icon: page?.icon || '' },
+      textEditable: true,
+      anchor: { left: at.left, bottom: at.bottom },
+    };
+    return;
+  }
   // (Not in code, which can't hold links)
   if (!linkType || !selection.$from.parent.type.allowsMarkType(linkType)) return;
   let { from, to } = selection;
@@ -212,7 +245,7 @@ const closeLinkEditor = () => {
   editor.value?.commands.focus();
 };
 const linkAttrs = (href) => ({ href, target: pageLinkTarget(href) ? null : '_blank' });
-const saveLink = ({ text, href }) => {
+const saveLink = ({ text, href, mention, pageId }) => {
   const ed = editor.value;
   const target = linkEditorState.value;
   returnToPage(ed);
@@ -220,6 +253,22 @@ const saveLink = ({ text, href }) => {
   const range = linkRangeNow(ed.state, target);
   if (!range) return;
   const { from, to } = range;
+  if (mention) {
+    // The page as a mention, in place of the words (or where the cursor was), a space after it
+    // unless one follows already
+    const after = ed.state.doc.textBetween(to, Math.min(to + 1, ed.state.doc.content.size), ' ');
+    const content = [{ type: 'pageMention', attrs: { pageId } }, ...(after === ' ' ? [] : [{ type: 'text', text: ' ' }])];
+    ed.chain().focus().insertContentAt({ from, to }, content).run();
+    return;
+  }
+  if (target.mention) {
+    // A mention made words linked to its page: its title, unless other words were given
+    ed.chain()
+      .focus()
+      .insertContentAt({ from, to }, { type: 'text', text: text || target.mentionTitle, marks: [{ type: 'link', attrs: linkAttrs(href) }] })
+      .run();
+    return;
+  }
   if (from !== to && (text === target.text || !target.textEditable)) {
     // The same words: linked where they are (across several blocks too)
     ed.chain().focus().setTextSelection({ from, to }).setLink(linkAttrs(href)).setTextSelection(to).run();
@@ -242,6 +291,11 @@ const removeLink = () => {
   if (!ed || !target) return;
   const range = linkRangeNow(ed.state, target);
   if (!range) return;
+  if (target.mention) {
+    // A mention taken off: its title, as plain words
+    ed.chain().focus().insertContentAt(range, { type: 'text', text: target.mentionTitle }).run();
+    return;
+  }
   ed.chain().focus().setTextSelection(range).unsetLink().setTextSelection(range.to).run();
 };
 // The pages a link can go to, for the link editor's search
@@ -826,6 +880,11 @@ editor = useEditor({
       openPage,
       restorePage,
       getHostPageId: () => props.pageId || null,
+    },
+    pageMentions: {
+      resolvePage: getResolvedPage,
+      listPages: listWorkspacePages,
+      openPage: (pageId) => openLinkedPage(pageId, ''),
     },
     links: {
       open: () => openLinkEditor(),
@@ -2036,6 +2095,8 @@ defineExpose({
         :href="linkEditorState.href"
         :editing="linkEditorState.editing"
         :text-editable="linkEditorState.textEditable"
+        :mention="!!linkEditorState.mention"
+        :mention-page="linkEditorState.mentionPage || null"
         :pages="linkablePages"
         @save="saveLink"
         @remove="removeLink"
