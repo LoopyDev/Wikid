@@ -15,6 +15,7 @@ import jwt from 'jsonwebtoken';
 import { PageAccessService } from './page-access.service';
 import { collabDocumentTarget } from '../utils/collab-document-target.util';
 import { canEdit } from './pages.shared';
+import { groupPagesByAudience, type PageForAudience } from './page-audience.util';
 
 // Keeps live-editing (Hocuspocus) documents in step with changes made through the API,
 // and issues the tokens the browser uses to join them.
@@ -100,21 +101,50 @@ export class CollabSyncService {
    */
   // `deleted` says which page was moved to the Bin (the others in pageIds are its sub-pages) and by
   // whom, so people with one of them open can be told; `restored` marks pages coming back from the Bin.
+  // A private page's changes go only to its author (see groupPagesByAudience), unless `everyone`: a
+  // page made private or public, which everyone's sidebar must drop or show. `pages` are the pages'
+  // visibility and author when they're no longer there to look up (deleted for good).
   announcePagesChanged(
     workspaceId: string | null | undefined,
     pageIds: Array<string | null | undefined>,
     extra?: { deleted?: { pageId: string; byUserId?: string; byName?: string }; restored?: boolean },
+    options: { everyone?: boolean; pages?: PageForAudience[] } = {},
   ) {
     if (!this.collabServerUrl || !this.collabApiSecret || !workspaceId) return;
     const ids = Array.from(new Set(pageIds.filter((id): id is string => typeof id === 'string' && !!id)));
-    const message = { type: 'pages-changed', workspaceId, pageIds: ids, ...extra };
-    fetch(`${this.collabServerUrl}/collab/broadcast`, {
+    if (!ids.length) return;
+    // In the order they're made, though each looks its pages up first
+    this.announcing = this.announcing
+      .then(() => this.audiencesFor(ids, options))
+      .then(async (groups) => {
+        for (const [audience, groupIds] of groups) {
+          const { deleted, ...rest } = extra ?? {};
+          // Who deleted a page goes only to those who could see it
+          const message = { type: 'pages-changed', workspaceId, pageIds: groupIds, ...rest, ...(deleted && groupIds.includes(deleted.pageId) ? { deleted } : {}) };
+          await this.broadcast(workspaceId, message, audience ? [audience] : undefined);
+        }
+      })
+      .catch((err) => console.warn('Collab broadcast error', { workspaceId, error: (err as Error)?.message || err }));
+  }
+
+  private announcing: Promise<void> = Promise.resolve();
+
+  private async audiencesFor(ids: string[], options: { everyone?: boolean; pages?: PageForAudience[] }) {
+    if (options.everyone) return new Map<string | null, string[]>([[null, ids]]);
+    const pages =
+      options.pages ?? (await this.prisma.page.findMany({ where: { id: { in: ids } }, select: { id: true, visibility: true, authorId: true } }));
+    return groupPagesByAudience(ids, pages);
+  }
+
+  // To everyone with the workspace open, or only to these people
+  private broadcast(workspaceId: string, message: Record<string, unknown>, userIds?: string[]) {
+    return fetch(`${this.collabServerUrl}/collab/broadcast`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${this.collabApiSecret}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ workspaceId, message }),
+      body: JSON.stringify({ workspaceId, message, ...(userIds ? { userIds } : {}) }),
       signal: AbortSignal.timeout(2000),
     })
       .then((res) => {

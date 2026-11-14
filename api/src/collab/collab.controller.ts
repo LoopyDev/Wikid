@@ -46,7 +46,9 @@ export class CollabController {
     // Who changed it since the last save, as the collab server saw them
     const editorIds = Array.isArray(editors) ? editors.filter((id): id is string => typeof id === 'string') : [];
     await this.collabService.recordPageVersion(documentName, bytes, editorIds);
-    return { ok: true };
+    // For the collab server's "database changed" message: who may hear it (null: everyone)
+    const audience = await this.collabService.savedAudience(documentName);
+    return { ok: true, ...(audience !== undefined ? { audience } : {}) };
   }
 
   @Public()

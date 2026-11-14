@@ -280,7 +280,7 @@ export class PagesService {
         });
       }
     }
-    this.collabSync.announcePagesChanged(page.workspaceId, idsToUpdate);
+    this.collabSync.announcePagesChanged(page.workspaceId, idsToUpdate, undefined, { everyone: true });
     return { page: updatedPage, updatedIds: idsToUpdate };
   }
 
@@ -637,8 +637,12 @@ export class PagesService {
       copy = await copyTree(page, page.parentId ?? null, `${page.title || 'Untitled'} copy`);
     } catch (err) {
       // Not half a copy: what was made goes again
+      // (Who was told of each, from before they go)
+      const madePages = made.length
+        ? await this.prisma.page.findMany({ where: { id: { in: made } }, select: { id: true, visibility: true, authorId: true } }).catch(() => [])
+        : [];
       if (made.length) await this.prisma.$transaction((tx) => this.removePages(tx, made)).catch(() => undefined);
-      this.collabSync.announcePagesChanged(page.workspaceId, made);
+      this.collabSync.announcePagesChanged(page.workspaceId, made, undefined, { pages: madePages });
       throw err;
     }
     // Right after the original, rather than at the end
@@ -682,14 +686,17 @@ export class PagesService {
     }
     // For good only from the Bin: a page in use goes there first. One restored meanwhile (someone
     // else's Bin list was out of date) is left alone; the rest still go.
-    const pages = await this.prisma.page.findMany({ where: { id: { in: ids }, isDeleted: true }, select: { id: true, workspaceId: true } });
+    const pages = await this.prisma.page.findMany({
+      where: { id: { in: ids }, isDeleted: true },
+      select: { id: true, workspaceId: true, visibility: true, authorId: true },
+    });
     if (!pages.length) {
       throw new BadRequestException('Only pages in the Bin can be deleted for good');
     }
     const binned = pages.map((p) => p.id);
     const result = await this.prisma.$transaction((tx) => this.removePages(tx, binned));
     for (const workspaceId of new Set(pages.map((p) => p.workspaceId))) {
-      this.collabSync.announcePagesChanged(workspaceId, pages.filter((p) => p.workspaceId === workspaceId).map((p) => p.id));
+      this.collabSync.announcePagesChanged(workspaceId, pages.filter((p) => p.workspaceId === workspaceId).map((p) => p.id), undefined, { pages });
     }
     return result;
   }
