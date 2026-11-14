@@ -42,8 +42,9 @@ describe('MCP server', () => {
   it('offers its tools', async () => {
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual([
-      'add_database_row', 'add_image', 'create_page', 'delete_block', 'get_database', 'get_page', 'insert_blocks',
-      'list_pages', 'list_workspaces', 'rename_page', 'replace_page', 'search', 'update_block', 'update_database_row',
+      'add_database_column', 'add_database_row', 'add_image', 'create_database', 'create_page', 'delete_block',
+      'delete_database_column', 'get_database', 'get_page', 'insert_blocks', 'list_pages', 'list_workspaces', 'rename_page',
+      'replace_page', 'search', 'update_block', 'update_database_column', 'update_database_row',
     ]);
   });
 
@@ -194,5 +195,97 @@ describe('MCP server', () => {
     expect(refusedAdd.isError).toBe(true);
     // Nothing changed, nothing added
     expect(await cells()).toEqual({ Name: 'Bolts', Count: 4, Due: '2026-12-01', Done: false, Status: 'Open' });
+  });
+
+  it('makes a database with its columns, and adds, renames, gives choices to and deletes columns', async () => {
+    const created = await call('create_database', {
+      workspaceId,
+      title: 'Tracker',
+      columns: [
+        { name: 'Category', type: 'select', choices: ['Feature', 'Bug'] },
+        { name: 'Done', type: 'checkbox' },
+      ],
+    });
+    expect(created.isError).toBe(false);
+    const pageId = created.text.match(/Database ([0-9a-f-]{36})/)?.[1] as string;
+    const columns = async () => (await call('get_database', { pageId })).text.split('Rows')[0];
+    expect(await columns()).toContain('- Category (select: Feature, Bug)');
+    expect(await columns()).toContain('- Done (checkbox)');
+
+    // A column added; choices added to one (a choice there already, in another case, isn't twice)
+    expect((await call('add_database_column', { pageId, name: 'Area', type: 'multi_select', choices: ['Editor'] })).isError).toBe(false);
+    expect((await call('update_database_column', { pageId, column: 'category', addChoices: ['Question', 'bug'] })).isError).toBe(false);
+    expect(await columns()).toContain('- Category (select: Feature, Bug, Question)');
+    // Renamed, and rows written by the new name
+    expect((await call('update_database_column', { pageId, column: 'Area', name: 'Areas' })).isError).toBe(false);
+    const added = await call('add_database_row', { pageId, cells: { Name: 'Links', Category: 'Question', Areas: ['Editor'], Done: true } });
+    expect(added.isError).toBe(false);
+
+    // Deleting needs confirm, and never the title column
+    const unconfirmed = await call('delete_database_column', { pageId, column: 'Done' });
+    expect(unconfirmed.isError).toBe(true);
+    expect(unconfirmed.text).toMatch(/confirm/);
+    expect((await call('delete_database_column', { pageId, column: 'Done', confirm: true })).isError).toBe(false);
+    const title = await call('delete_database_column', { pageId, column: 'Name', confirm: true });
+    expect(title.isError).toBe(true);
+    expect(title.text).toMatch(/title/i);
+    const read = await call('get_database', { pageId });
+    expect(read.text).not.toContain('- Done (checkbox)');
+    expect(JSON.parse(read.text.split('Rows (1):')[1])[0].cells).toEqual({ Name: 'Links', Category: 'Question', Areas: ['Editor'] });
+  });
+
+  it("refuses a column it couldn't use: a name taken, a type it doesn't know, choices for a column that has none", async () => {
+    const pageId = (await call('create_database', { workspaceId, title: 'Refusals' })).text.match(/Database ([0-9a-f-]{36})/)?.[1] as string;
+    for (const [args, says] of [
+      [{ name: 'name', type: 'text' }, /already/],
+      [{ name: 'Link', type: 'formula' }, /type/],
+      [{ name: 'Notes', type: 'text', choices: ['A'] }, /choices/],
+    ] as const) {
+      const refused = await call('add_database_column', { pageId, ...args });
+      expect(refused.isError, JSON.stringify(args)).toBe(true);
+      expect(refused.text).toMatch(says);
+    }
+    expect((await call('update_database_column', { pageId, column: 'Nope', name: 'X' })).text).toMatch(/No column "Nope"/);
+    // The app's own spelling of a type is taken
+    expect((await call('add_database_column', { pageId, name: 'Tags', type: 'Multi-select', choices: ['A'] })).isError).toBe(false);
+    expect((await call('add_database_column', { pageId, name: 'More tags', type: 'multiselect' })).isError).toBe(false);
+
+    // A bad column refuses the whole database: none is made
+    const title = `Half built ${Date.now()}`;
+    const refused = await call('create_database', { workspaceId, title, columns: [{ name: 'Fine', type: 'text' }, { name: 'Link', type: 'formula' }] });
+    expect(refused.isError).toBe(true);
+    const toNothing = await call('create_database', { workspaceId, title, columns: [{ name: 'Link', type: 'relation', relatesTo: '00000000-0000-4000-8000-000000000000' }] });
+    expect(toNothing.isError).toBe(true);
+    expect(toNothing.text).toMatch(/No database/);
+    expect((await call('list_pages', { workspaceId })).text).not.toContain(title);
+  });
+
+  it('makes a relation column, to the rows of another database', async () => {
+    const dbId = (text: string) => text.match(/Database ([0-9a-f-]{36})/)?.[1] as string;
+    const people = dbId((await call('create_database', { workspaceId, title: 'People' })).text);
+    const tasks = dbId((await call('create_database', { workspaceId, title: 'Tasks' })).text);
+    const ada = (await call('add_database_row', { pageId: people, cells: { Name: 'Ada' } })).text.match(/row ([0-9a-f-]{36})/)?.[1];
+
+    expect((await call('add_database_column', { pageId: tasks, name: 'Owner', type: 'relation', relatesTo: people })).isError).toBe(false);
+    const written = await call('add_database_row', { pageId: tasks, cells: { Name: 'Write', Owner: [ada] } });
+    expect(written.isError, written.text).toBe(false);
+    const read = await call('get_database', { pageId: tasks });
+    expect(read.text).toContain(`- Owner (relation: to database ${people})`);
+    // A relation with no allowMultiple (as the app has made them) holds several
+    expect((await call('add_database_column', { pageId: tasks, name: 'Helpers', type: 'relation', relatesTo: people, multiple: true })).isError).toBe(false);
+    expect((await call('get_database', { pageId: tasks })).text).toContain(`- Helpers (relation: to database ${people}, several rows)`);
+    expect(JSON.parse(read.text.split('Rows (1):')[1])[0].cells.Owner).toEqual({ id: ada, label: 'Ada' });
+
+    // Not without a database to link to, nor to a page that isn't one, nor a relation's options on another type
+    const doc = (await call('create_page', { workspaceId, title: 'Just a page' })).text.match(/Page ([0-9a-f-]{36})/)?.[1];
+    for (const [args, says] of [
+      [{ name: 'Lead', type: 'relation' }, /relatesTo/],
+      [{ name: 'Lead', type: 'relation', relatesTo: doc }, /not found/i],
+      [{ name: 'Lead', type: 'text', relatesTo: people }, /relation/],
+    ] as const) {
+      const refused = await call('add_database_column', { pageId: tasks, ...args });
+      expect(refused.isError, JSON.stringify(args)).toBe(true);
+      expect(refused.text).toMatch(says);
+    }
   });
 });
