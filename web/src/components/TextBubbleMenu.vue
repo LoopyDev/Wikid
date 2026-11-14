@@ -2,10 +2,9 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import { BubbleMenu } from '@tiptap/vue-3/menus';
 import { highlightOptions, textColorOptions } from '../tiptap/editorMenuOptions';
-import { normalizeLinkHref } from '../utils/editorLinks';
 import { positionBubbleMenu, rectFromClientRects } from '../utils/menuPosition';
 
-// The toolbar over selected text: bold, italic, strikethrough, link, text colour, highlight,
+// The toolbar over selected text: bold, italic, strikethrough, link (the editor's link editor), text colour, highlight,
 // and the AI actions (which the editor runs, via the `ai-action` event).
 const props = defineProps({
   editor: { type: Object, default: null },
@@ -13,7 +12,7 @@ const props = defineProps({
   // Show the AI actions (Improve, Summarise, …).
   aiEnabled: { type: Boolean, default: false },
 });
-const emit = defineEmits(['ai-action']);
+const emit = defineEmits(['ai-action', 'edit-link']);
 const editor = computed(() => props.editor);
 
 const toggleBold = () => editor.value?.chain().focus().toggleBold().run();
@@ -22,18 +21,8 @@ const toggleItalic = () => editor.value?.chain().focus().toggleItalic().run();
 
 const toggleStrike = () => editor.value?.chain().focus().toggleStrike().run();
 
-const promptLink = () => {
-  if (!editor.value) return;
-  const previous = editor.value.getAttributes('link').href || '';
-  const url = window.prompt('Enter URL', previous);
-  if (url === null) return;
-  const href = normalizeLinkHref(url);
-  if (!href) {
-    editor.value.chain().focus().extendMarkRange('link').unsetLink().run();
-    return;
-  }
-  editor.value.chain().focus().extendMarkRange('link').setLink({ href, target: '_blank' }).run();
-};
+// The link editor, opened by the editor under the chosen words
+const promptLink = () => emit('edit-link');
 
 const currentColor = computed(() => editor.value?.getAttributes('textStyle')?.color || '');
 

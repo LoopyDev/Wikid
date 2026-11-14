@@ -1,5 +1,4 @@
 import { createDatabaseViewConfig } from './blockPayloads';
-import { normalizeLinkHref } from '../utils/editorLinks';
 
 /**
  * A whole block (a divider, a table of contents...) put in where the "/" was, with the cursor on an
@@ -18,7 +17,7 @@ export const insertBlock = (editor, range, content) => {
 };
 
 // The slash menu's items: each has a title, search keywords, an icon and the command it runs.
-export function createSlashItems({ insertToggleHeading, insertColumns, insertImageFromUpload, props, getResolvedPage, workspace, showAiPrompt }) {
+export function createSlashItems({ insertToggleHeading, insertColumns, insertImageFromUpload, props, getResolvedPage, workspace, showAiPrompt, openLinkEditor }) {
   return [
     { title: 'Text', icon: 'Tx', hint: 'Paragraph', search: ['text', 'paragraph', 'p'], command: ({ editor, range }) => editor.chain().focus().deleteRange(range).setParagraph().run() },
     { title: 'Heading 1', icon: 'H1', hint: 'Big heading', search: ['h1', 'heading'], command: ({ editor, range }) => editor.chain().focus().deleteRange(range).toggleHeading({ level: 1 }).run() },
@@ -155,18 +154,8 @@ export function createSlashItems({ insertToggleHeading, insertColumns, insertIma
       hint: 'Add a link',
       search: ['link', 'url'],
       command: ({ editor, range }) => {
-        const url = window.prompt('Enter a URL');
-        if (url === null) return;
-        const href = normalizeLinkHref(url);
-        if (!href) return;
-        const label = url.trim();
-        editor
-          .chain()
-          .focus()
-          .deleteRange(range)
-          .setLink({ href, target: '_blank' })
-          .insertContent(label)
-          .run();
+        editor.chain().focus().deleteRange(range).run();
+        openLinkEditor?.();
       },
     },
     {

@@ -16,6 +16,7 @@ import Highlight from '@tiptap/extension-highlight';
 import Link from '@tiptap/extension-link';
 import Typography from '@tiptap/extension-typography';
 import { Markdown } from '@tiptap/markdown';
+import { LinkEditorExtension } from './linkEditor';
 // The marked version @tiptap/markdown is built for (18 trims the blank lines it reads as empty paragraphs)
 import { Marked } from 'marked-tiptap';
 import { all, createLowlight } from 'lowlight';
@@ -70,7 +71,7 @@ lowlight.register('lua', lua);
  * The page editor's extensions.
  * - collab: { document, provider, user } for live editing (provider null until it's ready), or null.
  * - isCollabEnabled (ref), isSyncedLocked, hasWorkspaceSyncedReference: for block ids and synced blocks.
- * - pageLinks, databaseViews, slashCommands: the options for those extensions.
+ * - pageLinks, databaseViews, slashCommands, links: the options for those extensions.
  * - getPlaceholder: the page's own placeholder text, if any.
  * - lastTextInputAt, lastTextInputInfo: when and what was last typed (for the selection guard).
  * - lastPointerDownAt: when the editor was last clicked (a cursor move then is meant).
@@ -98,6 +99,7 @@ export function createEditorExtensions({
   pageLinks,
   databaseViews,
   slashCommands,
+  links,
   getPlaceholder,
   lastTextInputAt,
   lastTextInputInfo,
@@ -194,10 +196,13 @@ export function createEditorExtensions({
       // marked: on the shared one each editor added its rules for good, which kept every editor
       // ever opened in memory (and made each paste run all their rules)
       Markdown.configure({ marked: new Marked() }),
-      Link.configure({
+      // A link is the words it was given: typing at its end isn't part of it (with autolink on, Tiptap
+      // has it take in what's typed there; the word after a link joined it)
+      Link.extend({ inclusive: () => false }).configure({
         autolink: true,
         linkOnPaste: true,
-        openOnClick: true,
+        // (A click is LinkEditorExtension's: a page here opens in place)
+        openOnClick: false,
         defaultProtocol: 'https',
         HTMLAttributes: { rel: 'noopener noreferrer' },
       }),
@@ -219,6 +224,7 @@ export function createEditorExtensions({
       ToggleHeading,
       Callout,
       PageLink.configure(pageLinks),
+      LinkEditorExtension.configure(links),
       DatabaseView.configure(databaseViews),
       DatabaseForm.configure({
         listDatabasePages: databaseViews.listDatabasePages,

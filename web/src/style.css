@@ -742,6 +742,85 @@ button {
   background: rgba(15, 23, 42, 0.08);
 }
 
+/* The text toolbar while the link editor is open */
+.bubble-menu--hidden {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* The link editor (LinkEditor.vue): a link's words and where it goes */
+.link-editor {
+  position: fixed;
+  z-index: 1200;
+  gap: 8px;
+  padding: 10px;
+}
+
+.link-editor__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.link-editor__field input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 7px 9px;
+  border: 1px solid var(--surface-border);
+  border-radius: 6px;
+  font: inherit;
+  font-size: 0.9rem;
+  background: var(--surface-muted);
+  color: var(--text-primary);
+  outline: none;
+}
+
+.link-editor__field input:focus {
+  border-color: var(--caret-color);
+}
+
+.link-editor__pages {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.link-editor__page--active {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+:root[data-theme='light'] .link-editor__page--active {
+  background: rgba(15, 23, 42, 0.08);
+}
+
+.link-editor__page-icon {
+  width: 18px;
+  flex: 0 0 auto;
+}
+
+.link-editor__page-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.link-editor__error {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--danger-text, #f87171);
+}
+
+.link-editor__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
 .page-icon-slot {
   position: relative;
   width: 28px;

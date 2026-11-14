@@ -1,10 +1,11 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
 import { EditorContent, useEditor } from '@tiptap/vue-3';
+import { getMarkRange } from '@tiptap/core';
 import { TextSelection, NodeSelection } from 'prosemirror-state';
 import * as Y from 'yjs';
 import { createCollabProvider, providerStatus } from '../services/collabSocket';
-import { ySyncPluginKey, yUndoPluginKey } from '@tiptap/y-tiptap';
+import { absolutePositionToRelativePosition, relativePositionToAbsolutePosition, ySyncPluginKey, yUndoPluginKey } from '@tiptap/y-tiptap';
 import { NodeRangeSelection } from '@tiptap/extension-node-range';
 import { editorDocToTiptap } from '../utils/editorDoc';
 import { api } from '../api/client';
@@ -27,6 +28,8 @@ import BlockMenu from './BlockMenu.vue';
 import TextBubbleMenu from './TextBubbleMenu.vue';
 import { useEditorAi } from '../composables/useEditorAi';
 import { createSlashItems } from '../tiptap/slashItems';
+import { pageLinkTarget } from '../utils/editorLinks';
+import LinkEditor from './LinkEditor.vue';
 import { useBlockHandles } from '../composables/useBlockHandles';
 import { useSyncedBlocks } from '../composables/useSyncedBlocks';
 import { useSaveStatus } from '../composables/useSaveStatus';
@@ -120,6 +123,139 @@ const listWorkspacePages = () => {
     if (workspaceId && page.workspaceId !== workspaceId) return false;
     return true;
   });
+};
+
+// The link editor (LinkEditor.vue): open under the words it's for, or where the cursor is. With the
+// cursor in a link, or words chosen within one, that link is the one edited ("/link" always makes a
+// new one). Its place is kept as live-editing positions, which stay with the words whatever else
+// changes (someone else typing earlier on); without live editing, it follows each change here.
+const linkEditorState = ref(null);
+let followLinkRange = null;
+const stopFollowingLinkRange = () => {
+  if (followLinkRange) editor.value?.off('transaction', followLinkRange);
+  followLinkRange = null;
+};
+const liveSync = (state) => {
+  const sync = ySyncPluginKey.getState(state);
+  return sync?.binding?.mapping && sync.type && sync.doc ? sync : null;
+};
+// The link editor's words where they are now (null if they've gone)
+const linkRangeNow = (state, target) => {
+  if (!target.live) return { from: target.from, to: target.to };
+  const sync = liveSync(state);
+  if (!sync) return null;
+  const from = relativePositionToAbsolutePosition(sync.doc, sync.type, target.live.from, sync.binding.mapping);
+  const to = relativePositionToAbsolutePosition(sync.doc, sync.type, target.live.to, sync.binding.mapping);
+  if (from == null || to == null || to < from) return null;
+  return { from, to };
+};
+const openLinkEditor = ({ newLink = false } = {}) => {
+  const ed = editor.value;
+  if (!ed || !ed.isEditable) return;
+  const { state, view } = ed;
+  const linkType = state.schema.marks.link;
+  const { selection } = state;
+  // (Not in code, which can't hold links)
+  if (!linkType || !selection.$from.parent.type.allowsMarkType(linkType)) return;
+  let { from, to } = selection;
+  const linkAtCursor = newLink ? null : getMarkRange(selection.$from, linkType) || null;
+  // Chosen words only edit a link they lie within (not one just before them)
+  const linkRange = linkAtCursor && !selection.empty && (from < linkAtCursor.from || to > linkAtCursor.to) ? null : linkAtCursor;
+  if (linkRange) ({ from, to } = linkRange);
+  const start = view.coordsAtPos(from);
+  const end = view.coordsAtPos(to);
+  const sync = liveSync(state);
+  linkEditorState.value = {
+    from,
+    to,
+    live: sync
+      ? {
+          from: absolutePositionToRelativePosition(from, sync.type, sync.binding.mapping),
+          to: absolutePositionToRelativePosition(to, sync.type, sync.binding.mapping),
+        }
+      : null,
+    text: state.doc.textBetween(from, to, ' '),
+    href: linkRange ? linkHrefAt(state, linkRange) : '',
+    editing: !!linkRange,
+    // Words in one block can be rewritten; across several, only linked (rewriting merged them)
+    textEditable: state.doc.resolve(from).sameParent(state.doc.resolve(to)),
+    anchor: { left: start.left, bottom: Math.max(start.bottom, end.bottom) },
+  };
+  stopFollowingLinkRange();
+  if (sync) return;
+  followLinkRange = ({ transaction }) => {
+    const current = linkEditorState.value;
+    if (!current || !transaction.docChanged) return;
+    const mappedFrom = transaction.mapping.map(current.from, current.from === current.to ? -1 : 1);
+    const mappedTo = transaction.mapping.map(current.to, -1);
+    linkEditorState.value = { ...current, from: mappedFrom, to: Math.max(mappedFrom, mappedTo) };
+  };
+  ed.on('transaction', followLinkRange);
+};
+const linkHrefAt = (state, range) => {
+  let href = '';
+  state.doc.nodesBetween(range.from, range.to, (node) => {
+    const mark = !href && node.marks?.find((m) => m.type.name === 'link');
+    if (mark) href = mark.attrs.href || '';
+  });
+  return href;
+};
+// Back to the page at once: Tiptap's focus() waits a frame, and a key typed straight after saving
+// (a space after the link) went nowhere
+const returnToPage = (ed) => {
+  linkEditorState.value = null;
+  stopFollowingLinkRange();
+  if (ed && !ed.isDestroyed) ed.view.focus();
+};
+const closeLinkEditor = () => {
+  returnToPage(editor.value);
+  editor.value?.commands.focus();
+};
+const linkAttrs = (href) => ({ href, target: pageLinkTarget(href) ? null : '_blank' });
+const saveLink = ({ text, href }) => {
+  const ed = editor.value;
+  const target = linkEditorState.value;
+  returnToPage(ed);
+  if (!ed || !target) return;
+  const range = linkRangeNow(ed.state, target);
+  if (!range) return;
+  const { from, to } = range;
+  if (from !== to && (text === target.text || !target.textEditable)) {
+    // The same words: linked where they are (across several blocks too)
+    ed.chain().focus().setTextSelection({ from, to }).setLink(linkAttrs(href)).setTextSelection(to).run();
+    return;
+  }
+  // New words: in place of the old ones, linked, with the cursor after them. They keep the old
+  // words' bold, italic, colour...
+  const kept = (from !== to ? ed.state.doc.nodeAt(from)?.marks : ed.state.doc.resolve(from).marks()) || [];
+  const marks = [...kept.filter((mark) => mark.type.name !== 'link').map((mark) => mark.toJSON()), { type: 'link', attrs: linkAttrs(href) }];
+  ed.chain()
+    .focus()
+    .insertContentAt({ from, to }, { type: 'text', text, marks })
+    .setTextSelection(from + text.length)
+    .run();
+};
+const removeLink = () => {
+  const ed = editor.value;
+  const target = linkEditorState.value;
+  returnToPage(ed);
+  if (!ed || !target) return;
+  const range = linkRangeNow(ed.state, target);
+  if (!range) return;
+  ed.chain().focus().setTextSelection(range).unsetLink().setTextSelection(range.to).run();
+};
+// The pages a link can go to, for the link editor's search
+const linkablePages = computed(() =>
+  linkEditorState.value ? listWorkspacePages().map((page) => ({ id: page.id, title: page.title, icon: page.icon })) : []
+);
+// A link to a page here: opened in place (loaded if it isn't in the list, or a word on why it can't
+// be opened), at the block it names if it does. The address loses the old page's "#block-…".
+const openLinkedPage = async (pageId, hash) => {
+  if (typeof window !== 'undefined' && window.location.hash) {
+    window.history.replaceState(window.history.state, '', window.location.pathname + window.location.search);
+  }
+  await workspace.openPageFromLink(pageId);
+  if (hash && typeof window !== 'undefined') window.location.hash = hash;
 };
 
 const { pageLinkDatabaseLoading, pageLinkDatabaseErrors, pageLinkCollabState, teardownPageLinkCollabState, getPageLinkAttributeData, loadPageLinkAttributes } = usePageLinkAttributes({ getResolvedPage, workspace, activeWorkspaceId });
@@ -347,7 +483,7 @@ const insertImageFromUpload = async (editor, range) => {
 
 const { lastKnownCursorPos, serializeBlocksForAi, applyAiSuggestions, revertSuggestion, acceptSuggestion, revertAllSuggestions, acceptAllSuggestions, activeSuggestions, hoveredSuggestionIndex, suggestionWidgetPos, handleSuggestionMousemove, aiPromptVisible, aiPromptPos, aiPromptText, aiPromptInputRef, aiStreaming, showAiPrompt, closeAiPrompt, submitAiPrompt, runAiBubbleAction } = useEditorAi({ workspace, getEditor: () => editor?.value });
 
-const slashItems = createSlashItems({ insertToggleHeading, insertColumns, insertImageFromUpload, props, getResolvedPage, workspace, showAiPrompt });
+const slashItems = createSlashItems({ insertToggleHeading, insertColumns, insertImageFromUpload, props, getResolvedPage, workspace, showAiPrompt, openLinkEditor: () => openLinkEditor({ newLink: true }) });
 
 const undoOriginObserver = ref(null);
 let editor = null;
@@ -690,6 +826,10 @@ editor = useEditor({
       openPage,
       restorePage,
       getHostPageId: () => props.pageId || null,
+    },
+    links: {
+      open: () => openLinkEditor(),
+      openPage: (pageId, hash) => openLinkedPage(pageId, hash),
     },
     slashCommands: {
       commands: slashItems,
@@ -1821,6 +1961,7 @@ watch(
 );
 
 onBeforeUnmount(() => {
+  stopFollowingLinkRange();
   window.removeEventListener('beforeunload', warnBeforeLeavingUnsaved);
   editor.value?.destroy();
   teardownCollabProvider();
@@ -1884,7 +2025,23 @@ defineExpose({
 
 <template>
   <div ref="wrapperRef" class="tiptap-wrapper" :class="{ 'tiptap-wrapper--waiting': waitingForContent }">
-    <TextBubbleMenu v-if="editor" :editor="editor" :ai-streaming="aiStreaming" :ai-enabled="workspace.aiEnabled" @ai-action="runAiBubbleAction" />
+    <!-- (Hidden while the link editor is open, not over it; kept, not taken out: taking out its
+         plugin had live editing redraw the whole page) -->
+    <TextBubbleMenu v-if="editor" :class="{ 'bubble-menu--hidden': !!linkEditorState }" :editor="editor" :ai-streaming="aiStreaming" :ai-enabled="workspace.aiEnabled" @ai-action="runAiBubbleAction" @edit-link="openLinkEditor" />
+    <Teleport to="body">
+      <LinkEditor
+        v-if="linkEditorState"
+        :anchor="linkEditorState.anchor"
+        :text="linkEditorState.text"
+        :href="linkEditorState.href"
+        :editing="linkEditorState.editing"
+        :text-editable="linkEditorState.textEditable"
+        :pages="linkablePages"
+        @save="saveLink"
+        @remove="removeLink"
+        @close="closeLinkEditor"
+      />
+    </Teleport>
     <div
       v-if="editor && listHandleVisible"
       class="drag-handle drag-handle--floating drag-handle--list"
