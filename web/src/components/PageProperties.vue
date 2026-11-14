@@ -1374,8 +1374,9 @@ onBeforeUnmount(() => {
           </template>
           <template v-else-if="field.type === 'SELECT' && getFieldChoices(field).length">
             <select
-              class="page-properties__input"
+              class="page-properties__input page-properties__input--choice"
               :value="row.data?.[field.id] || ''"
+              :style="multiSelectPillStyle(choiceColorForValue(field, row.data?.[field.id]))"
               :disabled="readonly || isFieldReadOnly(field)"
               @change="handleFieldChange(field, $event.target.value)"
             >

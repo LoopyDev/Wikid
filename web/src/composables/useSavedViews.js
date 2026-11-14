@@ -179,6 +179,10 @@ export function useSavedViews({ props, workspace, fields, fieldById, activeViewI
     const max = Number.parseInt(value, 10);
     patchActiveViewConfig({ coverMaxItems: Number.isInteger(max) && max >= 1 ? Math.min(max, 50) : null });
   };
+  // A board's or gallery's cards in the colours of a select's choices (null: none)
+  const setCardColorField = (fieldId) => {
+    patchActiveViewConfig({ cardColorFieldId: fieldId || null });
+  };
   // Whether a gallery's cards show their colours
   const setGalleryShowColors = (on) => {
     patchActiveViewConfig({ showColors: on === true });
@@ -252,5 +256,5 @@ export function useSavedViews({ props, workspace, fields, fieldById, activeViewI
   const filterMenuStyle = computed(() => ({ top: `${filterMenu.value.y}px`, left: `${filterMenu.value.x}px` }));
   const sortMenuStyle = computed(() => ({ top: `${sortMenu.value.y}px`, left: `${sortMenu.value.x}px` }));
 
-  return { savedViews, normalizeSavedView, createSavedView, deleteSavedView, renameSavedView, patchActiveViewConfig, activeViewFilters, activeViewSorts, activeFilterCount, setFilterMatch, addFilterRule, updateFilterRule, changeFilterRuleField, removeFilterRule, addSortRule, updateSortRule, removeSortRule, setBoardGroupField, setGalleryCardField, setGalleryCardFields, setGalleryCoverMax, setGalleryShowColors, setListOpenField, fieldChoices, filterMenu, filterMenuRef, filterMenuStyle, openFilterMenu, closeFilterMenu, sortMenu, sortMenuRef, sortMenuStyle, openSortMenu, closeSortMenu };
+  return { savedViews, normalizeSavedView, createSavedView, deleteSavedView, renameSavedView, patchActiveViewConfig, activeViewFilters, activeViewSorts, activeFilterCount, setFilterMatch, addFilterRule, updateFilterRule, changeFilterRuleField, removeFilterRule, addSortRule, updateSortRule, removeSortRule, setBoardGroupField, setGalleryCardField, setGalleryCardFields, setGalleryCoverMax, setGalleryShowColors, setCardColorField, setListOpenField, fieldChoices, filterMenu, filterMenuRef, filterMenuStyle, openFilterMenu, closeFilterMenu, sortMenu, sortMenuRef, sortMenuStyle, openSortMenu, closeSortMenu };
 }

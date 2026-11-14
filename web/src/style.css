@@ -11731,6 +11731,22 @@ a.db-list__title {
   font-weight: 600;
   font-size: 0.9rem;
 }
+/* A select tinted in its choice's colour: its list's options stay plain (some browsers give them
+   the select's background) */
+select.db-cell-input option,
+.page-properties__input--choice option {
+  background-color: Canvas;
+  color: CanvasText;
+}
+.db-board__column-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+.db-board__card--colored {
+  border-left-width: 4px;
+}
 .db-board__column--drop {
   outline: 2px dashed var(--caret-color);
   outline-offset: -2px;

@@ -1,5 +1,5 @@
 import { test, expect, createPage, openPage, unique, editor } from './fixtures';
-import { main, chooseRelation, rowNames, newDatabaseFromSidebar, addNamedRow, openViewOptions } from './database-helpers';
+import { main, chooseRelation, rowNames, newDatabaseFromSidebar, addNamedRow, openViewOptions, closeViewOptions } from './database-helpers';
 
 // A database's saved views: filters and sorts, gallery and list views, and each view's menu.
 
@@ -68,6 +68,7 @@ test.describe('database views', () => {
     await main(page).getByRole('button', { name: 'Cards' }).click();
     await openViewOptions(page);
     await main(page).getByLabel('Cover').selectOption({ label: tasksTitle });
+    await closeViewOptions(page);
 
     const card = main(page).locator('.db-gallery__card').first();
     const cells = card.locator('.db-gallery__cover-item:not(.db-gallery__cover-more)');
@@ -85,6 +86,7 @@ test.describe('database views', () => {
     await openViewOptions(page);
     await main(page).getByLabel('Linked rows shown on a card before Show more').fill('4');
     await main(page).getByLabel('Linked rows shown on a card before Show more').press('Tab');
+    await closeViewOptions(page);
     await expect(cells).toHaveCount(4);
     await expect(more).toHaveText('Show 1 more');
 
