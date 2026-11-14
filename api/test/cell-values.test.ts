@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { DatabaseFieldType } from '@prisma/client';
-import { coerceCellValue, normalizeKeptValue, sanitizeRowCells } from '../src/utils/cell-values.util';
+import { checkCellValue, coerceCellValue, normalizeKeptValue, sanitizeRowCells } from '../src/utils/cell-values.util';
 
 // A plain unit test: no generated Prisma client (CI runs these without one), so types only
 import fixture from './fixtures/cell-values.json';
@@ -11,6 +11,14 @@ describe('the values a cell of each type keeps', () => {
       const result = coerceCellValue({ type: type as DatabaseFieldType, ...rules }, value);
       expect(result ?? null, `${type} ${JSON.stringify(value)}`).toEqual(expected);
     }
+  });
+
+  it('takes a relation to one row given as a list of one, but not of two', () => {
+    const row = '11111111-1111-4111-8111-111111111111';
+    const one = { type: 'RELATION' as DatabaseFieldType, allowMultiple: false };
+    expect(checkCellValue(one, [row])).toEqual({ value: { id: row, label: '' } });
+    expect(checkCellValue(one, [row, row])).toHaveProperty('problem');
+    expect(checkCellValue({ ...one, allowMultiple: true }, [row])).toEqual({ value: [{ id: row, label: '' }] });
   });
 
   it('keeps what a cell showed when it no longer fits, as text', () => {

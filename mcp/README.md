@@ -1,6 +1,6 @@
 # Wikid MCP server
 
-Lets an AI tool that speaks [MCP](https://modelcontextprotocol.io), such as Claude Code or Claude Desktop, work in your Wikid: search, read and write pages, and read and change database rows. It acts as the user it logs in as, so it sees and changes only what that user can.
+Lets an AI tool that speaks [MCP](https://modelcontextprotocol.io), such as Claude Code or Claude Desktop, work in your Wikid: search, read and write pages, and read and change databases: their rows and columns. It acts as the user it logs in as, so it sees and changes only what that user can.
 
 It logs in with a password for now. Next on the plan is connecting Claude by signing in (a remote MCP server with OAuth), with no password stored anywhere.
 
@@ -53,6 +53,9 @@ Then ask Claude about your wiki ("what's on the onboarding page?", "add a page o
 | `rename_page` | Renames a page |
 | `get_database` | A database's columns and rows |
 | `add_database_row`, `update_database_row` | Rows, with cells by column name |
+| `create_database` | A database, with its columns |
+| `add_database_column`, `update_database_column` | A column added (a relation, too: to another database's rows); renamed, or given more choices |
+| `delete_database_column` | A column and its cells, with `confirm: true` (not the title column) |
 
 ### Images
 
@@ -80,3 +83,5 @@ What it opens to.
 A quote starting with an emoji (`> 💡 …`) is a callout. Columns can't go inside a column, and a columns section can't yet be removed in one go: delete the blocks inside it, or rewrite the page with `replace_page`. A Markdown export to files keeps to standard Markdown: columns one after another.
 
 Pages are changed **block by block**: Markdown has no database views, colours or image sizes, so a page rewritten whole from Markdown would lose them. Blocks the tool doesn't touch stay exactly as they are, and a page that someone has open shows each change straight away. Changes go into the page's history under the user the server logs in as.
+
+Columns are added, renamed and given more choices, but a column's type isn't changed and a choice isn't renamed or removed here: Wikid moves the cells over when that's done in the app, and these tools would leave them behind.

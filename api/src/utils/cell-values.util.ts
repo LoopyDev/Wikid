@@ -205,6 +205,8 @@ export const checkCellValue = (rules: CellValueRules, value: any): { value: any 
     case 'RELATION': {
       // Every entry a row id, not just some of them
       const multiple = rules.allowMultiple !== false;
+      // One row, as a list of one, is taken too
+      if (!multiple && Array.isArray(value) && value.length === 1) value = value[0];
       const coerced = coerceRelationValue(value, multiple);
       const given = Array.isArray(value) ? value.length : 1;
       const kept = Array.isArray(coerced) ? coerced.length : coerced ? 1 : 0;

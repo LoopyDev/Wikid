@@ -179,20 +179,82 @@ async function getDatabase(pageId) {
 function cellsById(fields, values) {
   const data = {};
   for (const [key, value] of Object.entries(values)) {
-    const field = fields.find((f) => f.id === key) ?? fields.find((f) => f.name.toLowerCase() === key.toLowerCase());
-    if (!field) throw new Error(`No column "${key}". Columns: ${fields.map((f) => f.name).join(', ')}`);
-    data[field.id] = value;
+    data[findColumn(fields, key).id] = value;
   }
   return data;
 }
 
+const choiceValue = (choice) => (typeof choice === 'string' ? choice : choice?.value);
+
 function formatDatabase({ db, fields, rows }) {
   const columns = fields.map((f) => {
-    const choices = (f.options?.choices ?? []).map((c) => (typeof c === 'string' ? c : c.value)).filter(Boolean);
-    return `- ${f.name} (${f.type.toLowerCase()}${choices.length ? `: ${choices.join(', ')}` : ''})`;
+    const choices = (f.options?.choices ?? []).map(choiceValue).filter(Boolean);
+    const relation = f.options?.relation?.pageId ? `: to database ${f.options.relation.pageId}${f.options.relation.allowMultiple !== false ? ', several rows' : ''}` : '';
+    return `- ${f.name} (${f.type.toLowerCase()}${choices.length ? `: ${choices.join(', ')}` : relation})`;
   });
   return [`# ${db.title || 'Untitled database'}`, '', 'Columns:', ...columns, '', `Rows (${rows.length}):`, JSON.stringify(rows, null, 2)].join('\n');
 }
+
+// The column types these tools make: not "linked from" (shown in the app, from a relation). A
+// column's type isn't changed, nor a choice renamed or removed, as only the app moves the cells over
+// when it is.
+const COLUMN_TYPES = ['text', 'number', 'date', 'checkbox', 'select', 'multi_select', 'url', 'person', 'relation'];
+const HAS_CHOICES = new Set(['select', 'multi_select']);
+// "Multi-select", "multi select", "multiselect": all multi_select
+const columnType = (type) => COLUMN_TYPES.find((t) => t.replace('_', '') === String(type).trim().toLowerCase().replace(/[\s_-]/g, ''));
+const sameName = (a, b) => a.trim().toLowerCase() === b.trim().toLowerCase();
+
+const columnSchema = {
+  name: z.string().describe('Column name'),
+  type: z.string().describe(`Column type: ${COLUMN_TYPES.join(', ')}`),
+  choices: z.array(z.string()).optional().describe('For a select or multi_select: its choices'),
+  relatesTo: z.string().optional().describe('For a relation: the page id of the database whose rows it links to'),
+  multiple: z.boolean().optional().describe('For a relation: whether a cell can link to more than one row (default: one)'),
+};
+
+/** The column of a database by id or name (any case). */
+function findColumn(fields, column) {
+  const field = fields.find((f) => f.id === column) ?? fields.find((f) => sameName(f.name, column));
+  if (!field) throw new Error(`No column "${column}". Columns: ${fields.map((f) => f.name).join(', ')}`);
+  return field;
+}
+
+/** The choices given, after those there (any case), each once. */
+function withChoices(existing, added) {
+  const choices = [...existing];
+  const taken = new Set(existing.map((c) => String(choiceValue(c)).toLowerCase()));
+  for (const value of added.map((c) => c.trim()).filter(Boolean)) {
+    if (taken.has(value.toLowerCase())) continue;
+    taken.add(value.toLowerCase());
+    choices.push({ value, color: null });
+  }
+  return choices;
+}
+
+/** The column the API is to make, refused if the database (its column names given) can't have it. */
+function newColumn(names, { name, type, choices, relatesTo, multiple }) {
+  const kind = columnType(type);
+  if (!kind) throw new Error(`Not a column type these tools make: "${type}". Types: ${COLUMN_TYPES.join(', ')}`);
+  const trimmed = name.trim();
+  if (!trimmed) throw new Error('Give the column a name');
+  if (names.some((n) => sameName(n, trimmed))) throw new Error(`There's already a column "${trimmed}"`);
+  if (choices?.length && !HAS_CHOICES.has(kind)) throw new Error(`Only a select or multi_select column has choices, not ${kind}`);
+  if (kind === 'relation' && !relatesTo) throw new Error('A relation needs relatesTo: the page id of the database it links to');
+  if ((relatesTo || multiple !== undefined) && kind !== 'relation') throw new Error(`Only a relation column has relatesTo and multiple, not ${kind}`);
+  const options =
+    kind === 'relation'
+      ? { relation: { pageId: id(relatesTo), allowMultiple: multiple === true } }
+      : HAS_CHOICES.has(kind)
+        ? { choices: withChoices([], choices ?? []) }
+        : {};
+  return { name: trimmed, type: kind.toUpperCase(), options };
+}
+
+const addColumn = (pageId, column) => api(`/pages/${id(pageId)}/database/fields`, { method: 'POST', body: column });
+
+/** The column each row's title is in: the one marked so, or else (as the API has it) the first. */
+const titleColumn = (fields) =>
+  fields.find((f) => f.options?.source === 'page') ?? [...fields].sort((a, b) => Number(a.position) - Number(b.position))[0];
 
 // ---- Tools ----
 
@@ -348,6 +410,93 @@ tool(
     // The API takes the row's cells whole, so the change goes onto what's there
     await api(`/database-rows/${id(rowId)}`, { method: 'PATCH', body: { data: { ...(row.data ?? {}), ...cellsById(fields, cells) }, strict: true, ...(reason ? { reason } : {}) } });
     return `Updated row ${rowId}.`;
+  },
+);
+
+tool(
+  'create_database',
+  `Create a database page, with a "Name" column (each row's title) and any others given. Column types: ${COLUMN_TYPES.join(', ')}.`,
+  {
+    workspaceId: z.string().describe('Workspace id'),
+    title: z.string().describe('Database title'),
+    parentId: z.string().optional().describe('Put it under this page (default: the top of the workspace)'),
+    columns: z.array(z.object(columnSchema)).optional().describe('Columns after Name, in order'),
+  },
+  async ({ workspaceId, title, parentId, columns = [] }) => {
+    // Every column checked before anything is made, so a bad one doesn't leave half a database
+    const names = ['Name'];
+    const made = columns.map((column) => {
+      const made = newColumn(names, column);
+      names.push(made.name);
+      return made;
+    });
+    for (const { options } of made) {
+      if (!options.relation) continue;
+      const target = await api(`/pages/${options.relation.pageId}/database`).catch(() => null);
+      if (!target || (target.workspaceId && target.workspaceId !== workspaceId)) throw new Error(`No database ${options.relation.pageId} in this workspace for a relation to link to`);
+    }
+    const page = await api('/pages', { method: 'POST', body: { workspaceId: id(workspaceId), title, parentId: parentId ? id(parentId) : undefined, kind: 'DATABASE', setupStatus: 'COMPLETE' } });
+    for (const column of made) await addColumn(page.id, column);
+    return `Database ${page.id} created.\n\n${formatDatabase(await getDatabase(page.id))}`;
+  },
+);
+
+tool(
+  'add_database_column',
+  `Add a column to a database, after the others. Types: ${COLUMN_TYPES.join(', ')}. A select or multi_select can be given its choices; a relation links to the rows of another database in the workspace (relatesTo), one per cell or several (multiple).`,
+  { pageId: z.string().describe('Page id of the database'), ...columnSchema },
+  async ({ pageId, ...column }) => {
+    const { fields } = await getDatabase(pageId);
+    const field = await addColumn(pageId, newColumn(fields.map((f) => f.name), column));
+    return `Added column "${field.name}".`;
+  },
+);
+
+tool(
+  'update_database_column',
+  "Rename a database column, or add choices to a select or multi_select. A column's type can't be changed here, nor a choice renamed or removed (the cells using it would be lost): do that in Wikid.",
+  {
+    pageId: z.string().describe('Page id of the database'),
+    column: z.string().describe('The column, by name or id'),
+    name: z.string().optional().describe('Its new name'),
+    addChoices: z.array(z.string()).optional().describe('Choices to add (those there already are left as they are)'),
+  },
+  async ({ pageId, column, name, addChoices }) => {
+    const { fields } = await getDatabase(pageId);
+    const field = findColumn(fields, column);
+    const body = {};
+    if (name !== undefined) {
+      const trimmed = name.trim();
+      if (!trimmed) throw new Error('Give the column a name');
+      if (fields.some((f) => f.id !== field.id && sameName(f.name, trimmed))) throw new Error(`There's already a column "${trimmed}"`);
+      body.name = trimmed;
+    }
+    if (addChoices?.length) {
+      if (!HAS_CHOICES.has(field.type.toLowerCase())) throw new Error(`Only a select or multi_select column has choices; "${field.name}" is ${field.type.toLowerCase()}`);
+      const options = field.options && typeof field.options === 'object' ? field.options : {};
+      body.options = { ...options, choices: withChoices(options.choices ?? [], addChoices) };
+    }
+    if (!Object.keys(body).length) throw new Error('Give a new name, or choices to add');
+    await api(`/database-fields/${id(field.id)}`, { method: 'PATCH', body });
+    return `Updated column "${body.name ?? field.name}".`;
+  },
+);
+
+tool(
+  'delete_database_column',
+  "Delete a database column and every row's cell in it, which can't be undone. Give confirm: true. The title column (Name) can't be deleted.",
+  {
+    pageId: z.string().describe('Page id of the database'),
+    column: z.string().describe('The column, by name or id'),
+    confirm: z.boolean().optional().describe('true, to delete it and its cells'),
+  },
+  async ({ pageId, column, confirm }) => {
+    const { fields } = await getDatabase(pageId);
+    const field = findColumn(fields, column);
+    if (field.id === titleColumn(fields)?.id) throw new Error(`"${field.name}" is the title column (each row's title), so it can't be deleted`);
+    if (confirm !== true) throw new Error(`Deleting "${field.name}" deletes every row's cell in it, which can't be undone: give confirm: true`);
+    await api(`/database-fields/${id(field.id)}`, { method: 'DELETE' });
+    return `Deleted column "${field.name}".`;
   },
 );
 
