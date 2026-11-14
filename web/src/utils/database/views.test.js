@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { normalizeViewConfig, normalizeViewType, operatorNeedsValue, operatorsForFieldType, sortByType, toComparableDate } from './views';
+import { choicePlaces, compareChoices, normalizeViewConfig, normalizeViewType, operatorNeedsValue, operatorsForFieldType, sortByType, toComparableDate } from './views';
 
 const sorted = (type, values) => [...values].sort((a, b) => sortByType(type, a, b));
 
@@ -8,6 +8,24 @@ describe('sortByType', () => {
     expect(sorted('NUMBER', ['10', 2, '1'])).toEqual(['1', 2, '10']);
     expect(sorted('DATE', ['2026-03-01', '2025-12-31', '2026-01-15'])).toEqual(['2025-12-31', '2026-01-15', '2026-03-01']);
     expect(sorted('CHECKBOX', [true, false, true])).toEqual([false, true, true]);
+  });
+
+  it("sorts a select by its stored values in its choices' order, not their names; ones not a choice after, empty last", () => {
+    const places = choicePlaces([{ value: 'High' }, { value: 'Medium' }, { value: 'Low' }]);
+    const bySelect = (values) => [...values].sort((a, b) => compareChoices(places, a, b));
+    expect(bySelect([['Low'], ['High'], [''], ['Medium'], ['Gone'], ['High']])).toEqual([['High'], ['High'], ['Medium'], ['Low'], ['Gone'], ['']]);
+    // A multi-select by its first choice in that order (not the first added), then its next
+    expect(bySelect([['Low'], ['Low', 'High'], ['Medium'], ['High', 'Medium'], []])).toEqual([['High', 'Medium'], ['Low', 'High'], ['Medium'], ['Low'], []]);
+  });
+
+  it("goes by a choice's value: a label like another's value, or a name differing only in case, doesn't move it", () => {
+    const places = choicePlaces([{ value: 'A', label: 'Done' }, { value: 'Later' }, { value: 'Done' }, { value: 'high' }, { value: 'High' }]);
+    expect([['Done'], ['Later'], ['A']].sort((a, b) => compareChoices(places, a, b))).toEqual([['A'], ['Later'], ['Done']]);
+    expect(places.get('High')).toBe(4);
+    // One not a choice after every choice, even when a choice is listed twice
+    const repeated = choicePlaces(['a', 'a', 'b']);
+    expect([['zz'], ['b'], ['a']].sort((x, y) => compareChoices(repeated, x, y))).toEqual([['a'], ['b'], ['zz']]);
+    expect([['b'], ['Gone']].sort((x, y) => compareChoices(repeated, x, y))).toEqual([['b'], ['Gone']]);
   });
 
   it('sorts text ignoring case, using relation labels', () => {

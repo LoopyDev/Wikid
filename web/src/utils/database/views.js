@@ -11,6 +11,39 @@ export const compareNullable = (a, b, compare) => {
   return compare(a, b);
 };
 
+/** A select's choices' places, by value (the first, if two share one): built once a column. */
+export const choicePlaces = (choices) => {
+  const places = new Map();
+  (choices || []).forEach((choice, index) => {
+    const value = String(choice?.value ?? choice ?? '');
+    if (value && !places.has(value)) places.set(value, index);
+  });
+  return places;
+};
+
+/**
+ * Compares two select or multi-select cells, by their values as stored, in their choices' order as
+ * listed rather than by name: a multi-select by its first choice in that order, then its next. A
+ * value that isn't a choice comes after them all, by name; an empty cell last.
+ */
+export const compareChoices = (places, aValues, bValues) => {
+  const ranked = (values) =>
+    (values || [])
+      .map((value) => String(value ?? '').trim())
+      .filter(Boolean)
+      .map((value) => [places.get(value) ?? Infinity, value.toLowerCase()])
+      .sort((x, y) => x[0] - y[0] || x[1].localeCompare(y[1]));
+  const a = ranked(aValues);
+  const b = ranked(bValues);
+  return compareNullable(a.length ? a : null, b.length ? b : null, (x, y) => {
+    for (let index = 0; index < Math.min(x.length, y.length); index += 1) {
+      const diff = x[index][0] - y[index][0] || x[index][1].localeCompare(y[index][1]);
+      if (diff) return diff;
+    }
+    return x.length - y.length;
+  });
+};
+
 export const sortByType = (type, aRaw, bRaw) => {
   if (type === 'NUMBER') {
     const aNum = aRaw === null || aRaw === undefined || aRaw === '' ? null : Number(aRaw);
