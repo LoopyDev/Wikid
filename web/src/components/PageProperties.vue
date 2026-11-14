@@ -450,11 +450,12 @@ const scheduleCollabApply = () => {
 };
 
 const isCollabDocEmpty = () => {
+  // No columns is unfilled, rows or not: the API used to put rows into a document no one had
+  // opened yet, and one left like that never got its columns, so its edits never reached the
+  // database. Filling it in replaces those rows with the database's own.
   const hasFields = collabFieldsMap.value && collabFieldsMap.value.size > 0;
-  const hasRows = collabRowsMap.value && collabRowsMap.value.size > 0;
   const hasFieldOrder = collabFieldOrder.value && collabFieldOrder.value.length > 0;
-  const hasRowOrder = collabRowOrder.value && collabRowOrder.value.length > 0;
-  return !hasFields && !hasRows && !hasFieldOrder && !hasRowOrder;
+  return !hasFields && !hasFieldOrder;
 };
 
 const seedCollabFromSnapshot = (snapshot) => {

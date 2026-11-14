@@ -287,6 +287,24 @@ test.describe('databases', () => {
     await expect(row.locator('.db-multi-pill', { hasText: 'Blue' })).toBeVisible();
   });
 
+  test("a property changed on a row's own page reaches the server, in a database built through the API and never opened as a table", async ({ alice: page, workspaceId }) => {
+    // As MCP builds one: the database, a column and a row, all through the API
+    const id = await createPage(page, workspaceId, { title: unique('Built by API'), kind: 'DATABASE' });
+    const nameField = (await (await page.request.get(`/api/pages/${id}/database`)).json()).fields.find((f: any) => f.name === 'Name').id;
+    const done = (await (await page.request.post(`/api/pages/${id}/database/fields`, { data: { name: 'Done', type: 'CHECKBOX' } })).json()).id;
+    const created = await (await page.request.post(`/api/pages/${id}/database/rows`, { data: { data: { [nameField]: 'Write the docs' } } })).json();
+    const rowPageId =
+      created.pageId ?? (await (await page.request.post(`/api/database-rows/${created.id}/page`, { data: { pageId: id } })).json()).page?.id;
+    const saved = async () => (await (await page.request.get(`/api/pages/${id}/database`)).json()).rows.find((r: any) => r.id === created.id)?.data?.[done] ?? null;
+
+    await page.goto(`/doc/${rowPageId}`);
+    const box = page.locator('.page-properties__row', { hasText: 'Done' }).locator('input[type="checkbox"]');
+    await box.check();
+    await expect.poll(saved, { timeout: 15_000 }).toBe(true);
+    await box.uncheck();
+    await expect.poll(saved, { timeout: 15_000 }).toBe(false);
+  });
+
   test("changing a column's type converts what fits and keeps the rest, until replaced or changed back", async ({ alice: page, workspaceId }) => {
     const id = await createPage(page, workspaceId, { title: unique('Stock'), kind: 'DATABASE' });
     const nameField = (await (await page.request.get(`/api/pages/${id}/database`)).json()).fields.find((f: any) => f.name === 'Name').id;
