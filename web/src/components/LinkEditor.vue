@@ -19,6 +19,9 @@ const props = defineProps({
   // even when it isn't among `pages`, someone else's private page say)
   mention: { type: Boolean, default: false },
   mentionPage: { type: Object, default: null },
+  // Whether people besides its author can read the page being edited (a private page linked from it
+  // can then be opened only by you: said under the page picked)
+  othersCanRead: { type: Boolean, default: false },
   // The pages it can link to: { id, title, icon }
   pages: { type: Array, default: () => [] },
 });
@@ -215,6 +218,7 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onPointerDownOut
         <span class="link-editor__page-title">{{ page.title || 'Untitled page' }}</span>
       </li>
     </ul>
+    <p v-if="pickedPage && othersCanRead && pickedPage.visibility === 'PRIVATE'" class="link-editor__note">Only you can open this page; others will see “Private page”</p>
     <label v-if="pickedPage" class="link-editor__mention">
       <input v-model="asMention" type="checkbox" />
       <span>Show as a mention (the page's icon and title, kept up to date)</span>

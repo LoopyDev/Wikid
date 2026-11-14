@@ -1,5 +1,6 @@
 import { Extension, getMarkRange } from '@tiptap/core';
 import { Plugin, PluginKey } from 'prosemirror-state';
+import { Decoration, DecorationSet } from 'prosemirror-view';
 import { pageLinkTarget } from '../utils/editorLinks';
 
 // Links: Ctrl/⌘+K opens the link editor (LinkEditor.vue, opened by the editor through `open`) with
@@ -7,10 +8,16 @@ import { pageLinkTarget } from '../utils/editorLinks';
 // opens it: a link to a page here in Wikid opens that page in place (`openPage`), any other in a
 // new tab.
 
+// A transaction with this as meta works the locks out again (a page made private or shared, or
+// the page list loaded: the editor sends one)
+export const privateLinksKey = new PluginKey('private-page-links');
+
 export const LinkEditorExtension = Extension.create({
   name: 'linkEditor',
   addOptions() {
-    return { open: null, openPage: null };
+    // isPrivatePage(id), othersCanRead(): for the lock on words linked to a private page, on a page
+    // others can read (they can't open it)
+    return { open: null, openPage: null, isPrivatePage: null, othersCanRead: null };
   },
   addKeyboardShortcuts() {
     return {
@@ -28,7 +35,33 @@ export const LinkEditorExtension = Extension.create({
   },
   addProseMirrorPlugins() {
     const options = this.options;
+    // Words linked to a private page: marked (a lock after them, see style.css) while others can
+    // read this page. Worked out again only when the page changes.
+    const privateLinks = (doc) => {
+      if (!options.othersCanRead?.() || typeof options.isPrivatePage !== 'function') return DecorationSet.empty;
+      const decorations = [];
+      doc.descendants((node, pos) => {
+        if (!node.isText) return;
+        const link = node.marks.find((mark) => mark.type.name === 'link');
+        const target = link && pageLinkTarget(link.attrs.href);
+        if (target && options.isPrivatePage(target.pageId)) {
+          decorations.push(Decoration.inline(pos, pos + node.nodeSize, { class: 'page-link--private', title: 'Only you can open this page; others see “Private page”' }));
+        }
+      });
+      return DecorationSet.create(doc, decorations);
+    };
+
     return [
+      new Plugin({
+        key: privateLinksKey,
+        state: {
+          init: (_config, state) => privateLinks(state.doc),
+          apply: (tr, value, _old, state) => (tr.docChanged || tr.getMeta(privateLinksKey) ? privateLinks(state.doc) : value),
+        },
+        props: {
+          decorations: (state) => privateLinksKey.getState(state),
+        },
+      }),
       new Plugin({
         key: new PluginKey('link-click'),
         props: {

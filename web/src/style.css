@@ -775,14 +775,16 @@ button {
 }
 
 /* In the text's own colour (the editor's links are coloured): a mention isn't linked words */
-.ProseMirror a.page-mention,
-.ProseMirror a.page-mention:hover {
+:is(.tiptap-editor .ProseMirror, .tiptap-editor.ProseMirror) a.page-mention,
+:is(.tiptap-editor .ProseMirror, .tiptap-editor.ProseMirror) a.page-mention:visited,
+:is(.tiptap-editor .ProseMirror, .tiptap-editor.ProseMirror) a.page-mention:hover {
   color: var(--text-primary);
+  text-decoration: none;
 }
 
 /* Someone else's private page, or one in the Bin: no title, nothing to open */
 .page-mention--unavailable,
-.ProseMirror a.page-mention--unavailable {
+:is(.tiptap-editor .ProseMirror, .tiptap-editor.ProseMirror) a.page-mention--unavailable {
   color: var(--text-muted);
   font-style: italic;
   cursor: default;
@@ -790,6 +792,35 @@ button {
 
 .page-mention--unavailable .page-mention__title {
   text-decoration: none;
+}
+
+/* A private page mentioned, or linked to, on a page others can read: they can't open it */
+.page-mention__lock {
+  font-size: 0.7em;
+  align-self: center;
+  color: var(--text-muted);
+}
+
+.page-link--private::after {
+  content: '\F47A';
+  font-family: 'bootstrap-icons';
+  font-size: 0.7em;
+  margin-left: 2px;
+  color: var(--text-muted);
+  vertical-align: 0.1em;
+}
+
+.link-editor__page-lock {
+  margin-left: auto;
+  font-size: 0.75em;
+  color: var(--text-muted);
+}
+
+.link-editor__note {
+  margin: 0;
+  padding: 4px 8px;
+  font-size: 0.8rem;
+  color: var(--text-muted);
 }
 
 /* The pages a "@" or "[[" being typed matches (PageMentionList.vue) */
