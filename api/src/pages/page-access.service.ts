@@ -103,6 +103,8 @@ export class PageAccessService {
   }
 
   async requireMembership(userId: string, workspaceId: string) {
+    // Not a workspace id at all ("undefined"): not found, rather than a database error
+    if (!isUuid(workspaceId)) throw new NotFoundException('Workspace not found');
     if (isSystemAdmin(userId)) {
       return { userId, workspaceId, role: WorkspaceRole.OWNER };
     }
@@ -121,6 +123,7 @@ export class PageAccessService {
   }
 
   async requireWorkspaceRole(userId: string, workspaceId: string, allowed: WorkspaceRole[]) {
+    if (!isUuid(workspaceId)) throw new NotFoundException('Workspace not found');
     if (isSystemAdmin(userId)) {
       return { userId, workspaceId, role: WorkspaceRole.OWNER };
     }

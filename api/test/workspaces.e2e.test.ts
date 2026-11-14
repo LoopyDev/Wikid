@@ -126,6 +126,13 @@ describe('workspace members', () => {
     expect(unknownName.body.message).toContain('No user with the username no-such-user');
   });
 
+  it("says a workspace that isn't one wasn't found, rather than failing", async () => {
+    for (const id of ['undefined', 'not-a-workspace']) {
+      expect((await alice.post(`/workspaces/${id}/members`, { login: USERS.bob.email })).status).toBe(404);
+      expect((await alice.get(`/workspaces/${id}/members`)).status).toBe(404);
+    }
+  });
+
   it('adds a member by username', async () => {
     const id = await createWorkspace(alice);
     const added = await alice.post(`/workspaces/${id}/members`, { login: 'Bob', role: 'VIEWER' });

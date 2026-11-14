@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { Server } from '@hocuspocus/server';
+import { Server, type Document } from '@hocuspocus/server';
 import { Logger } from '@hocuspocus/extension-logger';
 import { Database } from '@hocuspocus/extension-database';
 import jwt from 'jsonwebtoken';
@@ -196,11 +196,14 @@ const noteEditor = (documentName: string, userId: string | undefined) => {
 };
 
 /**
- * Saves a document's state through the API. 'saved'; 'retry' when trying again may work (the API
+ * Saves a document's state through the API. Saved (an object); 'retry' when trying again may work (the API
  * unreachable or failing); 'failed' when it won't (refused: too big, wrong secret).
  */
-type StoreResult = 'saved' | 'retry' | 'failed';
-const storeDocState = async (documentName: string | undefined | null, state: Uint8Array): Promise<StoreResult> => {
+type StoreResult = 'retry' | 'failed';
+// Saved, with who may be told so (a database's: null for everyone, or its private page's author)
+type Saved = { audience?: string[] | null };
+
+const storeDocState = async (documentName: string | undefined | null, state: Uint8Array): Promise<StoreResult | Saved> => {
   if (!documentName) return 'failed';
   const editors = [...(unsavedEditors.get(documentName) ?? [])];
   unsavedEditors.delete(documentName);
@@ -216,7 +219,8 @@ const storeDocState = async (documentName: string | undefined | null, state: Uin
       console.warn('Collab store failed', { documentName, status: res.status });
       return res.status >= 500 || res.status === 429 || res.status === 408 ? 'retry' : 'failed';
     }
-    return 'saved';
+    const body = await res.json().catch(() => null);
+    return { audience: body?.audience };
   } catch (err) {
     keepEditors();
     console.warn('Collab store error', { documentName, error: err });
@@ -258,7 +262,7 @@ const storeUntilSaved = async (documentName: string, document: Y.Doc, firstState
   let state = firstState;
   for (let attempt = 0; ; attempt += 1) {
     const result = await storeDocState(documentName, state);
-    if (result === 'saved') return;
+    if (typeof result === 'object') return result;
     if (result === 'failed' || !retry || shuttingDown) throw new Error(`Could not save ${documentName}`);
     const wait = Math.min(STORE_RETRY_MAX_MS, 2000 * 2 ** attempt);
     console.warn('Collab store will retry', { documentName, attempt: attempt + 1, waitMs: wait });
@@ -440,6 +444,18 @@ const applyFieldDelete = (document: Y.Doc, fieldId: string) => {
   }
 };
 
+// A message to everyone with a document open, or (`userIds`) only to these people: a private page's
+// changes go only to its author, as the API decides
+const broadcastTo = (document: Document, message: unknown, userIds?: string[] | null) => {
+  if (!userIds) {
+    document.broadcastStateless(JSON.stringify(message));
+    return;
+  }
+  if (!userIds.length) return;
+  const audience = new Set(userIds);
+  document.broadcastStateless(JSON.stringify(message), (connection) => audience.has((connection.context as AuthContext | undefined)?.userId ?? ''));
+};
+
 const server = new Server({
   name: 'wikid-collab',
   port,
@@ -459,13 +475,14 @@ const server = new Server({
         if (isEventsDocument(documentName)) return;
         // The API's own flushes and pushes are waiting on this: one try for them
         const source = (lastContext as { source?: string } | undefined)?.source;
-        await storeUntilSaved(documentName, document, state, source !== 'flush' && source !== 'api');
+        const { audience } = await storeUntilSaved(documentName, document, state, source !== 'flush' && source !== 'api');
         // Tell the workspace a database changed, once saved, so a "Linked from" column showing
-        // its links elsewhere can catch up
+        // its links elsewhere can catch up: those the API says may hear it, and no one if it
+        // didn't say (it may be private)
         const database = parseDatabaseDocumentName(documentName);
         const events = database ? instance.documents.get(eventsDocumentName(database.workspaceId)) : null;
-        if (database && events) {
-          events.broadcastStateless(JSON.stringify({ type: 'database-changed', workspaceId: database.workspaceId, pageId: database.pageId }));
+        if (database && events && audience !== undefined) {
+          broadcastTo(events, { type: 'database-changed', workspaceId: database.workspaceId, pageId: database.pageId }, audience);
         }
       },
     }),
@@ -516,7 +533,7 @@ const server = new Server({
       response.end(JSON.stringify({ ok: false, error: 'Invalid request body' }));
       throw null;
     }
-    // Broadcast: send a message to everyone with a workspace open (see EVENTS_DOC_ID)
+    // Broadcast: send a message to everyone with a workspace open (see EVENTS_DOC_ID), or to some of them
     if (path === '/collab/broadcast') {
       const workspaceId = typeof body?.workspaceId === 'string' ? body.workspaceId.trim() : '';
       const message = body?.message;
@@ -526,9 +543,10 @@ const server = new Server({
         throw null;
       }
       // Only loaded while someone is connected; with nobody listening there's nothing to do.
+      const userIds = Array.isArray(body?.userIds) ? body.userIds.filter((id: unknown): id is string => typeof id === 'string') : null;
       const document = instance.documents.get(eventsDocumentName(workspaceId));
       if (document) {
-        document.broadcastStateless(JSON.stringify(message));
+        broadcastTo(document, message, userIds);
       }
       response.writeHead(200, { 'Content-Type': 'application/json' });
       response.end(JSON.stringify({ ok: true, delivered: !!document }));
@@ -553,7 +571,7 @@ const server = new Server({
           const conn = await instance.openDirectConnection(docName, { source: 'flush' });
           const document = conn.document;
           if (document) {
-            if ((await storeDocState(docName, Y.encodeStateAsUpdate(document))) === 'saved') flushed++;
+            if (typeof (await storeDocState(docName, Y.encodeStateAsUpdate(document))) === 'object') flushed++;
           }
           await conn.disconnect();
         } catch {

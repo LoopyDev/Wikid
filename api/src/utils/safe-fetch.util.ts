@@ -30,8 +30,7 @@ for (const [network, prefix] of [
   blocked.addSubnet(network, prefix, 'ipv4');
 }
 for (const [network, prefix] of [
-  ['::', 128], // unspecified
-  ['::1', 128], // loopback
+  ['::', 96], // unspecified, loopback, and IPv4-compatible addresses (::127.0.0.1; deprecated)
   ['64:ff9b::', 96], // NAT64, which can map to private IPv4
   ['100::', 64], // discard
   ['2001:db8::', 32], // documentation

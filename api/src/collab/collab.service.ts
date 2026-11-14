@@ -4,6 +4,8 @@ import { initialStateFromContent, normalizeCollabDocState, type CollabState } fr
 import { collabDocumentTarget } from '../utils/collab-document-target.util';
 import { extractPageIdFromDocName, parseDocName } from '../utils/collab-doc-name.util';
 import { PageVersionRecorder } from './page-version-recorder.service';
+import { groupPagesByAudience } from '../pages/page-audience.util';
+import { isUuid } from '../utils/uuid.util';
 import { deleteDatabasesWithContents } from '../utils/delete-databases.util';
 
 @Injectable()
@@ -42,6 +44,26 @@ export class CollabService {
       create: { documentName, state },
       update: { state },
     });
+  }
+
+  /**
+   * Who the collab server may tell that a database was saved (see groupPagesByAudience): everyone
+   * in the workspace (null), or only its author if it's private; no one if that can't be told (the
+   * save has happened by then, so this never fails it). Undefined for other documents.
+   */
+  async savedAudience(documentName: string): Promise<string[] | null | undefined> {
+    const parsed = parseDocName(documentName);
+    if (!parsed?.pageId || parsed.kind !== 'DATABASE' || parsed.scope !== 'ws') return undefined;
+    if (!isUuid(parsed.pageId)) return [];
+    try {
+      const page = await this.prisma.page.findUnique({ where: { id: parsed.pageId }, select: { id: true, visibility: true, authorId: true } });
+      const groups = groupPagesByAudience([parsed.pageId], page ? [page] : []);
+      if (!groups.size) return [];
+      return groups.has(null) ? null : [...groups.keys()].filter((id): id is string => !!id);
+    } catch (err) {
+      console.warn('Could not tell who may hear a database was saved', { documentName, error: (err as Error)?.message || err });
+      return [];
+    }
   }
 
   // A saved page goes into its history (databases have none yet)
