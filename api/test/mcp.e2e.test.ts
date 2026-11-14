@@ -401,4 +401,45 @@ describe('MCP server', () => {
     }
     expect((await call('update_database_view', { pageId, view: 'Nope', name: 'Y' })).text).toMatch(/No view "Nope"/);
   });
+
+  it("gives choices colours (the app's names, or #rrggbb), and colours a board's cards by a select", async () => {
+    const pageId = (await call('create_database', {
+      workspaceId,
+      title: 'Coloured',
+      columns: [
+        { name: 'Priority', type: 'select', choices: [{ value: 'High', colour: 'red' }, 'Medium', { value: 'Low', colour: '#22C55E' }] },
+        { name: 'Status', type: 'select', choices: ['To do', 'Done'] },
+      ],
+    })).text.match(/Database ([0-9a-f-]{36})/)?.[1] as string;
+    const text = async () => (await call('get_database', { pageId })).text;
+    expect(await text()).toContain('- Priority (select: High (red), Medium, Low (green))');
+
+    // Colours given, changed or taken off; other choices as they were
+    const coloured = await call('update_database_column', { pageId, column: 'Priority', colourChoices: { medium: 'yellow', High: 'orange', Low: null } });
+    expect(coloured.isError, coloured.text).toBe(false);
+    expect(await text()).toContain('- Priority (select: High (orange), Medium (yellow), Low)');
+    for (const [args, says] of [
+      [{ colourChoices: { High: 'mauve' } }, /sky, green, yellow/],
+      [{ colourChoices: { Nope: 'red' } }, /No choice "Nope"/],
+      [{ colourChoices: { High: 'red', high: 'sky' } }, /two colours/],
+    ] as const) {
+      const refused = await call('update_database_column', { pageId, column: 'Priority', ...args });
+      expect(refused.isError, JSON.stringify(args)).toBe(true);
+      expect(refused.text).toMatch(says);
+    }
+
+    expect((await call('create_database_view', { pageId, name: 'Board', type: 'board', groupBy: 'Status', colourBy: 'Priority' })).isError).toBe(false);
+    expect(await text()).toContain('- Board (board): grouped by Status; cards coloured by Priority');
+    expect((await call('update_database_view', { pageId, view: 'Board', colourBy: null })).isError).toBe(false);
+    expect(await text()).toContain('- Board (board): grouped by Status\n');
+    expect((await call('update_database_view', { pageId, view: 'Board', colourBy: 'Name' })).text).toMatch(/select/);
+    // A choice added or renamed in the same change can be coloured
+    expect((await call('update_database_column', { pageId, column: 'Status', addChoices: ['Blocked'], renameChoices: { Done: 'Finished' }, colourChoices: { Blocked: 'red', Finished: 'green' } })).isError).toBe(false);
+    expect(await text()).toContain('- Status (select: To do, Finished (green), Blocked (red))');
+    // Only boards' and galleries' cards; a board made a table loses its card colours
+    expect((await call('create_database_view', { pageId, name: 'Rows', colourBy: 'Priority' })).text).toMatch(/board or gallery/);
+    await call('update_database_view', { pageId, view: 'Board', colourBy: 'Priority' });
+    await call('update_database_view', { pageId, view: 'Board', type: 'table' });
+    expect(await text()).toContain('- Board (table)\n');
+  });
 });
