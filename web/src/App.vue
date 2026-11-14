@@ -1431,6 +1431,8 @@ const openSearchResult = (pageId) => {
 };
 const handleSearchShortcut = (event) => {
   if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey || event.key.toLowerCase() !== 'k') return;
+  // Taken already: the page's own ⌘K, with words chosen or the cursor in a link (the link editor)
+  if (event.defaultPrevented) return;
   if (!activeUser.value || workspace.mustChangePassword) return;
   event.preventDefault();
   if (showSearch.value) showSearch.value = false;
