@@ -187,9 +187,27 @@ function cellsById(fields, values) {
 
 const choiceValue = (choice) => (typeof choice === 'string' ? choice : choice?.value);
 
+// The colours a choice can be given by name (the app's colours for rows and icons: ROW_COLORS in
+// web/src/utils/database/colors.js), or any #rrggbb
+const COLOURS = { sky: '#0ea5e9', green: '#22c55e', yellow: '#eab308', orange: '#f97316', red: '#ef4444', purple: '#a855f7', indigo: '#6366f1', teal: '#14b8a6', slate: '#94a3b8' };
+/** A colour given (a name, #rrggbb, or null for none) as the app keeps it. */
+function colourValue(colour) {
+  if (colour === null || colour === undefined || colour === '') return null;
+  const given = String(colour).trim().toLowerCase();
+  if (COLOURS[given]) return COLOURS[given];
+  if (/^#[0-9a-f]{6}$/.test(given)) return given;
+  throw new Error(`Not a colour: "${colour}". Colours: ${Object.keys(COLOURS).join(', ')}, or #rrggbb`);
+}
+/** A colour by its name, if it has one. */
+const colourName = (colour) => Object.keys(COLOURS).find((name) => COLOURS[name] === String(colour).toLowerCase()) ?? colour;
+const choiceText = (choice) => {
+  const value = choiceValue(choice);
+  return typeof choice === 'object' && choice?.color ? `${value} (${colourName(choice.color)})` : value;
+};
+
 function formatDatabase({ db, fields, rows }) {
   const columns = fields.map((f) => {
-    const choices = (f.options?.choices ?? []).map(choiceValue).filter(Boolean);
+    const choices = (f.options?.choices ?? []).filter((c) => choiceValue(c)).map(choiceText);
     const relation = f.options?.relation?.pageId ? `: to database ${f.options.relation.pageId}${f.options.relation.allowMultiple === true ? ', several rows' : ''}` : '';
     return `- ${f.name} (${f.type.toLowerCase()}${choices.length ? `: ${choices.join(', ')}` : relation})`;
   });
@@ -261,6 +279,7 @@ function formatView(view, fields) {
   }
   if (config.sorts?.length) parts.push(`sorted by ${config.sorts.map((sort) => `${nameOf(sort.fieldId)}${sort.direction === 'desc' ? ' (descending)' : ''}`).join(', ')}`);
   if (config.groupFieldId) parts.push(`grouped by ${nameOf(config.groupFieldId)}`);
+  if (config.cardColorFieldId) parts.push(`cards coloured by ${nameOf(config.cardColorFieldId)}`);
   if (config.hiddenFieldIds?.length) parts.push(`hiding ${config.hiddenFieldIds.map(nameOf).join(', ')}`);
   return `- ${view.name} (${String(view.type).toLowerCase()})${parts.length ? `: ${parts.join('; ')}` : ''}`;
 }
@@ -292,7 +311,7 @@ function viewFilter(fields, { column, operator, value }) {
 }
 
 /** A view's type and settings as the API takes them, from those given (others left as they are). */
-function viewBody(fields, view, { name, type, filters, match, sorts, groupBy, hide }) {
+function viewBody(fields, view, { name, type, filters, match, sorts, groupBy, colourBy, hide }) {
   const body = {};
   if (name !== undefined) {
     if (!name.trim()) throw new Error('Give the view a name');
@@ -317,7 +336,18 @@ function viewBody(fields, view, { name, type, filters, match, sorts, groupBy, hi
     // A board new, or just made one, as in the app: grouped by the first select
     config.groupFieldId = fields.find((f) => f.type === 'SELECT')?.id ?? null;
   }
-  if ([filters, match, sorts, hide, groupBy, type].some((part) => part !== undefined)) body.config = config;
+  const hasCards = kind === 'board' || kind === 'gallery';
+  if (colourBy !== undefined && colourBy !== null && colourBy !== '' && !hasCards) throw new Error("Only a board's or gallery's cards are coloured: give type board or gallery");
+  if (colourBy === undefined && type !== undefined && !hasCards && config.cardColorFieldId) config.cardColorFieldId = null;
+  if (colourBy !== undefined) {
+    if (colourBy === null || colourBy === '') config.cardColorFieldId = null;
+    else {
+      const field = findColumn(fields, colourBy);
+      if (!HAS_CHOICES.has(field.type.toLowerCase())) throw new Error(`Cards are coloured by a select or multi_select column's choices; "${field.name}" is ${field.type.toLowerCase()}`);
+      config.cardColorFieldId = field.id;
+    }
+  }
+  if ([filters, match, sorts, hide, groupBy, colourBy, type].some((part) => part !== undefined)) body.config = config;
   return body;
 }
 
@@ -334,6 +364,7 @@ const viewSchema = {
   match: z.enum(['all', 'any']).optional().describe('Whether rows match all the filters (default) or any of them'),
   sorts: z.array(z.object({ column: z.string(), direction: z.enum(['asc', 'desc']).optional() })).optional().describe('Sorted by these columns, in order'),
   groupBy: z.string().nullable().optional().describe("For a board: the select column whose choices are its columns (a new board: the first select)"),
+  colourBy: z.string().nullable().optional().describe("For a board or gallery: a select or multi_select column whose choices' colours its cards take (null: none)"),
   hide: z.array(z.string()).optional().describe('Columns the view hides'),
 };
 
@@ -344,10 +375,15 @@ const HAS_CHOICES = new Set(['select', 'multi_select']);
 const columnType = (type) => COLUMN_TYPES.find((t) => t.replace('_', '') === String(type).trim().toLowerCase().replace(/[\s_-]/g, ''));
 const sameName = (a, b) => a.trim().toLowerCase() === b.trim().toLowerCase();
 
+const choiceSchema = z.union([
+  z.string(),
+  z.object({ value: z.string(), colour: z.string().nullable().optional().describe(`A colour: ${Object.keys(COLOURS).join(', ')}, or #rrggbb`) }),
+]);
+
 const columnSchema = {
   name: z.string().describe('Column name'),
   type: z.string().describe(`Column type: ${COLUMN_TYPES.join(', ')}`),
-  choices: z.array(z.string()).optional().describe('For a select or multi_select: its choices'),
+  choices: z.array(choiceSchema).optional().describe('For a select or multi_select: its choices, in order'),
   relatesTo: z.string().optional().describe('For a relation: the page id of the database whose rows it links to'),
   multiple: z.boolean().optional().describe('For a relation: whether a cell can link to more than one row (default: one)'),
 };
@@ -359,14 +395,15 @@ function findColumn(fields, column) {
   return field;
 }
 
-/** The choices given, after those there (any case), each once. */
+/** The choices given (names, or { value, colour }), after those there (any case), each once. */
 function withChoices(existing, added) {
   const choices = [...existing];
   const taken = new Set(existing.map((c) => String(choiceValue(c)).toLowerCase()));
-  for (const value of added.map((c) => c.trim()).filter(Boolean)) {
-    if (taken.has(value.toLowerCase())) continue;
+  for (const choice of added) {
+    const value = String(choiceValue(choice) ?? '').trim();
+    if (!value || taken.has(value.toLowerCase())) continue;
     taken.add(value.toLowerCase());
-    choices.push({ value, color: null });
+    choices.push({ value, color: typeof choice === 'object' ? colourValue(choice.colour) : null });
   }
   return choices;
 }
@@ -594,7 +631,7 @@ tool(
 
 tool(
   'update_database_column',
-  "Change a database column: rename it, change its type, or add, rename and remove a select's choices. The cells follow: on a type change each is converted, and one that doesn't fit is kept aside (shown greyed in Wikid until replaced; changing the type back brings it back); a renamed choice is renamed in every cell, and a removed one is kept aside the same way. Not in a compliance database, where each record changed needs a reason: there, only renaming and adding choices.",
+  "Change a database column: rename it, change its type, or add, rename, remove and colour a select's choices. The cells follow: on a type change each is converted, and one that doesn't fit is kept aside (shown greyed in Wikid until replaced; changing the type back brings it back); a renamed choice is renamed in every cell, and a removed one is kept aside the same way. In a compliance database, where each record changed needs a reason, only the name, added choices and colours change here.",
   {
     pageId: z.string().describe('Page id of the database'),
     column: z.string().describe('The column, by name or id'),
@@ -602,11 +639,15 @@ tool(
     type: z.string().optional().describe(`Its new type: ${COLUMN_TYPES.join(', ')}. A select made from another type gets a choice for each value in it`),
     relatesTo: z.string().optional().describe('Changing to a relation: the page id of the database whose rows it links to'),
     multiple: z.boolean().optional().describe('Changing to a relation: whether a cell can link to more than one row'),
-    addChoices: z.array(z.string()).optional().describe('Choices to add (those there already are left as they are)'),
+    addChoices: z.array(choiceSchema).optional().describe('Choices to add, at the end (those there already are left as they are)'),
     renameChoices: z.record(z.string(), z.string()).optional().describe('Choices to rename, old name to new'),
     removeChoices: z.array(z.string()).optional().describe('Choices to remove'),
+    colourChoices: z
+      .record(z.string(), z.string().nullable())
+      .optional()
+      .describe(`Choices' colours, by choice name: ${Object.keys(COLOURS).join(', ')}, #rrggbb, or null for none`),
   },
-  async ({ pageId, column, name, type, relatesTo, multiple, addChoices, renameChoices, removeChoices }) => {
+  async ({ pageId, column, name, type, relatesTo, multiple, addChoices, renameChoices, removeChoices, colourChoices }) => {
     const { fields } = await getDatabase(pageId);
     const field = findColumn(fields, column);
     const body = {};
@@ -634,10 +675,11 @@ tool(
       throw new Error("relatesTo and multiple are for changing a column to a relation; a relation's target is changed in Wikid");
     }
     const renames = Object.entries(renameChoices ?? {});
-    if (addChoices?.length || renames.length || removeChoices?.length) {
+    const colours = Object.entries(colourChoices ?? {});
+    if (addChoices?.length || renames.length || removeChoices?.length || colours.length) {
       const kind = String(body.type ?? field.type).toLowerCase();
       if (!HAS_CHOICES.has(kind)) throw new Error(`Only a select or multi_select column has choices; "${field.name}" is ${kind}`);
-      if (body.type && (renames.length || removeChoices?.length)) throw new Error("Change the type first, then rename or remove its choices");
+      if (body.type && (renames.length || removeChoices?.length || colours.length)) throw new Error('Change the type first, then rename, remove or colour its choices');
       let choices = (body.options?.choices ?? options.choices ?? []).map((c) => (typeof c === 'string' ? { value: c, color: null } : c));
       const find = (value) => {
         const choice = choices.find((c) => sameName(String(c.value), value));
@@ -651,14 +693,26 @@ tool(
         // Not even a removed one's: its cells would quietly become this one's
         if (choices.some((c) => c.value !== from && sameName(String(c.value), to))) throw new Error(`There's already a choice "${to}"`);
       }
-      choices = choices.filter((c) => !removing.has(c.value)).map((c) => (renaming.has(c.value) ? { ...c, value: renaming.get(c.value) } : c));
-      body.options = { ...(body.options ?? options), choices: withChoices(choices, addChoices ?? []) };
+      choices = withChoices(
+        choices.filter((c) => !removing.has(c.value)).map((c) => (renaming.has(c.value) ? { ...c, value: renaming.get(c.value) } : c)),
+        addChoices ?? []
+      );
+      // Colours by the choices' names as they are after the renames and additions
+      const colouring = new Map();
+      for (const [name, colour] of colours) {
+        const choice = choices.find((c) => sameName(String(c.value), name));
+        if (!choice) throw new Error(`No choice "${name}" in "${field.name}". Choices: ${choices.map((c) => c.value).join(', ') || 'none'}`);
+        if (colouring.has(choice.value)) throw new Error(`"${choice.value}" is given two colours`);
+        colouring.set(choice.value, colourValue(colour));
+      }
+      choices = choices.map((c) => (colouring.has(c.value) ? { ...c, color: colouring.get(c.value) } : c));
+      body.options = { ...(body.options ?? options), choices };
       if (renaming.size || removing.size) {
         body.renames = Object.fromEntries([...renaming].filter(([from, to]) => from !== to));
         moving = true;
       }
     }
-    if (!Object.keys(body).length) throw new Error('Give a new name or type, or choices to add, rename or remove');
+    if (!Object.keys(body).length) throw new Error('Give a new name or type, or choices to add, rename, remove or colour');
     if (!moving) {
       await api(`/database-fields/${id(field.id)}`, { method: 'PATCH', body });
       return `Updated column "${body.name ?? field.name}".`;
@@ -671,7 +725,7 @@ tool(
 
 tool(
   'create_database_view',
-  'Add a view to a database: a table, board, gallery or list of its rows, filtered, sorted, and (a board) grouped by a select. get_database lists the views there.',
+  "Add a view to a database: a table, board, gallery or list of its rows, filtered, sorted, (a board) grouped by a select, and (a board or gallery) its cards coloured by a select's choices. get_database lists the views there.",
   { pageId: z.string().describe('Page id of the database'), name: z.string().describe('View name'), ...viewSchema },
   async ({ pageId, ...given }) => {
     const { fields } = await getDatabase(pageId);
@@ -683,7 +737,7 @@ tool(
 
 tool(
   'update_database_view',
-  'Change a database view (by name or id): its name, type, filters, sorts, grouping or hidden columns. What isn’t given stays as it was; a list given (filters, sorts, hide) replaces the one there. Someone with the database open sees the change when they open it again.',
+  'Change a database view (by name or id): its name, type, filters, sorts, grouping, card colours or hidden columns. What isn’t given stays as it was; a list given (filters, sorts, hide) replaces the one there. Someone with the database open sees the change when they open it again.',
   { pageId: z.string().describe('Page id of the database'), view: z.string().describe('The view, by name or id'), name: z.string().optional().describe('Its new name'), ...viewSchema },
   async ({ pageId, view, ...given }) => {
     const { db, fields } = await getDatabase(pageId);
