@@ -430,8 +430,13 @@ describe('MCP server', () => {
 
     expect((await call('create_database_view', { pageId, name: 'Board', type: 'board', groupBy: 'Status', colourBy: 'Priority' })).isError).toBe(false);
     expect(await text()).toContain('- Board (board): grouped by Status; cards coloured by Priority');
+    expect((await call('update_database_view', { pageId, view: 'Board', colourStyle: 'tint' })).isError).toBe(false);
+    expect(await text()).toContain('- Board (board): grouped by Status; cards coloured by Priority, tinted');
+    expect((await call('update_database_view', { pageId, view: 'Board', colourStyle: 'neon' })).text).toMatch(/stripe, tint/);
+    expect((await call('create_database_view', { pageId, name: 'Plain', colourStyle: 'tint' })).text).toMatch(/board or gallery/);
     expect((await call('update_database_view', { pageId, view: 'Board', colourBy: null })).isError).toBe(false);
-    expect(await text()).toContain('- Board (board): grouped by Status\n');
+    // The columns stay tinted in their choices' colours
+    expect(await text()).toContain('- Board (board): grouped by Status; columns tinted\n');
     expect((await call('update_database_view', { pageId, view: 'Board', colourBy: 'Name' })).text).toMatch(/select/);
     // A choice added or renamed in the same change can be coloured
     expect((await call('update_database_column', { pageId, column: 'Status', addChoices: ['Blocked'], renameChoices: { Done: 'Finished' }, colourChoices: { Blocked: 'red', Finished: 'green' } })).isError).toBe(false);

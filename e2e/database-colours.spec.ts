@@ -86,4 +86,40 @@ test.describe('select colours', () => {
     await expect(main(page).locator('.db-gallery__card').first()).toHaveCSS('border-left-color', 'rgb(255, 0, 0)');
     await expect.poll(async () => (await view(page, id, 'Cards')).config.cardColorFieldId).toBe(fieldIds.Priority);
   });
+
+  test("a board's cards and columns are striped in their colours, or tinted; a gallery's cards too", async ({ alice: page, workspaceId }) => {
+    const { id, fieldIds } = await databaseWith(
+      page,
+      workspaceId,
+      { Status: [['To do', '#0000ff'], ['Done', null]], Priority: [['High', '#ff0000']] },
+      [{ Name: 'Write', Status: 'To do', Priority: 'High' }]
+    );
+    const config = { groupFieldId: fieldIds.Status, cardColorFieldId: fieldIds.Priority };
+    expect((await page.request.post(`/api/pages/${id}/database/views`, { data: { name: 'Board', type: 'BOARD', config } })).status()).toBe(201);
+    expect((await page.request.post(`/api/pages/${id}/database/views`, { data: { name: 'Cards', type: 'GALLERY', config: { ...config, cardColorStyle: 'tint' } } })).status()).toBe(201);
+    await page.goto(`/doc/${id}`);
+    await main(page).getByRole('button', { name: 'Board' }).click();
+    const column = (label: string) => main(page).locator('.db-board__column').filter({ has: page.locator('.db-board__column-title', { hasText: new RegExp(`^${label}$`) }) });
+    const card = main(page).locator('.db-board__card').first();
+
+    // Striped: a card down its left, a column along its top; a column whose choice has no colour, plain
+    await expect(card).toHaveCSS('border-left-color', 'rgb(255, 0, 0)');
+    await expect(column('To do')).toHaveCSS('border-top-color', 'rgb(0, 0, 255)');
+    await expect(column('Done')).not.toHaveClass(/db-board__column--colored/);
+
+    // Tinted: a soft background, and a card's border all round in its colour
+    await main(page).getByLabel('Colour style').selectOption('Tint');
+    // Over the card's own background, so the column's colour doesn't show through
+    await expect(card).toHaveCSS('background-image', 'linear-gradient(rgba(255, 0, 0, 0.14), rgba(255, 0, 0, 0.14))');
+    await expect(card).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+    await expect(card).toHaveCSS('border-top-color', 'rgb(255, 0, 0)');
+    await expect(column('To do')).toHaveCSS('background-image', 'linear-gradient(rgba(0, 0, 255, 0.1), rgba(0, 0, 255, 0.1))');
+    // A tinted card still shows the hover highlight
+    await card.hover();
+    await expect(card).not.toHaveCSS('border-top-color', 'rgb(255, 0, 0)');
+    await expect.poll(async () => (await view(page, id, 'Board')).config.cardColorStyle).toBe('tint');
+
+    await main(page).getByRole('button', { name: 'Cards' }).click();
+    await expect(main(page).locator('.db-gallery__card').first()).toHaveCSS('background-image', 'linear-gradient(rgba(255, 0, 0, 0.14), rgba(255, 0, 0, 0.14))');
+  });
 });
