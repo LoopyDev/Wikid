@@ -2183,8 +2183,9 @@ const reorderPages = async ({ draggedId, targetId, targetParentId, dropMode = 'a
     orderedIds = updated.map((p) => p.id);
     reorderedSiblings = updated.map((p, idx) => ({ ...p, parentId: newParentId, position: idx + 1 }));
   } else {
+    // Above the target, or below it (after it: how a page goes last)
     const targetIndex = filtered.findIndex((p) => p.id === targetId);
-    const insertIndex = targetIndex >= 0 ? targetIndex : filtered.length;
+    const insertIndex = targetIndex < 0 ? filtered.length : dropMode === 'below' ? targetIndex + 1 : targetIndex;
     filtered.splice(insertIndex, 0, { ...dragged, parentId: newParentId });
     orderedIds = filtered.map((p) => p.id);
     reorderedSiblings = filtered.map((p, idx) => ({ ...p, parentId: newParentId, position: idx + 1 }));

@@ -1166,6 +1166,22 @@ button {
   pointer-events: none;
 }
 
+/* Below (a line under it) */
+.sidebar__item[data-dragover='true'][data-drop-mode='below']::after,
+.sidebar__item.drag-over[data-drop-mode='below']::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 2%;
+  height: 4px;
+  background: rgba(59, 130, 246, 0.9);
+  border-radius: 999px;
+  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.95), 0 6px 12px rgba(0, 0, 0, 0.25);
+  z-index: 6;
+  pointer-events: none;
+}
+
 /* Drop-into (full overlay) */
 .sidebar__item[data-drop-mode='into'] {
   background: rgba(59, 130, 246, 0.2);
