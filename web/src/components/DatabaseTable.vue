@@ -2155,7 +2155,98 @@ const tableRows = computed(() => {
   });
 });
 
-const { viewFilteredRows, viewSorting, shownRows, boardColumns, cardBodyFields, cardFieldCandidates, galleryCardField, galleryCardValue, openRowCard, rowTitle } = useViewRows({ fields, fieldById, tableRows, activeSavedView, isBoardView, hiddenFieldIdSet, displayValueForField, getChoiceLabel, rowPageId, openRowPageOverlay, ensureRowPage, isReadonly, workspace, sortedRows: () => table.getRowModel().rows.map((row) => row.original) });
+const { viewFilteredRows, viewSorting, shownRows, boardGroupField, boardColumns, cardBodyFields, cardFieldCandidates, galleryCardField, galleryCardValue, openRowCard, rowTitle } = useViewRows({ fields, fieldById, tableRows, activeSavedView, isBoardView, hiddenFieldIdSet, displayValueForField, getChoiceLabel, rowPageId, openRowPageOverlay, ensureRowPage, isReadonly, workspace, sortedRows: () => table.getRowModel().rows.map((row) => row.original) });
+
+// Board: a card dragged to another column, or moved with its "Move to" list (by keyboard, or on a
+// phone where dragging fights scrolling), takes that column's choice. A card moved where the view's
+// filter hides it says so, with an Undo. Only a board grouped by a select: one choice a card.
+const canMoveBoardCards = computed(
+  () => !isReadonly.value && boardGroupField.value?.type === 'SELECT' && !isFieldReadOnly(boardGroupField.value)
+);
+const draggingCardId = ref(null);
+const boardDropKey = ref(null);
+const boardMoveNotice = ref(null);
+let boardNoticeTimer = null;
+const boardColumnOf = (rowId) => boardColumns.value.find((column) => column.rows.some((row) => row.id === rowId)) || null;
+const showBoardNotice = (notice) => {
+  clearTimeout(boardNoticeTimer);
+  boardMoveNotice.value = notice;
+  boardNoticeTimer = notice ? setTimeout(() => (boardMoveNotice.value = null), 8000) : null;
+};
+// A notice is about the board it was shown on
+watch([activeViewId, boardGroupField], () => showBoardNotice(null));
+// A value kept from before the column's type changed, put back (updateCell clears it)
+const restoreKeptValue = (row, field, kept) => {
+  const key = keptValueKey(field.id);
+  row.data[key] = kept;
+  if (isCollabEnabled.value) {
+    whenCollabSynced(() => {
+      const dataMap = ensureCollabRowDataMap(ensureCollabRowMap(row.id));
+      if (dataMap) ensureCollabDoc().transact(() => dataMap.set(key, kept), 'db-cell-update');
+    });
+  } else {
+    scheduleRowUpdate(row, { ...row.data });
+  }
+};
+const moveBoardCard = (row, key, { refocus = false } = {}) => {
+  const field = boardGroupField.value;
+  if (!canMoveBoardCards.value || !row || !field) return;
+  if (boardColumnOf(row.id)?.key === key) return;
+  const previous = row.data?.[field.id] ?? '';
+  const previousKept = row.data?.[keptValueKey(field.id)];
+  const next = key === '__none__' ? '' : key;
+  updateCell(row, field, next);
+  showBoardNotice(null);
+  nextTick(() => {
+    // The card is a new element in its new column: the keyboard goes on from its list there
+    if (refocus) databaseRootRef.value?.querySelector(`.db-board__move[data-row-id="${row.id}"]`)?.focus();
+    if (boardColumnOf(row.id)) return;
+    const label = boardColumns.value.find((column) => column.key === key)?.label || 'No value';
+    showBoardNotice({
+      title: rowTitle(row) || 'Untitled',
+      label,
+      undo: () => {
+        // Only if the row is still there, and still as this move left it (else Undo would bring
+        // back a row someone deleted, or undo their change)
+        if (!tableRows.value.some((candidate) => candidate.id === row.id)) return;
+        if ((row.data?.[field.id] ?? '') !== next) return;
+        updateCell(row, field, previous);
+        if (previousKept !== undefined) restoreKeptValue(row, field, previousKept);
+      },
+    });
+  });
+};
+const undoBoardMove = () => {
+  boardMoveNotice.value?.undo();
+  showBoardNotice(null);
+};
+const onBoardCardDragStart = (row, event) => {
+  if (!canMoveBoardCards.value) return event.preventDefault();
+  draggingCardId.value = row.id;
+  event.dataTransfer.effectAllowed = 'move';
+  event.dataTransfer.setData('text/plain', row.id);
+};
+const onBoardCardDragEnd = () => {
+  draggingCardId.value = null;
+  boardDropKey.value = null;
+};
+const onBoardColumnDragOver = (column, event) => {
+  if (!draggingCardId.value) return;
+  event.preventDefault();
+  event.dataTransfer.dropEffect = 'move';
+  boardDropKey.value = column.key;
+};
+const onBoardColumnDragLeave = (column, event) => {
+  if (boardDropKey.value === column.key && !event.currentTarget.contains(event.relatedTarget)) boardDropKey.value = null;
+};
+const onBoardColumnDrop = (column, event) => {
+  event.preventDefault();
+  const rowId = draggingCardId.value;
+  onBoardCardDragEnd();
+  const row = boardColumnOf(rowId)?.rows.find((candidate) => candidate.id === rowId);
+  if (row) moveBoardCard(row, column.key);
+};
+onBeforeUnmount(() => clearTimeout(boardNoticeTimer));
 // A big database shows its first rows, and more on request: drawing thousands of rows took a second
 // or more to open, and every change drew them all again. The print page (PDF exports) shows them all.
 const ROWS_SHOWN_AT_ONCE = 100;
@@ -4117,26 +4208,58 @@ onBeforeUnmount(() => {
               </option>
             </select>
           </div>
+          <div v-if="boardMoveNotice" class="db-board__notice" role="status">
+            “{{ boardMoveNotice.title }}” moved to {{ boardMoveNotice.label }}; this view doesn't show it.
+            <button type="button" class="db-board__notice-undo" @click="undoBoardMove">Undo</button>
+          </div>
           <div class="db-board__columns">
-            <div v-for="column in boardColumns" :key="column.key" class="db-board__column">
+            <div
+              v-for="column in boardColumns"
+              :key="column.key"
+              :class="['db-board__column', { 'db-board__column--drop': boardDropKey === column.key }]"
+              @dragover="onBoardColumnDragOver(column, $event)"
+              @dragleave="onBoardColumnDragLeave(column, $event)"
+              @drop="onBoardColumnDrop(column, $event)"
+            >
               <div class="db-board__column-header">
                 <span class="db-board__column-title">{{ column.label }}</span>
                 <span class="db-view-tab__count">{{ column.rows.length }}</span>
               </div>
               <div class="db-board__cards">
-                <button
+                <div
                   v-for="row in column.rows"
                   :key="row.id"
-                  type="button"
-                  class="db-board__card"
-                  @click="openRowCard(row)"
+                  :class="['db-board__card-wrap', { 'db-board__card-wrap--dragging': draggingCardId === row.id }]"
                 >
-                  <div class="db-board__card-title">{{ rowTitle(row) }}</div>
-                  <div v-for="field in cardBodyFields" :key="field.id" class="db-board__card-field">
-                    <span class="db-gallery__field-name">{{ field.name }}</span>
-                    <span class="db-gallery__field-value">{{ galleryCardValue(row, field) }}</span>
+                  <!-- A div, not a <button>: Firefox won't start a drag from a button -->
+                  <div
+                    role="button"
+                    tabindex="0"
+                    class="db-board__card"
+                    :draggable="canMoveBoardCards ? 'true' : 'false'"
+                    @click="openRowCard(row)"
+                    @keydown.enter.prevent="openRowCard(row)"
+                    @keydown.space.prevent="openRowCard(row)"
+                    @dragstart="onBoardCardDragStart(row, $event)"
+                    @dragend="onBoardCardDragEnd"
+                  >
+                    <div class="db-board__card-title">{{ rowTitle(row) }}</div>
+                    <div v-for="field in cardBodyFields" :key="field.id" class="db-board__card-field">
+                      <span class="db-gallery__field-name">{{ field.name }}</span>
+                      <span class="db-gallery__field-value">{{ galleryCardValue(row, field) }}</span>
+                    </div>
                   </div>
-                </button>
+                  <select
+                    v-if="canMoveBoardCards"
+                    class="db-board__move"
+                    :data-row-id="row.id"
+                    :aria-label="`Move “${rowTitle(row) || 'Untitled'}” to`"
+                    :value="column.key"
+                    @change="moveBoardCard(row, $event.target.value, { refocus: true }); $event.target.value = column.key"
+                  >
+                    <option v-for="target in boardColumns" :key="target.key" :value="target.key">{{ target.label }}</option>
+                  </select>
+                </div>
                 <div v-if="!column.rows.length" class="db-board__empty muted">—</div>
               </div>
             </div>
