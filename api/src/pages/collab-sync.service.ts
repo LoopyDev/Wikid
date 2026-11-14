@@ -75,9 +75,11 @@ export class CollabSyncService {
     );
   }
 
+  // values: only these cells changed (see updateCollabDatabaseRowState)
   async updateCollabDatabaseRowForPage(
     database: { pageId: string; workspaceId: string },
-    row: { id: string; data?: Prisma.InputJsonValue | null; pageId?: string | null; createdById?: string | null }
+    row: { id: string; data?: Prisma.InputJsonValue | null; pageId?: string | null; createdById?: string | null },
+    values?: Record<string, unknown> | null
   ) {
     if (!database?.pageId || !database.workspaceId || !row?.id) return;
     const documentName = `ws:${database.workspaceId}:db:${database.pageId}`;
@@ -88,7 +90,7 @@ export class CollabSyncService {
         data: row.data && typeof row.data === 'object' && !Array.isArray(row.data) ? (row.data as Record<string, any>) : {},
         pageId: row.pageId || null,
         createdBy: row.createdById || null,
-      }),
+      }, values),
       'Failed to sync collab db row',
       { rowId: row.id },
     );
@@ -155,7 +157,8 @@ export class CollabSyncService {
 
   async pushCollabDatabaseRowUpdate(
     database: { pageId: string; workspaceId: string },
-    row: { id: string; data?: Prisma.InputJsonValue | null; pageId?: string | null; createdById?: string | null }
+    row: { id: string; data?: Prisma.InputJsonValue | null; pageId?: string | null; createdById?: string | null },
+    values?: Record<string, unknown> | null
   ) {
     if (!this.collabServerUrl || !this.collabApiSecret) return;
     if (!database?.pageId || !database.workspaceId || !row?.id) return;
@@ -166,6 +169,7 @@ export class CollabSyncService {
       data: row.data && typeof row.data === 'object' && !Array.isArray(row.data) ? row.data : {},
       pageId: row.pageId || null,
       createdBy: row.createdById || null,
+      ...(values ? { values } : {}),
     };
     try {
       const res = await fetch(`${this.collabServerUrl}/collab/push/db-row`, {

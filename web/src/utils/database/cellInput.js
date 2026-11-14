@@ -72,4 +72,6 @@ export const handleNumberPaste = (event) => {
     const pos = start + cleaned.length;
     target.setSelectionRange(pos, pos);
   }
+  // As typing it would: the cell's input handler saves it (setting the value fires nothing)
+  target.dispatchEvent(new Event('input', { bubbles: true }));
 };

@@ -109,6 +109,47 @@ describe('rows', () => {
     expect(replaced.body.row.data[kept]).toBeUndefined();
   });
 
+  it("keeps a removed choice beside a multi-select's other tags, as the app does, until that cell is edited", async () => {
+    const { pageId, titleFieldId } = await createDatabase();
+    const tags = await addField(pageId, { name: 'Tags', type: 'MULTI_SELECT', options: { choices: [{ value: 'Red' }, { value: 'Blue' }] } });
+    const kept = `__kept:${tags.id}`;
+    const row = (await alice.post(`/pages/${pageId}/database/rows`, { data: { [titleFieldId]: 'Paint', [tags.id]: ['Red', 'Blue'] } })).body;
+    const dataOf = async () => (await alice.get(`/pages/${pageId}/database`)).body.rows.find((r: any) => r.id === row.id).data;
+
+    // "Blue" removed from the choices: the app keeps it aside, greyed, beside "Red"
+    const settled = await alice.patch(`/database-rows/${row.id}`, { data: { [titleFieldId]: 'Paint', [tags.id]: ['Red'], [kept]: ['Blue'] } });
+    expect(settled.status).toBe(200);
+    expect(await dataOf()).toMatchObject({ [tags.id]: ['Red'], [kept]: ['Blue'] });
+
+    // Saved from the live document as it is there: kept too
+    const live = await openLiveDocument(alice, workspaceId, pageId, { database: true });
+    const db = (await alice.get(`/pages/${pageId}/database`)).body;
+    live.doc.transact(() => {
+      for (const field of db.fields) {
+        live.doc.getMap('fields').set(field.id, new Y.Map(Object.entries({ name: field.name, type: field.type, options: field.options })));
+        live.doc.getArray('fieldOrder').push([field.id]);
+      }
+      for (const r of db.rows) {
+        live.doc.getMap('rows').set(r.id, new Y.Map<any>([['data', new Y.Map(Object.entries(r.data))]]));
+        live.doc.getArray('rowOrder').push([r.id]);
+      }
+    });
+    try {
+      (live.doc.getMap('rows').get(row.id) as Y.Map<any>).get('data').set(titleFieldId, 'Paint it');
+      await expect.poll(async () => (await dataOf())[titleFieldId], { timeout: 15_000 }).toBe('Paint it');
+      expect((await dataOf())[kept]).toEqual(['Blue']);
+    } finally {
+      live.close();
+    }
+
+    // The same tags given again change nothing: what was kept stays
+    expect((await alice.patch(`/database-rows/${row.id}`, { cells: { [tags.id]: ['Red'] } })).status).toBe(200);
+    expect((await dataOf())[kept]).toEqual(['Blue']);
+    // Tags picked again (an edit of that cell): what was kept goes, as it does in the app
+    expect((await alice.patch(`/database-rows/${row.id}`, { cells: { [tags.id]: [] } })).status).toBe(200);
+    expect((await dataOf())[kept]).toBeUndefined();
+  });
+
   it('keeps people in person columns: one, or several when allowed', async () => {
     const { pageId, titleFieldId } = await createDatabase();
     const owner = await addField(pageId, { name: 'Owner', type: 'PERSON' });
@@ -217,6 +258,73 @@ describe('rows', () => {
     const rows = (await alice.get(`/pages/${pageId}/database`)).body.rows.map((r: any) => r.id);
     expect(rows).toEqual([second.id, untitled.id]);
     expect((await alice.patch(`/database-rows/${first.id}`, { data: {} })).status).toBe(404);
+  });
+
+  it('changes only the cells given, with `cells`; null clears one', async () => {
+    const { pageId, titleFieldId } = await createDatabase();
+    const notes = (await addField(pageId, { name: 'Notes', type: 'TEXT' })).id;
+    const done = (await addField(pageId, { name: 'Done', type: 'CHECKBOX' })).id;
+    const row = (await alice.post(`/pages/${pageId}/database/rows`, { data: { [titleFieldId]: 'Write', [notes]: 'Draft first' } })).body;
+    const cellsOf = async () => (await alice.get(`/pages/${pageId}/database`)).body.rows.find((r: any) => r.id === row.id).data;
+
+    // Someone ticks Done in the table; a change to Notes alone leaves it ticked
+    expect((await alice.patch(`/database-rows/${row.id}`, { cells: { [done]: true } })).status).toBe(200);
+    const res = await alice.patch(`/database-rows/${row.id}`, { cells: { [notes]: 'Then edit' }, strict: true });
+    expect(res.status).toBe(200);
+    expect(await cellsOf()).toMatchObject({ [titleFieldId]: 'Write', [notes]: 'Then edit', [done]: true });
+
+    expect((await alice.patch(`/database-rows/${row.id}`, { cells: { [notes]: null } })).status).toBe(200);
+    const after = await cellsOf();
+    expect(after[notes]).toBeUndefined();
+    expect(after).toMatchObject({ [titleFieldId]: 'Write', [done]: true });
+    // Its title follows, as with `data`
+    expect((await alice.patch(`/database-rows/${row.id}`, { cells: { [titleFieldId]: 'Write it' } })).body.page).toMatchObject({ title: 'Write it' });
+    // Two at once, to different cells: both land
+    const at = (await addField(pageId, { name: 'At', type: 'TEXT' })).id;
+    const results = await Promise.all(
+      Array.from({ length: 4 }, (_, i) => alice.patch(`/database-rows/${row.id}`, { cells: { [i % 2 ? notes : at]: `Both ${i}` } })),
+    );
+    expect(results.map((res) => res.status)).toEqual([200, 200, 200, 200]);
+    const both = await cellsOf();
+    // (Whichever came last of each)
+    expect(['Both 1', 'Both 3']).toContain(both[notes]);
+    expect(['Both 0', 'Both 2']).toContain(both[at]);
+    // Not both ways at once
+    expect((await alice.patch(`/database-rows/${row.id}`, { data: { [notes]: 'x' }, cells: { [done]: false } })).status).toBe(400);
+  });
+
+  it('with `cells`, keeps a change made meanwhile in the live document to another cell', async () => {
+    const { pageId, titleFieldId } = await createDatabase();
+    const notes = (await addField(pageId, { name: 'Notes', type: 'TEXT' })).id;
+    const done = (await addField(pageId, { name: 'Done', type: 'CHECKBOX' })).id;
+    const row = (await alice.post(`/pages/${pageId}/database/rows`, { data: { [titleFieldId]: 'Write' } })).body;
+    const live = await openLiveDocument(alice, workspaceId, pageId, { database: true });
+    // Filled from the database, as the app does when it first opens it
+    const db = (await alice.get(`/pages/${pageId}/database`)).body;
+    live.doc.transact(() => {
+      for (const field of db.fields) {
+        live.doc.getMap('fields').set(field.id, new Y.Map(Object.entries({ name: field.name, type: field.type, options: field.options })));
+        live.doc.getArray('fieldOrder').push([field.id]);
+      }
+      for (const r of db.rows) {
+        live.doc.getMap('rows').set(r.id, new Y.Map<any>([['data', new Y.Map(Object.entries(r.data))]]));
+        live.doc.getArray('rowOrder').push([r.id]);
+      }
+    });
+    try {
+      // Ticked in the table; MCP changes Notes before that has reached the database
+      const cells = () => ((live.doc.getMap('rows').get(row.id) as Y.Map<any>).get('data') as Y.Map<any>).toJSON();
+      (live.doc.getMap('rows').get(row.id) as Y.Map<any>).get('data').set(done, true);
+      expect((await alice.patch(`/database-rows/${row.id}`, { cells: { [notes]: 'Draft first' } })).status).toBe(200);
+      await expect.poll(() => cells()[notes]).toBe('Draft first');
+      expect(cells()[done]).toBe(true);
+      // And once saved, the database has both
+      await expect
+        .poll(async () => (await alice.get(`/pages/${pageId}/database`)).body.rows.find((r: any) => r.id === row.id).data, { timeout: 15_000 })
+        .toMatchObject({ [notes]: 'Draft first', [done]: true });
+    } finally {
+      live.close();
+    }
   });
 
   it("doesn't let viewers change rows", async () => {
@@ -786,9 +894,15 @@ describe('changing a column, and its cells with it', () => {
     expect(await cellsOf(pageId, status.id)).toEqual([[['Todo'], undefined]]);
   });
 
-  it("won't change the type of the title column", async () => {
-    const { titleFieldId } = await createDatabase();
+  it("won't change the type of the title column, or delete it, by any route", async () => {
+    const { pageId, titleFieldId } = await createDatabase();
     expect((await alice.post(`/database-fields/${titleFieldId}/change`, { type: 'NUMBER' })).status).toBe(400);
+    expect((await alice.patch(`/database-fields/${titleFieldId}`, { type: 'NUMBER' })).status).toBe(400);
+    expect((await alice.delete(`/database-fields/${titleFieldId}`)).status).toBe(400);
+    const title = (await alice.get(`/pages/${pageId}/database`)).body.fields.find((f: any) => f.id === titleFieldId);
+    expect(title).toMatchObject({ name: 'Name', type: 'TEXT' });
+    // Renaming it is fine, as is giving its type again
+    expect((await alice.patch(`/database-fields/${titleFieldId}`, { name: 'Task', type: 'TEXT' })).status).toBe(200);
   });
 
   it('changes the live document too, so the next save from it keeps the change', async () => {
@@ -813,8 +927,13 @@ describe('changing a column, and its cells with it', () => {
       const data = () => ((live.doc.getMap('rows').get(rowId) as Y.Map<any>)?.get('data') as Y.Map<any>)?.toJSON();
       await expect.poll(() => (live.doc.getMap('fields').get(amount.id) as Y.Map<any>)?.get('type')).toBe('NUMBER');
       await expect.poll(data).toEqual({ [`__kept:${amount.id}`]: 'about ten' });
-      // An edit from the live document, then saved: the change stays
-      (live.doc.getMap('rows').get(rowId) as Y.Map<any>).get('data').set(amount.id, 7);
+      // An edit from the live document, as the app makes it (the value kept aside goes), then saved:
+      // the change stays
+      live.doc.transact(() => {
+        const cells = (live.doc.getMap('rows').get(rowId) as Y.Map<any>).get('data') as Y.Map<any>;
+        cells.set(amount.id, 7);
+        cells.delete(`__kept:${amount.id}`);
+      });
       await expect.poll(() => cellsOf(pageId, amount.id), { timeout: 15_000 }).toEqual([[7, undefined]]);
       expect((await alice.get(`/pages/${pageId}/database`)).body.fields.find((f: any) => f.id === amount.id).type).toBe('NUMBER');
     } finally {

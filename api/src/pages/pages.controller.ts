@@ -500,9 +500,10 @@ export class PagesController {
     @CurrentUserId() userId?: string,
     @CurrentUserName() userName?: string,
   ) {
+    // cells: only these cells change (null clears one); data: all of them
     // strict: refuse cells that don't fit their columns rather than keep them aside (the MCP server)
     // reason: why a compliance record changes (required for that)
-    return this.databases.updateDatabaseRow(id, pickDefined(body, ['data', 'position', 'strict', 'reason']), { userId, userName });
+    return this.databases.updateDatabaseRow(id, pickDefined(body, ['data', 'cells', 'position', 'strict', 'reason']), { userId, userName });
   }
 
   // Relation columns elsewhere that point at this database, for a "Linked from" column to follow

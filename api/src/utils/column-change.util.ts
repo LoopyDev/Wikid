@@ -138,25 +138,27 @@ export const planTypeChange = (
     const current = row.data?.[field.id];
     const previouslyKept = row.data?.[keptKey];
     const source = isEmptyValue(current) ? previouslyKept : current;
+    // People (ids) only when it's the cell's own value: one kept from before is what it was then (names)
+    const sourceIsPeople = fromPeople && !isEmptyValue(current);
     if (isEmptyValue(source)) {
       if (current !== undefined || previouslyKept !== undefined) cells.push({ rowId: row.id, value: undefined, kept: undefined });
       continue;
     }
     // People are their names in other types; text names people when every name is a member's
     const asSource =
-      fromPeople && nextType !== 'PERSON'
+      sourceIsPeople && nextType !== 'PERSON'
         ? (Array.isArray(source) ? source : [source]).map((id) => nameOf.get(id) || '').filter(Boolean)
         : source;
     const prepared =
       nextType === 'LINKED_FROM'
         ? undefined
-        : nextType === 'PERSON' && !fromPeople
+        : nextType === 'PERSON' && !sourceIsPeople
           ? peopleNamed(asLabels(source), people)
           : prepareForType(nextType, asSource);
     // Several people don't fit a one-person column: kept, rather than cut down to the first
     if (nextType === 'PERSON' && Array.isArray(prepared) && prepared.length > 1 && nextOptions.allowMultiple !== true) {
       keptCount += 1;
-      cells.push({ rowId: row.id, value: undefined, kept: normalizeKeptValue(fromPeople ? source.map((id: string) => nameOf.get(id) || id) : source) });
+      cells.push({ rowId: row.id, value: undefined, kept: normalizeKeptValue(sourceIsPeople ? source.map((id: string) => nameOf.get(id) || id) : source) });
       continue;
     }
     const value = prepared === undefined ? undefined : coerceCellValue(rules, prepared);

@@ -221,16 +221,15 @@ export const checkCellValue = (rules: CellValueRules, value: any): { value: any 
 /**
  * A row's cells as they're saved: each value that fits its column, and beside it what doesn't
  * fit, a value kept when the column's type changed or one left in the cell, rather than losing it.
+ * A kept value stays beside one that fits (a multi-select's removed choice, greyed beside its other
+ * tags): the app takes it away itself when the cell is edited.
  */
 export const sanitizeRowCells = (columns: Array<CellValueRules & { id: string }>, rawData: Record<string, any>) => {
   const cells: Record<string, any> = {};
   columns.forEach((column) => {
     const next = column.id in rawData ? coerceCellValue(column, rawData[column.id]) : undefined;
-    if (next !== undefined) {
-      cells[column.id] = next;
-      return;
-    }
-    const kept = normalizeKeptValue(rawData[keptValueKey(column.id)]) ?? normalizeKeptValue(rawData[column.id]);
+    if (next !== undefined) cells[column.id] = next;
+    const kept = normalizeKeptValue(rawData[keptValueKey(column.id)]) ?? (next === undefined ? normalizeKeptValue(rawData[column.id]) : undefined);
     if (kept !== undefined) cells[keptValueKey(column.id)] = kept;
   });
   return cells;

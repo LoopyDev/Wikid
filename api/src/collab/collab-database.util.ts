@@ -1,5 +1,5 @@
 import * as Y from 'yjs';
-import { DatabaseFieldType } from '@prisma/client';
+import type { DatabaseFieldType } from '@prisma/client';
 import { isUuid } from '../utils/uuid.util';
 import { encodeCollabState } from './collab-doc.util';
 
@@ -23,7 +23,21 @@ export type CollabDatabaseState = {
   rows: CollabDatabaseRow[];
 };
 
-const VALID_FIELD_TYPES = new Set(Object.values(DatabaseFieldType));
+// Every field type, checked against Prisma's when compiled (a value import would need the generated
+// client wherever this is loaded, its unit tests too)
+const FIELD_TYPES = {
+  TEXT: true,
+  NUMBER: true,
+  DATE: true,
+  CHECKBOX: true,
+  SELECT: true,
+  MULTI_SELECT: true,
+  URL: true,
+  RELATION: true,
+  LINKED_FROM: true,
+  PERSON: true,
+} satisfies Record<DatabaseFieldType, true>;
+const VALID_FIELD_TYPES = new Set<string>(Object.keys(FIELD_TYPES));
 
 
 const toPlainValue = (value: any): any => {
@@ -58,7 +72,7 @@ const parseField = (id: string, entry: any): CollabDatabaseField | null => {
   const rawType = getEntryValue(entry, 'type');
   const rawOptions = getEntryValue(entry, 'options');
   const name = typeof rawName === 'string' ? rawName.trim() : '';
-  const type = VALID_FIELD_TYPES.has(rawType) ? rawType : DatabaseFieldType.TEXT;
+  const type = (VALID_FIELD_TYPES.has(rawType) ? rawType : 'TEXT') as DatabaseFieldType;
   const options = toPlainValue(rawOptions);
   return {
     id,
@@ -160,9 +174,13 @@ const valuesEqual = (left: any, right: any) => {
   return leftPlain === rightPlain;
 };
 
+// `values`: only these cells changed (the API's `cells`: to set, null to clear), so an edit made
+// meanwhile in the live document to another cell stays; a row the document hasn't got yet goes in
+// whole (`data`). The collab server has a copy (applyRowUpdate).
 export const updateCollabDatabaseRowState = (
   state: Uint8Array,
-  row: { id: string; data?: Record<string, any> | null; pageId?: string | null; createdBy?: string | null }
+  row: { id: string; data?: Record<string, any> | null; pageId?: string | null; createdBy?: string | null },
+  values?: Record<string, unknown> | null
 ) => {
   if (!row?.id) return null;
   const doc = new Y.Doc();
@@ -170,6 +188,18 @@ export const updateCollabDatabaseRowState = (
   const rowsMap = doc.getMap('rows');
   const rowOrder = doc.getArray('rowOrder');
   const storedRow = rowsMap.get(row.id);
+  const storedCells = storedRow instanceof Y.Map ? storedRow.get('data') : null;
+  if (values && storedRow instanceof Y.Map && storedCells instanceof Y.Map) {
+    let changed = false;
+    doc.transact(() => {
+      changed = applyCells(storedCells, values);
+      if (row.pageId && storedRow.get('pageId') !== row.pageId) {
+        storedRow.set('pageId', row.pageId);
+        changed = true;
+      }
+    }, 'db-row-server');
+    return changed ? encodeCollabState(doc) : null;
+  }
   let rowMap: Y.Map<any>;
   if (storedRow instanceof Y.Map) {
     rowMap = storedRow;
@@ -248,6 +278,22 @@ export const updateCollabDatabaseRowState = (
     }
   }, 'db-row-server');
   return encodeCollabState(doc);
+};
+
+// Cells to set, null to clear, into a row's data; whether anything changed
+const applyCells = (data: Y.Map<any>, values: Record<string, unknown>) => {
+  let changed = false;
+  for (const [key, value] of Object.entries(values)) {
+    if (value === null || value === undefined) {
+      if (!data.has(key)) continue;
+      data.delete(key);
+    } else {
+      if (valuesEqual(data.get(key), value)) continue;
+      data.set(key, value);
+    }
+    changed = true;
+  }
+  return changed;
 };
 
 export const deleteCollabDatabaseRowState = (state: Uint8Array, rowId: string) => {
@@ -335,9 +381,12 @@ export const applyCollabFieldDelete = (doc: Y.Doc, fieldId: string) => {
 
 // A column changed through the API with its cells (a type change, or choices renamed or removed):
 // the column and each row's cells in one change, so no one sees the column changed and its cells
-// not yet. values: per row, the cells to set, null to clear. Rows not in the document are left
-// out (it is filled from the database when first opened). The collab server has a copy.
-export type CollabCellChange = { rowId: string; values: Record<string, unknown> };
+// not yet. values: per row, the cells to set, null to clear; was: per cell, what it may hold for the
+// change to apply (what it was worked out from, in any form the database keeps it), so a row whose
+// cell changed here meanwhile (a choice picked while it was renamed) is left as it is now. Rows not
+// in the document are left out (it is filled from the database when first opened). The collab
+// server has a copy.
+export type CollabCellChange = { rowId: string; values: Record<string, unknown>; was?: Record<string, unknown[]> };
 
 export const updateCollabColumnChangeState = (state: Uint8Array, field: CollabFieldChange, cells: CollabCellChange[]) => {
   const doc = new Y.Doc();
@@ -355,16 +404,8 @@ export const applyCollabColumnChange = (doc: Y.Doc, field: CollabFieldChange, ce
       const row = rowsMap.get(cell.rowId);
       const data = row instanceof Y.Map ? row.get('data') : null;
       if (!(data instanceof Y.Map)) continue;
-      for (const [key, value] of Object.entries(cell.values)) {
-        if (value === null || value === undefined) {
-          if (!data.has(key)) continue;
-          data.delete(key);
-        } else {
-          if (valuesEqual(data.get(key), value)) continue;
-          data.set(key, value);
-        }
-        changed = true;
-      }
+      if (cell.was && Object.entries(cell.was).some(([key, forms]) => !forms.some((form) => valuesEqual(data.get(key) ?? null, form ?? null)))) continue;
+      if (applyCells(data, cell.values)) changed = true;
     }
   }, 'db-column-server');
   return changed;

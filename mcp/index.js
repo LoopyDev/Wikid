@@ -596,8 +596,9 @@ tool(
     const { db, fields } = await getDatabase(pageId);
     const row = (db.rows ?? []).find((r) => r.id === rowId);
     if (!row) throw new Error(`No row ${rowId} in this database`);
-    // The API takes the row's cells whole, so the change goes onto what's there
-    await api(`/database-rows/${id(rowId)}`, { method: 'PATCH', body: { data: { ...(row.data ?? {}), ...cellsById(fields, cells) }, strict: true, ...(reason ? { reason } : {}) } });
+    // Only these cells: the server puts them onto the row as it is then, so an edit made meanwhile
+    // to another cell stays
+    await api(`/database-rows/${id(rowId)}`, { method: 'PATCH', body: { cells: cellsById(fields, cells), strict: true, ...(reason ? { reason } : {}) } });
     return `Updated row ${rowId}.`;
   },
 );

@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { Injectable, BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { Prisma, WorkspaceRole, DatabaseFieldType, PageKind, PageVisibility, PageSetupStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -18,6 +18,18 @@ import { POSITION_INCREMENT, COMPLIANCE_RECORD_KEY, DEFAULT_COMPLIANCE_WORKFLOW,
 
 // Databases: reading a database, its fields and rows, row pages, relations between
 // databases with their history, and compliance records.
+// Whether two cell values are the same (a missing one and null alike)
+const sameCell = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+
+// The cells that differ between two versions of a row's data: the new value, or null where it's gone
+const changedCells = (before: Record<string, any>, after: Record<string, any>) => {
+  const changes: Record<string, unknown> = {};
+  for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
+    if (!sameCell(before[key], after[key])) changes[key] = after[key] ?? null;
+  }
+  return changes;
+};
+
 @Injectable()
 export class DatabasesService {
   constructor(
@@ -404,7 +416,8 @@ export class DatabasesService {
     };
   }
 
-  private async sanitizeDatabaseRowData(databaseId: string, rawData: Prisma.InputJsonValue) {
+  // existing: the row's cells before this change, if it has any (see the end)
+  private async sanitizeDatabaseRowData(databaseId: string, rawData: Prisma.InputJsonValue, existing?: Record<string, any> | null) {
     if (!rawData || typeof rawData !== 'object' || Array.isArray(rawData)) return {};
     const data = rawData as Record<string, any>;
     const fields = await this.prisma.databaseField.findMany({
@@ -519,9 +532,14 @@ export class DatabasesService {
         sanitized[key] = next;
       }
     }
-    // A cell given a value no longer needs what was kept from before its column's type changed
+    // A cell given a new value no longer needs what was kept from before (its column's type changed,
+    // or a choice was removed), as editing it in the app does. Not when what's kept changed with it:
+    // a multi-select's removed choice is kept beside its other tags.
     fieldMap.forEach((_field, fieldId) => {
-      if (sanitized[fieldId] !== undefined) delete sanitized[keptValueKey(fieldId)];
+      if (sanitized[fieldId] === undefined) return;
+      const keptKey = keptValueKey(fieldId);
+      const edited = !existing || !sameCell(existing[fieldId], sanitized[fieldId]);
+      if (edited && (!existing || sameCell(existing[keptKey], sanitized[keptKey]))) delete sanitized[keptKey];
     });
     return sanitized;
   }
@@ -780,6 +798,10 @@ export class DatabasesService {
     });
     if (!database) throw new NotFoundException('Database not found');
     await this.access.requirePageAccess(database.pageId, user, { requireWrite: true });
+    // As changeDatabaseColumn: a column Wikid keeps (each row's title, say) keeps its type
+    if (data.type && data.type !== field.type && (await this.isKeptColumn(field.databaseId, id, field.options))) {
+      throw new BadRequestException(`"${field.name}" is kept by Wikid (each row's title, say); its type can't be changed`);
+    }
     const updateData: Prisma.DatabaseFieldUpdateInput = {};
     if (typeof data.name === 'string') updateData.name = data.name.trim();
     const nextType =
@@ -849,7 +871,7 @@ export class DatabasesService {
     if (typeChanged && (type === DatabaseFieldType.LINKED_FROM || field.type === DatabaseFieldType.LINKED_FROM)) {
       throw new BadRequestException('A Linked from column shows the rows linking here; it is made and removed in Wikid');
     }
-    if (typeChanged && (fieldOptions.source || field.id === (await this.databaseSetup.resolveDatabaseTitleFieldId(database.id)))) {
+    if (typeChanged && (await this.isKeptColumn(database.id, field.id, field.options))) {
       throw new BadRequestException(`"${field.name}" is kept by Wikid (each row's title, say); its type can't be changed`);
     }
     if (payload.options !== undefined && (!payload.options || typeof payload.options !== 'object' || Array.isArray(payload.options))) {
@@ -906,7 +928,7 @@ export class DatabasesService {
 
     // The rows locked, read again and changed with the column: only this column's cells change, so
     // an edit to another cell in the meantime stays
-    const { updated, plan } = await this.prisma.$transaction(async (tx) => {
+    const { updated, plan, before } = await this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM "DatabaseRow" WHERE "databaseId" = ${database.id}::uuid FOR UPDATE`;
       const rows = (await tx.databaseRow.findMany({ where: { databaseId: database.id }, orderBy: { position: 'asc' }, select: { id: true, data: true } })).map((row) => ({
         id: row.id,
@@ -914,6 +936,7 @@ export class DatabasesService {
       }));
       const plan = planFor(rows);
       const dataById = new Map(rows.map((row) => [row.id, row.data]));
+      const before = new Map(plan.cells.map((cell) => [cell.rowId, dataById.get(cell.rowId) ?? {}]));
       for (const cell of plan.cells) {
         const data = { ...(dataById.get(cell.rowId) ?? {}) };
         if (cell.value === undefined) delete data[field.id];
@@ -925,19 +948,31 @@ export class DatabasesService {
       // A select's choices from the rows as read now (one may have come in since the preview)
       const finalOptions = typeChanged && isSelect(type) ? ({ ...(sanitized as Record<string, any>), choices: plan.options.choices } as Prisma.InputJsonValue) : sanitized;
       const updated = await tx.databaseField.update({ where: { id }, data: { name, type, options: finalOptions } });
-      return { updated, plan };
+      return { updated, plan, before };
     }, { timeout: 60_000 });
     // Into the live document too, the column and its cells in one change
     await this.collabSync.syncCollabColumnChange(
       { pageId: database.pageId, workspaceId: database.workspaceId },
       updated as { id: string; name: string; type: string; options: Prisma.JsonValue },
-      plan.cells.map((cell) => ({ rowId: cell.rowId, values: { [field.id]: cell.value ?? null, [keptKey]: cell.kept ?? null } }))
+      plan.cells.map((cell) => ({
+        rowId: cell.rowId,
+        values: { [field.id]: cell.value ?? null, [keptKey]: cell.kept ?? null },
+        // Choices renamed or removed: a cell picked meanwhile in the live document is left as picked.
+        // (Not on a type change, whose cells the live document may hold in another form)
+        ...(typeChanged ? {} : { was: { [field.id]: [before.get(cell.rowId)?.[field.id] ?? null, before.get(cell.rowId)?.[keptKey] ?? null] } }),
+      }))
     );
     return { field: updated, changed: plan.cells.length, kept: plan.keptCount };
   }
 
+  // A column Wikid keeps: each row's title, or one it set up (options.source)
+  private async isKeptColumn(databaseId: string, fieldId: string, options: Prisma.JsonValue | null) {
+    const source = options && typeof options === 'object' && !Array.isArray(options) ? (options as Record<string, any>).source : null;
+    return !!source || fieldId === (await this.databaseSetup.resolveDatabaseTitleFieldId(databaseId));
+  }
+
   async deleteDatabaseField(id: string, user?: { userId?: string; userName?: string }) {
-    const field = await this.prisma.databaseField.findUnique({ where: { id }, select: { id: true, databaseId: true } });
+    const field = await this.prisma.databaseField.findUnique({ where: { id }, select: { id: true, databaseId: true, name: true } });
     if (!field) throw new NotFoundException('Field not found');
     const database = await this.prisma.database.findUnique({
       where: { id: field.databaseId },
@@ -945,6 +980,10 @@ export class DatabasesService {
     });
     if (!database) throw new NotFoundException('Database not found');
     await this.access.requirePageAccess(database.pageId, user, { requireWrite: true });
+    // Each row's title: without it, the next column would be made the title (and forced to Text)
+    if (id === (await this.databaseSetup.resolveDatabaseTitleFieldId(field.databaseId))) {
+      throw new BadRequestException(`"${field.name}" is each row's title; it can't be deleted`);
+    }
     const rows = await this.prisma.databaseRow.findMany({ where: { databaseId: field.databaseId }, select: { id: true, data: true } });
     const updates = rows.map((row) => {
       const data = typeof row.data === 'object' && row.data !== null ? { ...(row.data as any) } : {};
@@ -1104,15 +1143,21 @@ export class DatabasesService {
 
   async updateDatabaseRow(
     id: string,
-    data: { data?: Prisma.InputJsonValue; position?: Prisma.Decimal; strict?: boolean; reason?: string },
+    // data: the row's cells, all of them (a cell left out is cleared); cells: only the cells given
+    // change (null clears one), so a change made meanwhile to another cell stays
+    data: { data?: Prisma.InputJsonValue; cells?: Record<string, unknown>; position?: Prisma.Decimal; strict?: boolean; reason?: string },
     user?: { userId?: string; userName?: string },
     // amended: the change is already in the compliance record (a form's amendment)
-    options: { amended?: boolean } = {}
-  ) {
+    options: { amended?: boolean } = {},
+    // How many times a `cells` change found the row changed under it, and started again
+    attempt = 0
+  ): Promise<any> {
+    const given = data;
+    if (data.data !== undefined && data.cells !== undefined) throw new BadRequestException("Give a row's cells as data (all of them) or cells (only those that change), not both");
     const updateData: Prisma.DatabaseRowUncheckedUpdateInput = {};
     const row = await this.prisma.databaseRow.findUnique({
       where: { id },
-      select: { id: true, databaseId: true, pageId: true, data: true },
+      select: { id: true, databaseId: true, pageId: true, data: true, updatedAt: true },
     });
     if (!row) throw new NotFoundException('Row not found');
     const database = await this.prisma.database.findUnique({
@@ -1121,6 +1166,20 @@ export class DatabasesService {
     });
     if (!database) throw new NotFoundException('Database not found');
     await this.access.requirePageAccess(database.pageId, user, { requireWrite: true });
+    const partial = data.data === undefined && !!data.cells && typeof data.cells === 'object' && !Array.isArray(data.cells);
+    if (partial) {
+      const stored: Record<string, any> = row.data && typeof row.data === 'object' && !Array.isArray(row.data) ? (row.data as Record<string, any>) : {};
+      const merged = { ...stored };
+      for (const [key, value] of Object.entries(data.cells as Record<string, unknown>)) {
+        if (value === null || value === undefined) delete merged[key];
+        else merged[key] = value;
+        // A cell changed: what was kept beside it goes, as editing it in the app does
+        if (!sameCell(stored[key], value)) delete merged[keptValueKey(key)];
+      }
+      data = { ...data, data: merged };
+    }
+    // Something done that starting again would do twice (a row page made)
+    let doneOnce = false;
     if (data.strict === true && data.data !== undefined) {
       data = { ...data, data: await this.databaseValues.checkCells(database.id, database.workspaceId, data.data, row.data) };
     }
@@ -1134,11 +1193,15 @@ export class DatabasesService {
     const { field: titleField } = await this.databaseSetup.ensureDatabaseTitleField(row.databaseId);
     const rawData =
       data.data && typeof data.data === 'object' && !Array.isArray(data.data) ? (data.data as Record<string, any>) : null;
-    const hasTitleUpdate = !!(titleField?.id && rawData && Object.prototype.hasOwnProperty.call(rawData, titleField.id));
+    // (With `cells`, only when the title is one of them: the rest of the row is as stored, and the
+    // stored title may be older than the page's)
+    const titleSource = partial ? (data.cells as Record<string, unknown>) : rawData;
+    const hasTitleUpdate = !!(titleField?.id && titleSource && Object.prototype.hasOwnProperty.call(titleSource, titleField.id));
     const titleValue = hasTitleUpdate ? normalizePageTitle(rawData?.[titleField?.id as string]) : '';
     let pageRecord: any = null;
     if (data.data !== undefined) {
-      const sanitized = await this.sanitizeDatabaseRowData(row.databaseId, data.data);
+      const existingCells = row.data && typeof row.data === 'object' && !Array.isArray(row.data) ? (row.data as Record<string, any>) : null;
+      const sanitized = await this.sanitizeDatabaseRowData(row.databaseId, data.data, existingCells);
       const fields = await this.prisma.databaseField.findMany({
         where: { databaseId: row.databaseId },
         select: { id: true, name: true, type: true, options: true },
@@ -1175,6 +1238,7 @@ export class DatabasesService {
       if (!row.pageId) {
         pageRecord = await this.createDatabaseRowPage(databasePage, titleValue, user);
         updateData.pageId = pageRecord.id;
+        doneOnce = true;
       }
       const pageId = row.pageId || pageRecord?.id || null;
       if (pageId) {
@@ -1192,13 +1256,27 @@ export class DatabasesService {
         }
       }
     }
-    const updatedRow = await this.prisma.databaseRow.update({
-      where: { id },
-      data: updateData,
-    });
+    // With `cells`, only onto the row as it was read: changed since (another cell, say), it starts
+    // again from the row as it is now. (Not a compliance database's: its amendment is recorded by now)
+    const checked = partial && !database.complianceMode;
+    if (checked) {
+      const written = await this.prisma.databaseRow.updateMany({ where: { id, updatedAt: row.updatedAt }, data: updateData as Prisma.DatabaseRowUncheckedUpdateManyInput });
+      if (!written.count) {
+        if (!doneOnce && attempt < 3) return this.updateDatabaseRow(id, given, user, options, attempt + 1);
+        throw new ConflictException('The row changed while this was being saved; try again');
+      }
+    }
+    const updatedRow = checked
+      ? await this.prisma.databaseRow.findUniqueOrThrow({ where: { id } })
+      : await this.prisma.databaseRow.update({
+          where: { id },
+          data: updateData,
+        });
     if (!database.complianceMode && (updateData.data !== undefined || updateData.pageId !== undefined)) {
-      await this.collabSync.updateCollabDatabaseRowForPage({ pageId: database.pageId, workspaceId: database.workspaceId }, updatedRow);
-      await this.collabSync.pushCollabDatabaseRowUpdate({ pageId: database.pageId, workspaceId: database.workspaceId }, updatedRow);
+      // Only the cells given changed: just those into the live document, which may have newer ones
+      const values = partial ? changedCells(previousData ?? {}, (updatedRow.data as Record<string, any>) ?? {}) : null;
+      await this.collabSync.updateCollabDatabaseRowForPage({ pageId: database.pageId, workspaceId: database.workspaceId }, updatedRow, values);
+      await this.collabSync.pushCollabDatabaseRowUpdate({ pageId: database.pageId, workspaceId: database.workspaceId }, updatedRow, values);
     }
     if (fieldsForHistory && updateData.data !== undefined) {
       await this.logRelationHistoryChanges({
