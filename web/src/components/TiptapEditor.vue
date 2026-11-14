@@ -304,12 +304,28 @@ const removeLink = () => {
 const othersCanReadPage = () => getResolvedPage(props.pageId)?.visibility !== 'PRIVATE';
 const isPrivatePage = (pageId) => getResolvedPage(pageId)?.visibility === 'PRIVATE';
 // The locks on links to private pages, worked out again when the pages change (one made private or
-// shared, or the list loaded after the page): they're otherwise only redone as the text changes
+// shared, or the list loaded after the page): they're otherwise only redone as the text changes.
+// Only when which linked pages are private has changed: the list changes often (anyone's edit), and
+// redrawing the page then could put the cursor back where it was as the browser moved it (End)
+let privateLinksSeen = '';
+const privateLinksNow = (ed) => {
+  const ids = new Set();
+  ed.state.doc.descendants((node) => {
+    const link = node.isText && node.marks.find((mark) => mark.type.name === 'link');
+    const target = link && pageLinkTarget(link.attrs.href);
+    if (target && isPrivatePage(target.pageId)) ids.add(target.pageId);
+  });
+  return `${othersCanReadPage()}|${[...ids].sort().join(',')}`;
+};
 watch(
   () => workspace.pages,
   () => {
     const ed = editor.value;
-    if (ed && !ed.isDestroyed) ed.view.dispatch(ed.state.tr.setMeta(privateLinksKey, true).setMeta('addToHistory', false));
+    if (!ed || ed.isDestroyed) return;
+    const now = privateLinksNow(ed);
+    if (now === privateLinksSeen) return;
+    privateLinksSeen = now;
+    ed.view.dispatch(ed.state.tr.setMeta(privateLinksKey, true).setMeta('addToHistory', false));
   }
 );
 // The pages a link can go to, for the link editor's search
