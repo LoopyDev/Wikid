@@ -126,7 +126,17 @@ export default defineComponent({
           const treeActionLabel = subtreeFullyExpanded ? 'Collapse all' : 'Expand all';
       const isDragging = ref(false);
       const isDragOver = ref(false);
-      const dropMode = ref('none'); // 'into' or 'above'
+      const dropMode = ref('none'); // 'above', 'into' or 'below'
+      // Where on the row a drop lands: its top quarter above it, its bottom quarter below it (how a
+      // page goes last: it could only go above a page, or into it), the rest into it. Below an open
+      // page with pages showing in it is into it (its first page is what's below).
+      const dropModeAt = (el, clientY) => {
+        const rect = el.getBoundingClientRect();
+        const ratio = rect.height ? (clientY - rect.top) / rect.height : 0.5;
+        if (ratio <= 0.25) return 'above';
+        if (ratio >= 0.75 && !(props.isExpanded(page.id) && childrenOf(page.id).length)) return 'below';
+        return 'into';
+      };
           const handleTreeAction = (event) => {
             event.stopPropagation();
             props.toggleTree(page, props.pages, subtreeFullyExpanded);
@@ -159,11 +169,7 @@ export default defineComponent({
         if (event.currentTarget) {
           event.currentTarget.classList.add('drag-over');
           event.currentTarget.setAttribute('data-dragover', 'true');
-          const rect = event.currentTarget.getBoundingClientRect();
-          const offsetY = event.clientY - rect.top;
-          const ratio = rect.height ? offsetY / rect.height : 0.5;
-          // top edge = above, everything else = into (prevents bottom edge misclassifying as above)
-          const nextMode = ratio <= 0.2 ? 'above' : 'into';
+          const nextMode = dropModeAt(event.currentTarget, event.clientY);
           dropMode.value = nextMode;
           event.currentTarget.setAttribute('data-drop-mode', nextMode);
         }
@@ -191,10 +197,7 @@ export default defineComponent({
         // Recompute mode on drop in case dragleave fired before drop
         const el = event.currentTarget;
         if (el) {
-          const rect = el.getBoundingClientRect();
-          const offsetY = event.clientY - rect.top;
-          const ratio = rect.height ? offsetY / rect.height : 0.5;
-          const nextMode = ratio <= 0.2 ? 'above' : 'into';
+          const nextMode = dropModeAt(el, event.clientY);
           dropMode.value = nextMode;
           el.setAttribute('data-drop-mode', nextMode);
         }
@@ -205,7 +208,7 @@ export default defineComponent({
             draggedId: data.id,
             targetId: page.id,
             targetParentId: page.parentId ?? null,
-            dropMode: dropMode.value === 'into' ? 'into' : 'above',
+            dropMode: ['into', 'below'].includes(dropMode.value) ? dropMode.value : 'above',
           });
         }
         } catch {

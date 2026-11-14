@@ -76,6 +76,48 @@ test.describe('sidebar', () => {
     await expect(section('public').locator('.sidebar__item', { hasText: title })).toBeVisible();
   });
 
+  test('a page dropped on the lower edge of the last page goes after it, at the bottom', async ({ alice: page, workspaceId }) => {
+    const t = { a: unique('A page'), b: unique('B page'), c: unique('C page'), parent: unique('Parent'), x: unique('X child'), y: unique('Y child') };
+    const ids: Record<string, string> = {};
+    for (const key of ['a', 'b', 'c', 'parent'] as const) ids[key] = await createPage(page, workspaceId, { title: t[key] });
+    for (const key of ['x', 'y'] as const) ids[key] = await createPage(page, workspaceId, { title: t[key], parentId: ids.parent });
+    await openPage(page, ids.a);
+    // The browser's drag events, sent ourselves (see above), dropped `at` (0 top to 1 bottom) down the row
+    const dropOn = async (dragged: string, target: string, at: number) => {
+      const targetRow = await sidebarItem(page, target).elementHandle();
+      await sidebarItem(page, dragged).evaluate(
+        (row, [targetEl, at]) => {
+          const data = new DataTransfer();
+          const box = (targetEl as Element).getBoundingClientRect();
+          const point = { clientX: box.left + 40, clientY: box.top + box.height * (at as number), bubbles: true, cancelable: true, dataTransfer: data };
+          row.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: data }));
+          (targetEl as Element).dispatchEvent(new DragEvent('dragover', point));
+          (targetEl as Element).dispatchEvent(new DragEvent('drop', point));
+          row.dispatchEvent(new DragEvent('dragend', { bubbles: true, dataTransfer: data }));
+        },
+        [targetRow, at] as const
+      );
+    };
+    const order = async (parentId: string | null) =>
+      ((await (await page.request.get(`/api/pages?workspaceId=${workspaceId}`)).json()) as any[])
+        .filter((p) => (p.parentId ?? null) === parentId && !p.isDeleted)
+        .sort((x, y) => Number(x.position) - Number(y.position))
+        .map((p) => p.title);
+
+    // To the very bottom: under the last page (it could only go above a page, or into it)
+    await dropOn(t.a, t.parent, 0.92);
+    await expect.poll(() => order(null)).toEqual([t.b, t.c, t.parent, t.a]);
+    // Under the last page inside a page: its last page
+    await sidebarItem(page, t.parent).hover();
+    await sidebarItem(page, t.parent).locator('.page-chevron').click();
+    await expect(sidebarItem(page, t.y)).toBeVisible();
+    await dropOn(t.b, t.y, 0.92);
+    await expect.poll(() => order(ids.parent)).toEqual([t.x, t.y, t.b]);
+    // The middle of a row is still "into" it
+    await dropOn(t.c, t.x, 0.5);
+    await expect.poll(() => order(ids.x)).toEqual([t.c]);
+  });
+
   test('creates a page, renames it and adds a page inside it', async ({ alice: page, workspaceId }) => {
     await openPage(page, await createPage(page, workspaceId));
     await sidebar(page).getByRole('button', { name: 'Public +' }).getByRole('button', { name: '+' }).click();
