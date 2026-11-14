@@ -1124,12 +1124,43 @@ watch(
   { immediate: true }
 );
 
+// Made read-only while being typed in (someone moved the page to the Bin, say): once it can be
+// edited again (restored), the cursor goes back, so typing on goes into the page rather than
+// nowhere. Where it was, as the editor has kept it through others' changes meanwhile. Not if the
+// person has gone somewhere else meanwhile: clicked, scrolled or touched anything but the Bin's
+// notice (whose Restore button is how they'd bring it back).
+let refocusWhenEditable = null; // stops listening for the person going elsewhere
+const stopRefocus = () => {
+  refocusWhenEditable?.();
+  refocusWhenEditable = null;
+};
 watch(
   () => props.readonly,
   (next) => {
-    editor?.value?.setEditable?.(!next);
+    const ed = editor?.value;
+    if (!ed) return;
+    const active = document.activeElement;
+    const typingHere = ed.isFocused || (active && active !== document.body && wrapperRef.value?.contains(active));
+    if (next && typingHere && !refocusWhenEditable) {
+      const wentElsewhere = (event) => {
+        if (!event.target?.closest?.('.page-deleted-notice')) stopRefocus();
+      };
+      const events = ['pointerdown', 'wheel', 'touchstart'];
+      events.forEach((type) => document.addEventListener(type, wentElsewhere, { capture: true, passive: true }));
+      refocusWhenEditable = () => events.forEach((type) => document.removeEventListener(type, wentElsewhere, { capture: true }));
+    }
+    ed.setEditable?.(!next);
+    if (next || !refocusWhenEditable) return;
+    stopRefocus();
+    // Once the screen has caught up (the Bin notice's Restore button, focused, gone with it)
+    nextTick(() => {
+      const now = document.activeElement;
+      if (ed.isDestroyed || (now && now !== document.body)) return;
+      ed.commands.focus();
+    });
   }
 );
+onBeforeUnmount(stopRefocus);
 
 const sameContent = (a, b) => JSON.stringify(a || []) === JSON.stringify(b || []);
 
