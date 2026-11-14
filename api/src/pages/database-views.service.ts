@@ -63,6 +63,7 @@ export class DatabaseViewsService {
     });
     const fieldIds = new Set(fields.map((f) => f.id));
     const urlFieldIds = new Set(fields.filter((f) => f.type === 'URL').map((f) => f.id));
+    const selectFieldIds = new Set(fields.filter((f) => f.type === 'SELECT' || f.type === 'MULTI_SELECT').map((f) => f.id));
     const database = await this.prisma.database.findUnique({ where: { id: databaseId }, select: { pageId: true, workspaceId: true } });
     if (database) {
       const doc = await this.prisma.collabDoc.findUnique({
@@ -74,17 +75,18 @@ export class DatabaseViewsService {
           databaseStateFromYjsState(Buffer.from(doc.state)).fields.forEach((field) => {
             fieldIds.add(field.id);
             if (field.type === 'URL') urlFieldIds.add(field.id);
+            if (field.type === 'SELECT' || field.type === 'MULTI_SELECT') selectFieldIds.add(field.id);
           });
         } catch {
           // Saved columns only
         }
       }
     }
-    return { fieldIds, urlFieldIds };
+    return { fieldIds, urlFieldIds, selectFieldIds };
   }
 
   private async sanitizeDatabaseViewConfig(databaseId: string, config: unknown) {
-    const { fieldIds, urlFieldIds } = await this.databaseFieldIds(databaseId);
+    const { fieldIds, urlFieldIds, selectFieldIds } = await this.databaseFieldIds(databaseId);
     const source = config && typeof config === 'object' && !Array.isArray(config) ? (config as Record<string, any>) : {};
 
     const rawFilters = source.filters && typeof source.filters === 'object' ? source.filters : {};
@@ -118,6 +120,8 @@ export class DatabaseViewsService {
 
     const groupFieldId = fieldIds.has(source.groupFieldId) ? (source.groupFieldId as string) : null;
     const cardFieldId = fieldIds.has(source.cardFieldId) ? (source.cardFieldId as string) : null;
+    // A board's or gallery's cards in the colour of their value in this (select) column
+    const cardColorFieldId = selectFieldIds.has(source.cardColorFieldId) ? (source.cardColorFieldId as string) : null;
     // Gallery cards: which columns they show (null: every column the view shows), and how many of
     // a cover's linked rows before "Show more"
     const cardFieldIds = Array.isArray(source.cardFieldIds)
@@ -136,6 +140,7 @@ export class DatabaseViewsService {
       hiddenFieldIds,
       groupFieldId,
       cardFieldId,
+      cardColorFieldId,
       cardFieldIds,
       coverMaxItems,
       showColors,

@@ -152,6 +152,7 @@ export function useViewRows({ fields, fieldById, tableRows, activeSavedView, isB
     const columns = choices.map((choice) => ({
       key: choice.value,
       label: getChoiceLabel(field, choice.value) || choice.value,
+      color: choice.color || null,
       rows: groups.get(choice.value) || [],
     }));
     columns.push({ key: '__none__', label: 'No value', rows: noneRows });

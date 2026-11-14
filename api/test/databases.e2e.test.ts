@@ -832,3 +832,14 @@ describe('changing a column, and its cells with it', () => {
     expect(refused.body.message).toMatch(/compliance/i);
   });
 });
+
+describe('view settings', () => {
+  it("colours a board's or gallery's cards only by a select or multi-select column", async () => {
+    const { pageId, titleFieldId } = await createDatabase();
+    const priority = await addField(pageId, { name: 'Priority', type: 'SELECT', options: { choices: [{ value: 'High', color: '#f00' }] } });
+    const made = async (cardColorFieldId: string) =>
+      (await alice.post(`/pages/${pageId}/database/views`, { name: 'Board', type: 'BOARD', config: { cardColorFieldId } })).body.config.cardColorFieldId;
+    expect(await made(priority.id)).toBe(priority.id);
+    expect(await made(titleFieldId)).toBeNull();
+  });
+});

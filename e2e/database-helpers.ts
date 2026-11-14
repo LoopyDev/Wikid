@@ -55,3 +55,9 @@ export async function openViewOptions(page: Page) {
   const menu = main(page).locator('.db-view-options');
   if (!(await menu.evaluate((el) => (el as HTMLDetailsElement).open))) await menu.locator('summary').click();
 }
+
+/** Closes a gallery's "View options" menu, which covers the first cards while it's open. */
+export async function closeViewOptions(page: Page) {
+  const menu = main(page).locator('.db-view-options');
+  if (await menu.evaluate((el) => (el as HTMLDetailsElement).open)) await menu.locator('summary').click();
+}

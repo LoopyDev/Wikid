@@ -473,6 +473,8 @@ export function useCellRenderer({ choiceColorForValue, getChoiceLabel, isReadonl
             class: 'db-cell-input',
             value: valueForField(row, field),
             disabled: cellDisabled,
+            // In its choice's colour, as a multi-select's pills are
+            style: multiSelectPillStyle(choiceColorForValue(field, valueForField(row, field))),
             onFocus: (event) => markCellFocus(row.id, field.id, event.target),
             onBlur: () => markCellBlur(),
             onChange: (event) => updateCell(row, field, event.target.value),
