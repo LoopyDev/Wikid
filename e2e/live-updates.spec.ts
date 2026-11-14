@@ -65,6 +65,46 @@ test.describe('live updates', () => {
     expect((await alice.request.get(`/api/pages/${id}`)).status()).toBe(200);
   });
 
+  for (const restoredBy of ['the person typing', 'someone else'] as const) {
+    test(`what's typed after a page is binned and restored (by ${restoredBy}) reaches the server`, async ({ alice, bob, workspaceId }) => {
+      const id = await createPage(alice, workspaceId, { title: unique('Typed through') });
+      await openPage(alice, id);
+      await editor(alice).click();
+      await alice.keyboard.type('Before the Bin', { delay: 20 });
+      const saved = async () => (await (await bob.request.get(`/api/pages/${id}/markdown`)).json()).markdown ?? '';
+      await expect.poll(saved, { timeout: 15_000 }).toContain('Before the Bin');
+
+      expect((await bob.request.delete(`/api/pages/${id}`)).status()).toBe(200);
+      await expect(deletedNotice(alice)).toBeVisible();
+      if (restoredBy === 'someone else') expect((await bob.request.patch(`/api/pages/${id}/restore`)).status()).toBe(200);
+      else await deletedNotice(alice).getByRole('button', { name: 'Restore' }).click();
+      await expect(deletedNotice(alice)).toHaveCount(0);
+      await expect.poll(() => isEditable(alice)).toBe(true);
+
+      // Straight on, without clicking back into the page: the cursor is back where it was
+      await expect(editor(alice)).toBeFocused();
+      await alice.keyboard.type(' and after it came back', { delay: 20 });
+      await expect(editor(alice)).toContainText('Before the Bin and after it came back');
+      await expect.poll(saved, { timeout: 15_000 }).toContain('Before the Bin and after it came back');
+    });
+  }
+
+  test("doesn't take the cursor back to a restored page if you've gone elsewhere meanwhile", async ({ alice, bob, workspaceId }) => {
+    const id = await createPage(alice, workspaceId, { title: unique('Left alone') });
+    await openPage(alice, id);
+    await editor(alice).click();
+    await alice.keyboard.type('Typing', { delay: 20 });
+    expect((await bob.request.delete(`/api/pages/${id}`)).status()).toBe(200);
+    await expect(deletedNotice(alice)).toBeVisible();
+    // A click on nothing in particular (reading, say): the page keeps nothing focused
+    await main(alice).click({ position: { x: 3, y: 3 } });
+    await expect(editor(alice)).not.toBeFocused();
+    expect((await bob.request.patch(`/api/pages/${id}/restore`)).status()).toBe(200);
+    await expect.poll(() => isEditable(alice)).toBe(true);
+    await alice.waitForTimeout(500);
+    await expect(editor(alice)).not.toBeFocused();
+  });
+
   test('names the deleted parent page, and Close opens another page', async ({ alice, bob, workspaceId }) => {
     const otherTitle = unique('Other');
     const otherId = await createPage(alice, workspaceId, { title: otherTitle });
