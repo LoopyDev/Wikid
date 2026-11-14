@@ -333,6 +333,9 @@ test.describe('nested pages in the sidebar', () => {
     await dragSidebarEdgeTo(page, 220);
     // Each level a fixed step in from the last ran the deepest titles out of room
     expect((await titleBox(page, titles[7])).width).toBeGreaterThan(80);
+    // The lines still read as joins (├─), not lines touching the icons
+    const arms = await sidebar(page).locator('.tree-line--tee, .tree-line--elbow').evaluateAll((els) => els.map((el) => el.getBoundingClientRect().width));
+    expect(Math.min(...arms)).toBeGreaterThanOrEqual(5);
     const narrow = await levelStep(page, titles);
     await dragSidebarEdgeTo(page, 520);
     const wide = await levelStep(page, titles);
@@ -353,6 +356,19 @@ test.describe('nested pages in the sidebar', () => {
     // Level 3, in Level 2: Level 1's line passes it on the way to the sister
     expect(await lines(titles[2])).toEqual(['through', 'elbow']);
     expect(await lines(titles[3])).toEqual(['through', 'none', 'elbow']);
+
+    // An open page with nothing inside: "No pages inside" joins its line, in line with it (it was a
+    // pixel off, as that row had no border)
+    await sidebarItem(page, sister).hover();
+    await sidebarItem(page, sister).locator('.page-chevron').click();
+    const empty = sidebar(page).locator('.page-empty');
+    await expect(empty).toBeVisible();
+    const stem = (await sidebarItem(page, sister).locator('.tree-line--stem').boundingBox())!;
+    const join = (await empty.locator('.tree-line--elbow').boundingBox())!;
+    expect(Math.abs(stem.x - join.x)).toBeLessThan(0.5);
+    // ...and its words start clear of the join's arm
+    const words = await empty.evaluate((el) => el.getBoundingClientRect().left + parseFloat(getComputedStyle(el).paddingLeft));
+    expect(words).toBeGreaterThan(join.x + join.width);
   });
 
   test("the lines can be turned off in Settings, and stay off for the account", async ({ browser }) => {
