@@ -18,6 +18,8 @@ import Typography from '@tiptap/extension-typography';
 import { Markdown } from '@tiptap/markdown';
 import { LinkEditorExtension } from './linkEditor';
 import PageMention from './pageMention';
+import { MarkdownLinks } from './markdownLinks';
+import { inLinkAddress, inUnclosedCode, textBefore } from './typingContext';
 // The marked version @tiptap/markdown is built for (18 trims the blank lines it reads as empty paragraphs)
 import { Marked } from 'marked-tiptap';
 import { all, createLowlight } from 'lowlight';
@@ -72,22 +74,22 @@ lowlight.register('lua', lua);
  * The page editor's extensions.
  * - collab: { document, provider, user } for live editing (provider null until it's ready), or null.
  * - isCollabEnabled (ref), isSyncedLocked, hasWorkspaceSyncedReference: for block ids and synced blocks.
- * - pageLinks, pageMentions, databaseViews, slashCommands, links: the options for those extensions.
+ * - pageLinks, pageMentions, databaseViews, slashCommands, links, markdownLinks: the options for those extensions.
  * - getPlaceholder: the page's own placeholder text, if any.
  * - lastTextInputAt, lastTextInputInfo: when and what was last typed (for the selection guard).
  * - lastPointerDownAt: when the editor was last clicked (a cursor move then is meant).
  * - dragBlock(event, { pos, node }): starts dragging a block, as its handle does (for images).
  */
-// Typography rules don't apply while typing inline code: after a ` that hasn't been closed yet on the
-// line, until the closing ` makes it code (in code already, Tiptap skips them)
+// Typography rules don't apply while typing inline code (after a ` that hasn't been closed yet on
+// the line, until the closing ` makes it code; in code already, Tiptap skips them), or a Markdown
+// link's address ("[spec](example.com/rfc--draft)": "--" made it "—", and the link went nowhere)
 const outsideInlineCode = (rule) =>
   new InputRule({
     find: rule.find,
     undoable: rule.undoable,
     handler: (props) => {
-      const $from = props.state.doc.resolve(props.range.from);
-      const before = $from.parent.textBetween(0, $from.parentOffset, undefined, '\ufffc');
-      if ((before.match(/`/g) || []).length % 2) return null;
+      const before = textBefore(props.state.doc.resolve(props.range.from));
+      if (inUnclosedCode(before) || inLinkAddress(before)) return null;
       return rule.handler(props);
     },
   });
@@ -102,6 +104,7 @@ export function createEditorExtensions({
   databaseViews,
   slashCommands,
   links,
+  markdownLinks,
   getPlaceholder,
   lastTextInputAt,
   lastTextInputInfo,
@@ -228,6 +231,7 @@ export function createEditorExtensions({
       PageLink.configure(pageLinks),
       PageMention.configure(pageMentions),
       LinkEditorExtension.configure(links),
+      MarkdownLinks.configure(markdownLinks),
       DatabaseView.configure(databaseViews),
       DatabaseForm.configure({
         listDatabasePages: databaseViews.listDatabasePages,

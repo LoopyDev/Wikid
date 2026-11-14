@@ -1,11 +1,11 @@
 import { InputRule, Node, mergeAttributes } from '@tiptap/core';
 import { PluginKey } from 'prosemirror-state';
 import Suggestion from '@tiptap/suggestion';
-import { VueNodeViewRenderer, VueRenderer } from '@tiptap/vue-3';
-import tippy from 'tippy.js';
+import { VueNodeViewRenderer } from '@tiptap/vue-3';
 import PageMentionView from './PageMentionView.vue';
 import PageMentionList from './PageMentionList.vue';
 import { mentionLabel } from './pageMentionLabel';
+import { matchingPages, suggestionPopup } from './pageSuggestions';
 
 // Page mentions: a page named in a line of text, shown with its icon and title as they are now
 // (PageMentionView.vue). It holds only the page's id: the title is looked up for whoever reads it,
@@ -15,16 +15,6 @@ import { mentionLabel } from './pageMentionLabel';
 //
 // Options: resolvePage(id) gives the page ({ title, icon, isDeleted }) if this person can see it,
 // listPages() the pages one can be made of, openPage(id) opens one.
-
-const MAX_RESULTS = 8;
-
-
-const matchingPages = (options, query) => {
-  const q = query.trim().toLowerCase();
-  return (options.listPages?.() || [])
-    .filter((page) => !q || (page.title || 'Untitled page').toLowerCase().includes(q))
-    .slice(0, MAX_RESULTS);
-};
 
 // The list under the "@" or "[[" while a page is being searched for
 const mentionSuggestion = (extension, char, key) =>
@@ -36,7 +26,7 @@ const mentionSuggestion = (extension, char, key) =>
     allowSpaces: true,
     // Not in code, or in the middle of a word (an email address has an "@")
     allowedPrefixes: [' ', '(', ' '],
-    items: ({ query }) => matchingPages(extension.options, query),
+    items: ({ query }) => matchingPages(extension.options.listPages, query),
     command: ({ editor, range, props: page }) => {
       editor
         .chain()
@@ -50,49 +40,11 @@ const mentionSuggestion = (extension, char, key) =>
       // A search with spaces in it ("Onboarding guide") only while it still matches a page: in
       // "meet @ 5pm in the hall" the list goes once nothing does
       const query = state.doc.textBetween(range.from, range.to, ' ').slice(char.length);
-      return !/\s/.test(query) || matchingPages(extension.options, query).length > 0;
+      // ("[[Plan](/" is a Markdown link being typed, not a mention)
+      if (query.includes('](')) return false;
+      return !/\s/.test(query) || matchingPages(extension.options.listPages, query).length > 0;
     },
-    render: () => {
-      let component;
-      let popup;
-      // Escape: the list goes, and the keys are the page's again (Enter a new line, not a page)
-      let dismissed = false;
-      return {
-        onStart: (props) => {
-          dismissed = false;
-          component = new VueRenderer(PageMentionList, { editor: props.editor, props });
-          if (!props.clientRect) return;
-          popup = tippy('body', {
-            getReferenceClientRect: props.clientRect,
-            appendTo: () => document.body,
-            content: component.element,
-            showOnCreate: true,
-            interactive: true,
-            trigger: 'manual',
-            placement: 'bottom-start',
-          });
-        },
-        onUpdate: (props) => {
-          component?.updateProps(props);
-          if (props.clientRect) popup?.[0]?.setProps({ getReferenceClientRect: props.clientRect });
-        },
-        onKeyDown: (props) => {
-          if (dismissed) return false;
-          if (props.event.key === 'Escape') {
-            dismissed = true;
-            popup?.[0]?.hide();
-            return true;
-          }
-          return component?.ref?.onKeyDown(props) ?? false;
-        },
-        onExit: () => {
-          popup?.[0]?.destroy();
-          component?.destroy();
-          popup = null;
-          component = null;
-        },
-      };
-    },
+    render: suggestionPopup(PageMentionList),
   });
 
 export default Node.create({
