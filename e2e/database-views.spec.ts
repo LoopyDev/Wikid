@@ -261,6 +261,26 @@ test.describe('database views', () => {
     await expect(cells).toHaveCount(4);
     await expect(main(page).locator('.db-gallery__card').first().locator('.db-gallery__cover-more')).toHaveText('Show 1 more');
   });
+  test("a view sorted by a select follows its choices' order, as listed, not their names", async ({ alice: page, workspaceId }) => {
+    const id = await createPage(page, workspaceId, { kind: 'DATABASE', title: unique('Ranked') });
+    const db = await (await page.request.get(`/api/pages/${id}/database`)).json();
+    const name = db.fields.find((f: any) => f.name === 'Name').id;
+    const priority = (await (await page.request.post(`/api/pages/${id}/database/fields`, { data: { name: 'Priority', type: 'SELECT', options: { choices: ['High', 'Medium', 'Low'] } } })).json()).id;
+    for (const [title, value] of [['Tidy', 'Low'], ['Fix', 'High'], ['Plan', 'Medium']]) {
+      await page.request.post(`/api/pages/${id}/database/rows`, { data: { data: { [name]: title, [priority]: value } } });
+    }
+    const config = { sorts: [{ fieldId: priority, direction: 'asc' }] };
+    for (const [view, type] of [['Lines', 'LIST'], ['Lanes', 'BOARD']]) {
+      expect((await page.request.post(`/api/pages/${id}/database/views`, { data: { name: view, type, config } })).status()).toBe(201);
+    }
+    await page.goto(`/doc/${id}`);
+    await main(page).getByRole('button', { name: 'Lines' }).click();
+    await expect(main(page).locator('.db-list__name')).toHaveText(['Fix', 'Plan', 'Tidy']);
+    // A board's cards in it too
+    await main(page).getByRole('button', { name: 'Lanes' }).click();
+    await expect(main(page).locator('.db-board__card-title')).toHaveText(['Fix', 'Plan', 'Tidy']);
+  });
+
   test('gallery, list and board views show rows in the sort chosen, and the filter box narrows them', async ({ alice: page, workspaceId }) => {
     await openPage(page, await createPage(page, workspaceId));
     const id = await newDatabaseFromSidebar(page, unique('Fruit'));

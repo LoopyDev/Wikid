@@ -23,7 +23,7 @@ import { ADD_COLUMN_ID, ADD_COLUMN_LABEL, ADD_COLUMN_SIZE, ASSET_TAG_COLUMN_SIZE
 import { AUDIT_VIEW_ID, DEFAULT_INITIAL_STATUS, GOVERNANCE_FILTER_ID, auditStatusOptions, getAuditStatusClass, getComplianceRecordId } from '../utils/database/compliance';
 import { fieldTypeIcons, fieldTypes, getFieldSource, getLinkedFromConfig, getRelationConfig, isAssetTagField, isLinkedFromField, isFieldDeleteLocked, isFieldOptionsLocked, isFieldReadOnly, isFieldTypeLocked, isLastEditedField, isMembersField, isPageField, isPeopleField, isPersonField, isCreatedByField, CREATED_BY_OPTIONS, isRelationField, isSelectField, normalizeFieldOptions } from '../utils/database/fieldOptions';
 import { DEFAULT_FORM_ICON, buildFormField, conditionValues, normalizeFormIcon } from '../utils/database/forms';
-import { OPERATOR_LABELS, operatorNeedsValue, operatorsForFieldType, sortByType } from '../utils/database/views';
+import { OPERATOR_LABELS, choicePlaces, compareChoices, operatorNeedsValue, operatorsForFieldType, sortByType } from '../utils/database/views';
 import { colorFromId } from '../utils/presenceColor';
 import { useCellPresence } from '../composables/useCellPresence';
 import { useDatabaseCollab } from '../composables/useDatabaseCollab';
@@ -2108,12 +2108,22 @@ const columns = computed(() => {
     minSize: ROW_ID_COLUMN_MIN_SIZE,
     maxSize: COLUMN_MAX_SIZE,
   };
+  // A select (not a members column) sorts by its stored values in its choices' order, the places
+  // looked up once a column
+  const choiceSort = (field) => {
+    const places = choicePlaces(getFieldChoices(field));
+    const values = (row) => (field.type === 'SELECT' ? [valueForField(row.original, field)] : getMultiSelectValues(row.original, field));
+    return (rowA, rowB) => compareChoices(places, values(rowA), values(rowB));
+  };
   const baseColumns = fields.value.map((field, index) => ({
     id: field.id,
     accessorFn: (row) => displayValueForField(row, field),
     header: () => field.name || 'Field',
     cell: ({ row }) => h(DatabaseCell, { row: row.original, field }),
-    sortingFn: (rowA, rowB, columnId) => sortByType(field.type, rowA.getValue(columnId), rowB.getValue(columnId)),
+    sortingFn:
+      isSelectField(field) && !isPeopleField(field)
+        ? choiceSort(field)
+        : (rowA, rowB, columnId) => sortByType(field.type, rowA.getValue(columnId), rowB.getValue(columnId)),
     size: COLUMN_DEFAULT_SIZE,
     minSize: index === 0 ? FIRST_COLUMN_MIN_SIZE : COLUMN_MIN_SIZE,
     maxSize: COLUMN_MAX_SIZE,
