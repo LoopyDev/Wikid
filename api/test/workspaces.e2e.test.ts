@@ -96,21 +96,79 @@ describe('listing workspaces', () => {
 });
 
 describe('workspace members', () => {
-  it('adds members by email, in any case, and lists them', async () => {
-    const id = await createWorkspace(alice);
-    const added = await alice.post(`/workspaces/${id}/members`, { email: ' Bob@Wikid.Local ', role: 'VIEWER' });
-    expect(added.status).toBe(201);
-    expect(added.body).toMatchObject({ userId: USERS.bob.id, workspaceId: id, role: 'VIEWER' });
+  it('invites people by email, in any case: members once they accept, and listed then', async () => {
+    const name = unique('Invited to');
+    const id = await createWorkspace(alice, name);
+    const invited = await alice.post(`/workspaces/${id}/members`, { email: ' Bob@Wikid.Local ', role: 'VIEWER' });
+    expect(invited.status).toBe(201);
+    expect(invited.body.invitation).toMatchObject({ userId: USERS.bob.id, workspaceId: id, role: 'VIEWER' });
+    // Not a member yet: not in the list, and the workspace isn't his to open
+    expect(await memberIds(alice, id)).toEqual([[USERS.alice.email, 'OWNER']]);
+    expect((await bob.get(`/workspaces/${id}/members`)).status).toBe(403);
+    // Waiting, for the owners to see
+    const pending = await alice.get(`/workspaces/${id}/invitations`);
+    expect(pending.status).toBe(200);
+    expect(pending.body.map((i: any) => [i.user.email, i.role])).toEqual([[USERS.bob.email, 'VIEWER']]);
+
+    // Bob's to accept or decline: which workspace, as what, and from whom
+    const mine = (await bob.get('/invitations')).body.find((i: any) => i.workspace.id === id);
+    expect(mine).toMatchObject({ role: 'VIEWER', workspace: { id, name }, invitedBy: { displayName: USERS.alice.name } });
+    const accepted = await bob.post(`/invitations/${mine.id}/accept`);
+    expect(accepted.status).toBe(201);
+    expect(accepted.body).toMatchObject({ userId: USERS.bob.id, workspaceId: id, role: 'VIEWER' });
     expect(await memberIds(alice, id)).toEqual([
       [USERS.alice.email, 'OWNER'],
       [USERS.bob.email, 'VIEWER'],
     ]);
     // Members can see the member list too.
     expect((await bob.get(`/workspaces/${id}/members`)).status).toBe(200);
+    expect((await alice.get(`/workspaces/${id}/invitations`)).body).toEqual([]);
+    expect((await bob.post(`/invitations/${mine.id}/accept`)).status).toBe(404);
 
-    // Adding again is refused: roles change in the members list, which checks for the last owner
+    // Inviting a member is refused: roles change in the members list, which checks for the last owner
     expect((await alice.post(`/workspaces/${id}/members`, { email: USERS.bob.email })).status).toBe(409);
     expect(await memberIds(alice, id)).toContainEqual([USERS.bob.email, 'VIEWER']);
+  });
+
+  it('inviting again changes the role asked for; declined or cancelled, no one joins', async () => {
+    const id = await createWorkspace(alice);
+    await alice.post(`/workspaces/${id}/members`, { email: USERS.bob.email, role: 'EDITOR' });
+    expect((await alice.post(`/workspaces/${id}/members`, { email: USERS.bob.email, role: 'VIEWER' })).status).toBe(201);
+    const pending = (await alice.get(`/workspaces/${id}/invitations`)).body;
+    expect(pending.map((i: any) => i.role)).toEqual(['VIEWER']);
+
+    const invitation = (await bob.get('/invitations')).body.find((i: any) => i.workspace.id === id);
+    expect((await bob.post(`/invitations/${invitation.id}/decline`)).status).toBe(201);
+    expect((await bob.get('/invitations')).body.filter((i: any) => i.workspace.id === id)).toEqual([]);
+    expect((await alice.get(`/workspaces/${id}/invitations`)).body).toEqual([]);
+    expect(await memberIds(alice, id)).toEqual([[USERS.alice.email, 'OWNER']]);
+
+    // Invited again, then the owner thinks better of it
+    await alice.post(`/workspaces/${id}/members`, { email: USERS.bob.email });
+    const again = (await alice.get(`/workspaces/${id}/invitations`)).body[0];
+    expect((await alice.delete(`/workspaces/${id}/invitations/${again.id}`)).status).toBe(200);
+    expect((await bob.get('/invitations')).body.filter((i: any) => i.workspace.id === id)).toEqual([]);
+    expect((await bob.post(`/invitations/${again.id}/accept`)).status).toBe(404);
+    expect(await memberIds(alice, id)).toEqual([[USERS.alice.email, 'OWNER']]);
+  });
+
+  it("only the person invited answers an invitation; only a workspace's owners see and cancel its own", async () => {
+    const id = await createWorkspace(alice);
+    await addMember(alice, id, USERS.admin.email, 'EDITOR');
+    await alice.post(`/workspaces/${id}/members`, { email: USERS.bob.email });
+    const invitation = (await alice.get(`/workspaces/${id}/invitations`)).body[0];
+    // Not Alice's to accept or decline (nor anyone else's): as if there were none
+    expect((await alice.post(`/invitations/${invitation.id}/accept`)).status).toBe(404);
+    expect((await alice.post(`/invitations/${invitation.id}/decline`)).status).toBe(404);
+    // An editor of the workspace, or the person invited, can't see or cancel its invitations
+    const admin = await loginAs(USERS.admin.email);
+    expect((await admin.get(`/workspaces/${id}/invitations`)).status).toBe(403);
+    expect((await admin.delete(`/workspaces/${id}/invitations/${invitation.id}`)).status).toBe(403);
+    expect((await bob.get(`/workspaces/${id}/invitations`)).status).toBe(403);
+    // An invitation of another workspace, named under this one: not found
+    const other = await createWorkspace(alice);
+    expect((await alice.delete(`/workspaces/${other}/invitations/${invitation.id}`)).status).toBe(404);
+    expect((await alice.get(`/workspaces/${id}/invitations`)).body).toHaveLength(1);
   });
 
   it('reports unknown emails and missing input clearly', async () => {
@@ -133,11 +191,39 @@ describe('workspace members', () => {
     }
   });
 
-  it('adds a member by username', async () => {
+  it("an invitation from someone who's no longer an owner there can't be accepted", async () => {
+    const admin = await loginAs(USERS.admin.email);
+    for (const change of ['demoted', 'removed'] as const) {
+      // The admin account, made an owner here, invites Bob; then Alice changes that
+      const id = await createWorkspace(alice);
+      await addMember(alice, id, USERS.admin.email, 'OWNER');
+      expect((await admin.post(`/workspaces/${id}/members`, { email: USERS.bob.email, role: 'OWNER' })).status).toBe(201);
+      const invitation = (await bob.get('/invitations')).body.find((i: any) => i.workspace.id === id);
+      expect(invitation).toBeTruthy();
+      if (change === 'demoted') expect((await alice.patch(`/workspaces/${id}/members/${USERS.admin.id}`, { role: 'EDITOR' })).status).toBe(200);
+      else expect((await alice.delete(`/workspaces/${id}/members/${USERS.admin.id}`)).status).toBe(200);
+      expect((await bob.get('/invitations')).body.filter((i: any) => i.workspace.id === id)).toEqual([]);
+      expect((await alice.get(`/workspaces/${id}/invitations`)).body).toEqual([]);
+      expect((await bob.post(`/invitations/${invitation.id}/accept`)).status).toBe(404);
+      expect(await memberIds(alice, id)).not.toContainEqual([USERS.bob.email, 'OWNER']);
+    }
+  });
+
+  it("the system admin making someone an owner ends the invitation they had", async () => {
+    const admin = await loginAs(USERS.admin.email);
     const id = await createWorkspace(alice);
-    const added = await alice.post(`/workspaces/${id}/members`, { login: 'Bob', role: 'VIEWER' });
-    expect(added.status).toBe(201);
-    expect(added.body).toMatchObject({ userId: USERS.bob.id, role: 'VIEWER' });
+    await alice.post(`/workspaces/${id}/members`, { email: USERS.bob.email, role: 'VIEWER' });
+    expect((await admin.post(`/workspaces/${id}/members?adminId=x`, { email: USERS.bob.email, role: 'OWNER' })).status).toBe(201);
+    expect((await alice.get(`/workspaces/${id}/invitations`)).body).toEqual([]);
+    expect((await bob.get('/invitations')).body.filter((i: any) => i.workspace.id === id)).toEqual([]);
+    expect(await memberIds(alice, id)).toContainEqual([USERS.bob.email, 'OWNER']);
+  });
+
+  it('invites by username', async () => {
+    const id = await createWorkspace(alice);
+    const invited = await alice.post(`/workspaces/${id}/members`, { login: 'Bob', role: 'VIEWER' });
+    expect(invited.status).toBe(201);
+    expect(invited.body.invitation).toMatchObject({ userId: USERS.bob.id, role: 'VIEWER' });
   });
 
   it('only lets owners manage members', async () => {

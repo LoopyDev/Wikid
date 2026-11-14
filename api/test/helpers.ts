@@ -112,10 +112,17 @@ export async function createWorkspace(owner: Session, name = unique('Test worksp
   return res.body.workspace.id as string;
 }
 
-export async function addMember(owner: Session, workspaceId: string, email: string, role = 'EDITOR') {
+/**
+ * Makes someone a member: the owner invites them and they accept (signed in as a demo user, or as
+ * `invitee`). Returns the membership.
+ */
+export async function addMember(owner: Session, workspaceId: string, email: string, role = 'EDITOR', invitee?: Session) {
   const res = await owner.post(`/workspaces/${workspaceId}/members`, { email, role });
-  if (res.status !== 201) throw new Error(`Add member failed: ${res.status} ${JSON.stringify(res.body)}`);
-  return res.body;
+  if (res.status !== 201) throw new Error(`Invite failed: ${res.status} ${JSON.stringify(res.body)}`);
+  const them = invitee ?? (await loginAs(email));
+  const accepted = await them.post(`/invitations/${res.body.invitation.id}/accept`);
+  if (accepted.status !== 201) throw new Error(`Accepting the invitation failed: ${accepted.status} ${JSON.stringify(accepted.body)}`);
+  return accepted.body;
 }
 
 /** Creates a page and returns the full page record. */

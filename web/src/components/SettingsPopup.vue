@@ -93,23 +93,31 @@ const handleDeleteWorkspace = async () => {
 
 const members = ref([]);
 const membersLoading = ref(false);
+// Loading for the first time: the lists stay on screen while they're loaded again (after an invite,
+// say), rather than vanishing for a moment
+const membersFirstLoad = computed(() => membersLoading.value && !members.value.length);
 const membersError = ref('');
 const inviteEmail = ref('');
 const inviteRole = ref('EDITOR');
 const memberActionLoading = ref({});
 // What the system admin has changed here (nothing an admin does to a workspace is silent)
 const adminActions = ref([]);
+// Invited, not yet answered (its owners see these); and who was just invited, said under the form
+const invitations = ref([]);
+const invitedNote = ref('');
 const loadMembers = async () => {
   if (!activeWorkspaceId.value || !activeUser.value) return;
   membersLoading.value = true;
   membersError.value = '';
   try {
-    const [data, actions] = await Promise.all([
+    const [data, actions, waiting] = await Promise.all([
       api.listWorkspaceMembers(activeWorkspaceId.value, { userId: activeUser.value.id }),
       api.listWorkspaceAdminActions(activeWorkspaceId.value).catch(() => []),
+      isWorkspaceOwner.value ? api.listWorkspaceInvitations(activeWorkspaceId.value).catch(() => []) : [],
     ]);
     members.value = Array.isArray(data) ? data : [];
     adminActions.value = Array.isArray(actions) ? actions : [];
+    invitations.value = Array.isArray(waiting) ? waiting : [];
   } catch (err) {
     membersError.value = err?.message || 'Failed to load members';
   } finally {
@@ -137,12 +145,23 @@ const inviteMember = async () => {
     membersError.value = 'Enter the email address or username of the person to add.';
     return;
   }
+  invitedNote.value = '';
   await withMemberAction('invite', 'Failed to invite member', async () => {
     await api.addWorkspaceMember(activeWorkspaceId.value, { login, role: inviteRole.value }, { userId: activeUser.value.id });
     inviteEmail.value = '';
+    invitedNote.value = `Invited ${login}: they'll be a member once they accept.`;
     await loadMembers();
   });
 };
+const cancelInvitation = async (invitation) => {
+  if (!activeWorkspaceId.value || !isWorkspaceOwner.value) return;
+  invitedNote.value = '';
+  await withMemberAction(invitation.id, "Couldn't cancel the invitation", async () => {
+    await api.cancelWorkspaceInvitation(activeWorkspaceId.value, invitation.id);
+    await loadMembers();
+  });
+};
+const ROLE_LABELS = { OWNER: 'Owner', EDITOR: 'Editor', VIEWER: 'Viewer' };
 const updateMemberRole = async (memberId, role) => {
   if (!activeWorkspaceId.value || !activeUser.value || !isWorkspaceOwner.value) return;
   await withMemberAction(memberId, 'Failed to update role', async () => {
@@ -159,6 +178,16 @@ const removeMember = async (memberId) => {
   });
 };
 
+// (Who was just invited is said only until the tab or workspace changes)
+watch([settingsTab, activeWorkspaceId], () => {
+  invitedNote.value = '';
+});
+// Another workspace's lists aren't shown while this one's load
+watch(activeWorkspaceId, () => {
+  members.value = [];
+  invitations.value = [];
+  adminActions.value = [];
+});
 watch(settingsTab, (tab) => {
   if (tab === 'Members' && activeWorkspaceId.value) {
     loadMembers();
@@ -317,12 +346,12 @@ watch(settingsTab, (tab) => {
         <div v-else-if="settingsTab === 'Members'">
           <h3>Members</h3>
           <span v-if="membersError" class="alert">{{ membersError }}</span>
-          <ul v-if="!membersLoading && adminActions.length" class="members-admin-actions" aria-label="Changes by the system admin">
+          <ul v-if="!membersFirstLoad && adminActions.length" class="members-admin-actions" aria-label="Changes by the system admin">
             <li v-for="action in adminActions" :key="action.id">
               {{ adminActionText(action) }} · {{ formatDate(action.createdAt) }}
             </li>
           </ul>
-          <div v-if="membersLoading" class="muted">Loading members...</div>
+          <div v-if="membersFirstLoad" class="muted">Loading members...</div>
           <div v-else-if="members.length" class="members-list">
             <div v-for="member in members" :key="member.id" class="members-row">
               <div class="members-info">
@@ -354,7 +383,29 @@ watch(settingsTab, (tab) => {
               </div>
             </div>
           </div>
-          <div v-else-if="!membersLoading" class="muted">No members yet.</div>
+          <div v-else class="muted">No members yet.</div>
+          <template v-if="isWorkspaceOwner && !membersFirstLoad && invitations.length">
+            <h4>Invited</h4>
+            <div class="members-list" aria-label="Invited">
+              <div v-for="invitation in invitations" :key="invitation.id" class="members-row">
+                <div class="members-info">
+                  <span class="members-name">{{ invitation.user?.displayName || 'User' }}</span>
+                  <span class="muted">{{ invitation.user?.email }} · waiting for an answer</span>
+                </div>
+                <div class="members-role">
+                  <span>{{ ROLE_LABELS[invitation.role] || invitation.role }}</span>
+                  <button
+                    class="ghost-btn ghost-btn-background"
+                    type="button"
+                    :disabled="memberActionLoading[invitation.id]"
+                    @click="cancelInvitation(invitation)"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </div>
+          </template>
           <div v-if="isWorkspaceOwner" class="members-invite">
             <h4>Invite member</h4>
             <div class="members-invite-row">
@@ -373,6 +424,7 @@ watch(settingsTab, (tab) => {
                 {{ memberActionLoading.invite ? 'Inviting...' : 'Invite' }}
               </button>
             </div>
+            <p v-if="invitedNote" class="muted" role="status">{{ invitedNote }}</p>
           </div>
         </div>
         <div v-else-if="settingsTab === 'Export'">

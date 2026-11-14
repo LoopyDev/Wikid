@@ -497,6 +497,19 @@ export const api = {
       body: JSON.stringify(payload),
     });
   },
+  // Invitations to join a workspace: yours to answer, and (for its owners) a workspace's waiting ones
+  async listInvitations() {
+    return request('/invitations');
+  },
+  async answerInvitation(invitationId, accept) {
+    return request(`/invitations/${invitationId}/${accept ? 'accept' : 'decline'}`, { method: 'POST' });
+  },
+  async listWorkspaceInvitations(workspaceId) {
+    return request(`/workspaces/${workspaceId}/invitations`);
+  },
+  async cancelWorkspaceInvitation(workspaceId, invitationId) {
+    return request(`/workspaces/${workspaceId}/invitations/${invitationId}`, { method: 'DELETE' });
+  },
   // What the system admin has changed in a workspace (set an owner, removed a member), newest first
   async listWorkspaceAdminActions(workspaceId) {
     return request(`/workspaces/${workspaceId}/admin-actions`);

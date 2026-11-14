@@ -798,7 +798,8 @@ export class PagesController {
     return this.workspaces.listWorkspaceMembers(userId, workspaceId, adminId);
   }
 
-  // Add or update a member by email or username (role optional, defaults to EDITOR)
+  // An owner invites someone, by email or username (role optional, defaults to EDITOR): they're a
+  // member once they accept. With adminId, the system admin makes someone an owner at once
   @Post('workspaces/:id/members')
   addWorkspaceMember(
     @Param('id') workspaceId: string,
@@ -810,6 +811,33 @@ export class PagesController {
     @AdminId() adminId?: string,
   ) {
     return this.workspaces.addWorkspaceMember(requesterId, workspaceId, { login: login ?? email, userId, role }, adminId);
+  }
+
+  // A workspace's invitations waiting for an answer (its owners)
+  @Get('workspaces/:id/invitations')
+  listWorkspaceInvitations(@Param('id') workspaceId: string, @CurrentUserId() userId?: string) {
+    return this.workspaces.listWorkspaceInvitations(userId, workspaceId);
+  }
+
+  @Delete('workspaces/:id/invitations/:invitationId')
+  cancelWorkspaceInvitation(@Param('id') workspaceId: string, @Param('invitationId') invitationId: string, @CurrentUserId() userId?: string) {
+    return this.workspaces.cancelWorkspaceInvitation(userId, workspaceId, invitationId);
+  }
+
+  // Your invitations, to accept or decline
+  @Get('invitations')
+  listMyInvitations(@CurrentUserId() userId?: string) {
+    return this.workspaces.listMyInvitations(userId);
+  }
+
+  @Post('invitations/:id/accept')
+  acceptInvitation(@Param('id') id: string, @CurrentUserId() userId?: string) {
+    return this.workspaces.answerInvitation(userId, id, true);
+  }
+
+  @Post('invitations/:id/decline')
+  declineInvitation(@Param('id') id: string, @CurrentUserId() userId?: string) {
+    return this.workspaces.answerInvitation(userId, id, false);
   }
 
   // Admin: change role

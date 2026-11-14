@@ -1,11 +1,33 @@
 <script setup>
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useWorkspaceStore } from '../stores/workspace';
 
-// The menu under the workspace name: who's signed in, settings, log out, and the workspaces.
+// The menu under the workspace name: who's signed in, settings, log out, invitations to answer,
+// and the workspaces.
 const emit = defineEmits(['dismiss', 'settings', 'logout', 'create-workspace', 'select-workspace']);
-const { activeUser, workspaces, activeWorkspaceId, loadingPages } = storeToRefs(useWorkspaceStore());
+const store = useWorkspaceStore();
+const { activeUser, workspaces, activeWorkspaceId, loadingPages, invitations } = storeToRefs(store);
+// Any sent since the page was opened
+store.loadInvitations();
+
+const ROLE_NAMES = { OWNER: 'an owner', EDITOR: 'an editor', VIEWER: 'a viewer' };
+const answering = ref(null);
+const answerError = ref('');
+// Accepted, the workspace opens
+const answer = async (invitation, accept) => {
+  answering.value = invitation.id;
+  answerError.value = '';
+  try {
+    const joined = await store.answerInvitation(invitation.id, accept);
+    if (joined) emit('select-workspace', joined);
+  } catch (err) {
+    answerError.value =
+      err?.status === 404 ? err?.message || 'That invitation is no longer there' : err?.message || "Couldn't answer the invitation; try again";
+  } finally {
+    answering.value = null;
+  }
+};
 
 // Wikid is AGPL: people using a server can get its source. Builds of a modified Wikid set VITE_SOURCE_URL to their fork.
 const sourceUrl = import.meta.env.VITE_SOURCE_URL || 'https://github.com/LoopyDev/Wikid';
@@ -35,6 +57,28 @@ const userInitials = computed(() => {
       </a>
       <button class="user-menu__item context-menu__item" type="button" @click="emit('logout')">Log out</button>
       <div class="user-menu-separator" role="separator"></div>
+      <div v-if="invitations.length" class="user-menu-section user-menu-invitations" aria-label="Invitations">
+        <div class="user-menu-section-title"><span>Invitations</span></div>
+        <div v-for="invitation in invitations" :key="invitation.id" class="user-menu-invitation">
+          <p class="user-menu-invitation-text">
+            <strong>{{ invitation.workspace?.name || 'A workspace' }}</strong>
+            <span>
+              {{ invitation.invitedBy?.displayName ? `${invitation.invitedBy.displayName} invited you` : "You're invited" }},
+              as {{ ROLE_NAMES[invitation.role] || 'a member' }}
+            </span>
+          </p>
+          <div class="user-menu-invitation-actions">
+            <button class="user-menu-invitation-accept" type="button" :disabled="answering === invitation.id" @click="answer(invitation, true)">
+              Accept
+            </button>
+            <button class="user-menu-invitation-decline" type="button" :disabled="answering === invitation.id" @click="answer(invitation, false)">
+              Decline
+            </button>
+          </div>
+        </div>
+        <p v-if="answerError" class="user-menu-invitation-error" role="alert">{{ answerError }}</p>
+        <div class="user-menu-separator" role="separator"></div>
+      </div>
       <div v-if="!loadingPages" class="user-menu-section">
         <div class="user-menu-section-title">
           <span>Workspaces</span>

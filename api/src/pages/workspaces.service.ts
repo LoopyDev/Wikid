@@ -191,13 +191,19 @@ export class WorkspacesService {
     if (workspace.personalOwnerId && workspace.personalOwnerId === user.id && role !== WorkspaceRole.OWNER) {
       throw new BadRequestException('Personal workspace owners must remain owners');
     }
-    // Adding someone who's already a member would quietly change their role, skipping the checks a
-    // role change has (an owner demoting themselves, the last owner): owners do that in the members
-    // list. A system admin's "Assign user" still sets the role: it's how they repair a workspace.
+    // Inviting someone who's already a member is refused: it would change their role, skipping the
+    // checks a role change has (an owner demoting themselves, the last owner); owners do that in the
+    // members list. A system admin's "Assign user" still sets the role: it's how they repair a workspace.
     const existing = await this.prisma.userWorkspace.findUnique({ where: { userId_workspaceId: { userId: user.id, workspaceId } } });
-    if (existing && !adminId) {
-      if (existing.role === role) return existing;
-      throw new ConflictException('Already a member: change their role in the members list');
+    if (existing && !adminId) throw new ConflictException('Already a member: change their role in the members list');
+    // An owner invites: they're a member once they accept (inviting again changes the role asked for)
+    if (!adminId) {
+      const invitation = await this.prisma.workspaceInvitation.upsert({
+        where: { workspaceId_userId: { workspaceId, userId: user.id } },
+        update: { role, invitedById: userId },
+        create: { workspaceId, userId: user.id, role, invitedById: userId },
+      });
+      return { invitation };
     }
     // Already an owner: nothing changes, and nothing's recorded
     if (adminId && existing?.role === WorkspaceRole.OWNER) return existing;
@@ -208,9 +214,103 @@ export class WorkspacesService {
         update: { role },
         create: { userId: user.id, workspaceId, role },
       });
+      // A member now: an invitation waiting for them has nothing left to ask
+      await tx.workspaceInvitation.deleteMany({ where: { workspaceId, userId: user.id } });
       if (adminId) await this.recordAdminAction(tx, workspaceId, 'SET_OWNER', user);
       return saved;
     });
+  }
+
+  /** A workspace's invitations waiting for an answer: for its owners. */
+  async listWorkspaceInvitations(userId: string | undefined, workspaceId: string) {
+    if (!userId) throw new BadRequestException('userId is required');
+    await this.access.requireWorkspaceRole(userId, workspaceId, [WorkspaceRole.OWNER]);
+    return this.prisma.workspaceInvitation.findMany({
+      // (Not someone who's a member by now: invited again as they accepted, say)
+      where: { workspaceId, user: { memberships: { none: { workspaceId } } } },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, role: true, createdAt: true, user: { select: { id: true, displayName: true, email: true } } },
+    });
+  }
+
+  /** An owner takes an invitation back. */
+  async cancelWorkspaceInvitation(userId: string | undefined, workspaceId: string, invitationId: string) {
+    if (!userId) throw new BadRequestException('userId is required');
+    await this.access.requireWorkspaceRole(userId, workspaceId, [WorkspaceRole.OWNER]);
+    if (!isUuid(invitationId)) throw new NotFoundException('Invitation not found');
+    const removed = await this.prisma.workspaceInvitation.deleteMany({ where: { id: invitationId, workspaceId } });
+    if (!removed.count) throw new NotFoundException('Invitation not found');
+    return { ok: true };
+  }
+
+  /** The invitations someone has to answer: which workspace, as what, and from whom. */
+  async listMyInvitations(userId: string | undefined) {
+    if (!userId) throw new BadRequestException('userId is required');
+    const invitations = await this.prisma.workspaceInvitation.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'asc' },
+      select: {
+        id: true,
+        role: true,
+        createdAt: true,
+        workspace: { select: { id: true, name: true } },
+        invitedBy: { select: { id: true, displayName: true } },
+        invitedById: true,
+        workspaceId: true,
+      },
+    });
+    const valid = await this.validInvitations(userId, invitations);
+    return invitations.filter((invitation) => valid.has(invitation.id)).map(({ invitedById: _by, workspaceId: _ws, ...rest }) => rest);
+  }
+
+  /**
+   * Of these invitations, the ones still to be answered: sent by someone who's still an owner there
+   * (who can give the role it offers), to someone who isn't a member yet.
+   */
+  private async validInvitations(userId: string, invitations: Array<{ id: string; workspaceId: string; invitedById: string | null }>) {
+    const workspaceIds = [...new Set(invitations.map((invitation) => invitation.workspaceId))];
+    if (!workspaceIds.length) return new Set<string>();
+    const memberships = await this.prisma.userWorkspace.findMany({
+      where: { workspaceId: { in: workspaceIds }, OR: [{ userId }, { role: WorkspaceRole.OWNER }] },
+      select: { userId: true, workspaceId: true, role: true },
+    });
+    const has = (who: string | null, workspaceId: string, owner: boolean) =>
+      !!who && memberships.some((m) => m.userId === who && m.workspaceId === workspaceId && (!owner || m.role === WorkspaceRole.OWNER));
+    return new Set(
+      invitations
+        .filter((invitation) => !has(userId, invitation.workspaceId, false) && has(invitation.invitedById, invitation.workspaceId, true))
+        .map((invitation) => invitation.id),
+    );
+  }
+
+  /** Accepting makes them a member, with the role they were invited as; declining just ends it. */
+  async answerInvitation(userId: string | undefined, invitationId: string, accept: boolean) {
+    if (!userId) throw new BadRequestException('userId is required');
+    if (!isUuid(invitationId)) throw new NotFoundException('Invitation not found');
+    const answered = await this.prisma.$transaction(async (tx) => {
+      // Someone else's invitation is as if there were none; answered once, a second answer (two
+      // tabs, say) finds nothing
+      const [invitation] = await tx.$queryRaw<Array<{ workspaceId: string; role: WorkspaceRole; invitedById: string | null }>>`
+        DELETE FROM "WorkspaceInvitation" WHERE "id" = ${invitationId}::uuid AND "userId" = ${userId}::uuid
+        RETURNING "workspaceId", "role", "invitedById"`;
+      if (!invitation) return null;
+      if (!accept) return { declined: true };
+      // Only while whoever sent it is still an owner there (they could give the role it offers)
+      const sender = invitation.invitedById
+        ? await tx.userWorkspace.findUnique({ where: { userId_workspaceId: { userId: invitation.invitedById, workspaceId: invitation.workspaceId } } })
+        : null;
+      if (sender?.role !== WorkspaceRole.OWNER) return { stale: true };
+      return tx.userWorkspace.upsert({
+        where: { userId_workspaceId: { userId, workspaceId: invitation.workspaceId } },
+        // A member already (the admin made them an owner meanwhile, say): as they are
+        update: {},
+        create: { userId, workspaceId: invitation.workspaceId, role: invitation.role },
+      });
+    });
+    if (!answered) throw new NotFoundException('Invitation not found');
+    // (Gone, as it can't be accepted now)
+    if ('stale' in answered) throw new NotFoundException("This invitation can't be accepted now: whoever sent it can no longer invite people there");
+    return answered;
   }
 
   private async ensureNotPersonal(workspaceId: string) {
@@ -309,6 +409,8 @@ export class WorkspacesService {
         include: { user: { select: { id: true, displayName: true, email: true } } },
       });
       if (adminId) await this.recordAdminAction(tx, workspaceId, 'SET_OWNER', updated.user);
+      // Invitations only an owner can send: theirs go when they stop being one
+      if (nextRole !== WorkspaceRole.OWNER) await tx.workspaceInvitation.deleteMany({ where: { workspaceId, invitedById: memberId } });
       const { user: _user, ...membershipOnly } = updated;
       return membershipOnly;
     });
@@ -342,6 +444,8 @@ export class WorkspacesService {
     }
     return this.prisma.$transaction(async (tx) => {
       const removed = await tx.userWorkspace.deleteMany({ where: { userId: memberId, workspaceId } });
+      // The invitations they sent go with them (only an owner can invite)
+      await tx.workspaceInvitation.deleteMany({ where: { workspaceId, invitedById: memberId } });
       if (adminId) await this.recordAdminAction(tx, workspaceId, 'REMOVE_MEMBER', membership.user);
       return removed;
     });
