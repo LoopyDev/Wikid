@@ -180,3 +180,55 @@ describe('page mentions in Markdown', () => {
     expect(asBob).not.toContain('Alice only');
   });
 });
+
+describe('"Link to page" blocks in Markdown', () => {
+  // As the "Sub-page" slash command makes one: a copy of the new page's title, "Untitled page"
+  const linkTo = (pageId: string, title = 'Untitled page') => ({ type: 'pageLink', attrs: { pageId, title, icon: '' } });
+  const markdownOf = async (session: Session, pageId: string) => (await session.get(`/pages/${pageId}/markdown`)).body;
+
+  it('reads as a link to the page, with its title as it is now, not the copy the block saved', async () => {
+    const target = await createPage(alice, workspaceId, { title: 'Gallery' });
+    const page = await createPage(alice, workspaceId);
+    expect((await alice.put(`/pages/${page.id}/content`, { content: { type: 'doc', content: [linkTo(target.id)] } })).status).toBe(200);
+    expect((await markdownOf(alice, page.id)).markdown).toBe(`[Link to page: Gallery](/doc/${target.id})`);
+    await alice.patch(`/pages/${target.id}`, { title: 'Image Gallery Options' });
+    const read = await markdownOf(alice, page.id);
+    expect(read.markdown).toBe(`[Link to page: Image Gallery Options](/doc/${target.id})`);
+    // The same in the block-by-block form the MCP server reads
+    expect(read.annotated).toContain(`[Link to page: Image Gallery Options](/doc/${target.id})`);
+  });
+
+  it("shows someone else's private page as a private page, and a block with no page chosen as such", async () => {
+    const secret = await createPage(alice, workspaceId, { title: 'Alice only', visibility: 'PRIVATE' });
+    const page = await createPage(alice, workspaceId);
+    const content = { type: 'doc', content: [linkTo(secret.id, 'Alice only'), linkTo('', '')] };
+    expect((await alice.put(`/pages/${page.id}/content`, { content })).status).toBe(200);
+    const asBob = (await markdownOf(bob, page.id)).markdown as string;
+    expect(asBob).toBe(`[Link to page: Private page](/doc/${secret.id})\n\n[Link to page: no page chosen]`);
+    expect(asBob).not.toContain('Alice only');
+  });
+
+  it('is written back as a "Link to page" block, and a deleted page reads as deleted', async () => {
+    const target = await createPage(alice, workspaceId, { title: 'Logo [draft]' });
+    const page = await createPage(alice, workspaceId);
+    expect((await alice.put(`/pages/${page.id}/markdown`, { markdown: `Intro\n\n[Link to page: anything](/doc/${target.id})` })).status).toBe(200);
+    const saved = (await alice.get(`/pages/${page.id}/content`)).body;
+    expect(saved.content[1]).toMatchObject({ type: 'pageLink', attrs: { pageId: target.id } });
+    // A reader's stand-in for the title isn't saved as it
+    expect((await alice.post(`/pages/${page.id}/markdown/blocks`, { markdown: `[Link to page: Private page](/doc/${target.id})` })).status).toBe(201);
+    const added = (await alice.get(`/pages/${page.id}/content`)).body.content.at(-1);
+    expect(added).toMatchObject({ type: 'pageLink', attrs: { pageId: target.id, title: '' } });
+    await alice.delete(`/pages/${page.id}/markdown/blocks/${added.attrs.id}`);
+    // Read again, it's the same line, the title escaped
+    expect((await markdownOf(alice, page.id)).markdown).toBe(`Intro\n\n[Link to page: Logo \\[draft\\]](/doc/${target.id})`);
+
+    // Changing it is refused without its title (a stale or private one) in the message
+    const blockId = saved.content[1].attrs.id;
+    const refused = await alice.put(`/pages/${page.id}/markdown/blocks/${blockId}`, { markdown: 'Text' });
+    expect(refused.status).toBe(400);
+    expect(refused.body.message).toContain('[Link to page]');
+
+    await alice.delete(`/pages/${target.id}`);
+    expect((await markdownOf(alice, page.id)).markdown).toBe(`Intro\n\n[Link to page: Deleted page](/doc/${target.id})`);
+  });
+});

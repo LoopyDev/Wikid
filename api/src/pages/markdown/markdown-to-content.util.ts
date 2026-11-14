@@ -18,6 +18,8 @@ const LEADING_EMOJI = /^((?:\p{Extended_Pictographic}|\p{Regional_Indicator})(?:
 
 const IMAGE_PLACEHOLDER = /^\[Image to add(?::\s*([^\]\n]*))?\]$/;
 
+const PAGE_STAND_INS = new Set(['Private page', 'Deleted page', 'Untitled page']);
+const PAGE_LINK = /^\[Link to page: ((?:[^\]\\]|\\.)*)\]\(\/doc\/([0-9a-fA-F-]{36})\)$/;
 const paragraph = (content: ContentNode[]): ContentNode => (content.length ? { type: 'paragraph', content } : { type: 'paragraph' });
 
 /** Inline Markdown tokens as text nodes with marks; images come out separately. */
@@ -183,6 +185,15 @@ function blocks(tokens: Token[]): ContentNode[] {
         break;
       }
       case 'paragraph': {
+        // "[Link to page: Title](/doc/<id>)" on a line of its own is a "Link to page" block (how one
+        // reads as Markdown); the title is a copy, the page's own is shown
+        const linked = token.raw.trim().match(PAGE_LINK);
+        if (linked) {
+          // (Not a reader's stand-in for the title, "Private page" or "Deleted page", saved as it)
+          const title = linked[1].replace(/\\([\\`*_[\]<>|])/g, '$1');
+          out.push({ type: 'pageLink', attrs: { pageId: linked[2], title: PAGE_STAND_INS.has(title) ? '' : title, icon: '' } });
+          break;
+        }
         // "[Image to add: …]" on a line of its own is an image placeholder (unescaped brackets only:
         // a paragraph that just says it is written with \[ \])
         const placeholder = token.raw.trim().match(IMAGE_PLACEHOLDER);

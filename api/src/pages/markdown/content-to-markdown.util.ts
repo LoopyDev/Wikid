@@ -132,7 +132,10 @@ export function embedLabel(node: ContentNode): string {
     case 'databaseForm':
       return `[Database form: ${attrs.name || 'Untitled'}]`;
     case 'pageLink':
-      return `[Link to page: ${attrs.title || 'Untitled'}]`;
+      // Where it goes, with the page's title now (given by PageContentService), or that it goes nowhere
+      if (!attrs.pageId) return '[Link to page: no page chosen]';
+      // (Without them, as in an error about the block, no title: the saved one may be stale, or private)
+      return attrs.href ? `[Link to page: ${escapeText(String(attrs.label))}](${attrs.href})` : '[Link to page]';
     case 'tableOfContents':
       return '[Table of contents]';
     case 'drawio':
@@ -199,7 +202,7 @@ export function renderBlock(node: ContentNode | undefined, options: RenderOption
       if (options.forExport && node.type === 'databaseView' && node.attrs?.pageId) return EXPORT_DATABASE(String(node.attrs.pageId));
       if (options.forExport && node.type === 'gaussianSplat' && node.attrs?.src) return `[Gaussian splat](${node.attrs.src})`;
       if (options.forExport && node.type === 'pageLink' && node.attrs?.pageId) {
-        return `[${escapeText(String(node.attrs.title || 'Untitled'))}](wikid-page:${node.attrs.pageId})`;
+        return `[${escapeText(String(node.attrs.label || node.attrs.title || 'Untitled'))}](wikid-page:${node.attrs.pageId})`;
       }
       return EMBEDS.has(node.type) ? embedLabel(node) : renderInline(node.content);
   }

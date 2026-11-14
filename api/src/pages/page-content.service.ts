@@ -142,13 +142,18 @@ export class PageContentService {
    * Page mentions given what they're written out as in Markdown, "[@Title](<href>)" (and read back
    * as). A mention holds only its page's id: the title is the page's as it is now, for this
    * reader, so someone else's private page (or one in a workspace they're not in) reads as
-   * "Private page", and one in the Bin as "Deleted page".
+   * "Private page", and one in the Bin as "Deleted page". "Link to page" blocks the same: the title
+   * they saved is a copy from when they were made ("Untitled page", from the Sub-page command),
+   * which a rename doesn't change.
    */
   private async mentionsAsLinks(content: ContentNode[], user: User, href: (pageId: string) => string): Promise<ContentNode[]> {
     const ids = new Set<string>();
+    const linkedPage = (node: ContentNode) =>
+      (node.type === 'pageMention' || node.type === 'pageLink') && typeof node.attrs?.pageId === 'string' && isUuid(node.attrs.pageId) ? node.attrs.pageId : null;
     const collect = (nodes: ContentNode[] | undefined) =>
       (nodes ?? []).forEach((node) => {
-        if (node.type === 'pageMention' && typeof node.attrs?.pageId === 'string' && isUuid(node.attrs.pageId)) ids.add(node.attrs.pageId);
+        const pageId = linkedPage(node);
+        if (pageId) ids.add(pageId);
         collect(node.content);
       });
     collect(content);
@@ -157,20 +162,25 @@ export class PageContentService {
     // private page...), and in the Bin or not
     const label = new Map<string, string>();
     const titles = new Map((await this.prisma.page.findMany({ where: { id: { in: [...ids] } }, select: { id: true, title: true } })).map((p) => [p.id, p.title]));
-    for (const pageId of ids) {
-      try {
-        const { page } = await this.access.requirePageAccess(pageId, user, { allowDeleted: true });
-        label.set(pageId, page.isDeleted ? 'Deleted page' : titles.get(pageId) || 'Untitled page');
-      } catch {
-        label.set(pageId, 'Private page');
-      }
-    }
+    // (Checked side by side: a page of sub-page links has one each)
+    await Promise.all(
+      [...ids].map(async (pageId) => {
+        // Gone for good (emptied from the Bin): deleted, not hidden
+        if (!titles.has(pageId)) return label.set(pageId, 'Deleted page');
+        try {
+          const { page } = await this.access.requirePageAccess(pageId, user, { allowDeleted: true });
+          label.set(pageId, page.isDeleted ? 'Deleted page' : titles.get(pageId) || 'Untitled page');
+        } catch {
+          label.set(pageId, 'Private page');
+        }
+      })
+    );
     // (Still a mention, given its title and address to be written out with: written as text, it ran
     // into text beside it with the same link, and bold put its "**" inside the brackets)
     const rewrite = (nodes: ContentNode[] | undefined): ContentNode[] | undefined =>
       nodes?.map((node) => {
-        if (node.type === 'pageMention') {
-          const pageId = String(node.attrs?.pageId ?? '');
+        const pageId = linkedPage(node);
+        if (pageId) {
           return { ...node, attrs: { ...node.attrs, label: label.get(pageId) ?? 'Private page', href: href(pageId) } };
         }
         return node.content ? { ...node, content: rewrite(node.content) } : node;
