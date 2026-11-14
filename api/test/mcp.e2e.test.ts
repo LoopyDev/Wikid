@@ -42,9 +42,10 @@ describe('MCP server', () => {
   it('offers its tools', async () => {
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual([
-      'add_database_column', 'add_database_row', 'add_image', 'create_database', 'create_page', 'delete_block',
-      'delete_database_column', 'get_database', 'get_page', 'insert_blocks', 'list_pages', 'list_workspaces', 'rename_page',
-      'replace_page', 'search', 'update_block', 'update_database_column', 'update_database_row',
+      'add_database_column', 'add_database_row', 'add_image', 'create_database', 'create_database_view', 'create_page',
+      'delete_block', 'delete_database_column', 'delete_database_view', 'get_database', 'get_page', 'insert_blocks', 'list_pages',
+      'list_workspaces', 'rename_page', 'replace_page', 'search', 'update_block', 'update_database_column', 'update_database_row',
+      'update_database_view',
     ]);
   });
 
@@ -323,5 +324,81 @@ describe('MCP server', () => {
       expect(refused.text).toMatch(says);
     }
     expect((await call('update_database_column', { pageId, column: 'Name', type: 'number' })).isError).toBe(true);
+  });
+
+  it('makes, changes and deletes views: filtered, sorted, grouped, with columns hidden', async () => {
+    const pageId = (await call('create_database', {
+      workspaceId,
+      title: 'Tracker with views',
+      columns: [
+        { name: 'Status', type: 'select', choices: ['To do', 'Done'] },
+        { name: 'Later', type: 'checkbox' },
+        { name: 'Notes', type: 'text' },
+      ],
+    })).text.match(/Database ([0-9a-f-]{36})/)?.[1] as string;
+
+    const made = await call('create_database_view', {
+      pageId,
+      name: 'Open',
+      filters: [{ column: 'status', operator: 'is_not', value: 'Done' }, { column: 'Later', operator: 'is_unchecked' }],
+      sorts: [{ column: 'Name' }, { column: 'Status', direction: 'desc' }],
+      hide: ['Notes'],
+    });
+    expect(made.isError, made.text).toBe(false);
+    expect((await call('create_database_view', { pageId, name: 'Board', type: 'board', groupBy: 'Status' })).isError).toBe(false);
+
+    const views = async () => (await call('get_database', { pageId })).text;
+    let text = await views();
+    expect(text).toContain('- Open (table): rows where Status is not "Done" and Later is unchecked; sorted by Name, Status (descending); hiding Notes');
+    expect(text).toContain('- Board (board): grouped by Status');
+    // A new board without groupBy is grouped by the first select, as in the app; a table isn't
+    expect((await call('create_database_view', { pageId, name: 'Board 2', type: 'board' })).isError).toBe(false);
+    expect(await views()).toContain('- Board 2 (board): grouped by Status');
+    expect((await call('update_database_view', { pageId, view: 'Board 2', type: 'table' })).isError).toBe(false);
+    expect(await views()).toContain('- Board 2 (table)\n');
+    // and made a board again, grouped again
+    expect((await call('update_database_view', { pageId, view: 'Board 2', type: 'board' })).isError).toBe(false);
+    expect(await views()).toContain('- Board 2 (board): grouped by Status');
+
+    // What isn't given stays as it was
+    const changed = await call('update_database_view', { pageId, view: 'open', name: 'Open work', match: 'any', hide: [] });
+    expect(changed.isError, changed.text).toBe(false);
+    text = await views();
+    expect(text).toContain('- Open work (table): rows where Status is not "Done" or Later is unchecked; sorted by Name, Status (descending)');
+    expect(text).not.toContain('hiding Notes');
+
+    expect((await call('delete_database_view', { pageId, view: 'Board' })).isError).toBe(false);
+    expect(await views()).not.toContain('- Board (board)');
+  });
+
+  it("refuses a view it couldn't show: an operator its column hasn't, a value missing, a choice that isn't, grouping by text", async () => {
+    const pageId = (await call('create_database', {
+      workspaceId,
+      title: 'View refusals',
+      columns: [
+        { name: 'Status', type: 'select', choices: ['To do', 'Done'] },
+        { name: 'Notes', type: 'text' },
+        { name: 'Tags', type: 'multi_select', choices: ['A'] },
+        { name: 'Points', type: 'number' },
+        { name: 'Due', type: 'date' },
+      ],
+    })).text.match(/Database ([0-9a-f-]{36})/)?.[1] as string;
+    for (const [args, says] of [
+      [{ type: 'board', groupBy: 'Tags' }, /select/],
+      [{ filters: [{ column: 'Points', operator: 'gt', value: 'ten' }] }, /number/],
+      [{ filters: [{ column: 'Due', operator: 'before', value: 'next friday' }] }, /date/],
+      [{ filters: [{ column: 'Status', operator: 'gt', value: '1' }] }, /Status.*is, is_not/],
+      [{ filters: [{ column: 'Notes', operator: 'contains' }] }, /value/],
+      [{ filters: [{ column: 'Status', operator: 'is', value: 'Doing' }] }, /No choice "Doing"/],
+      [{ filters: [{ column: 'Nope', operator: 'is_empty' }] }, /No column "Nope"/],
+      [{ type: 'board', groupBy: 'Notes' }, /select/],
+      [{ type: 'table', groupBy: 'Status' }, /board/],
+      [{ type: 'calendar' }, /table, board, gallery, list/],
+    ] as const) {
+      const refused = await call('create_database_view', { pageId, name: 'X', ...args });
+      expect(refused.isError, JSON.stringify(args)).toBe(true);
+      expect(refused.text).toMatch(says);
+    }
+    expect((await call('update_database_view', { pageId, view: 'Nope', name: 'Y' })).text).toMatch(/No view "Nope"/);
   });
 });

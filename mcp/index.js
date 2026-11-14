@@ -85,7 +85,8 @@ function tool(name, description, schema, run) {
 const SECTIONS =
   'Columns: "::: columns", the first column\'s Markdown, "::: column" before each further column, then ":::". ' +
   'A toggle (a heading that opens to show more): "::: toggle", a heading, what it opens to, then ":::". ' +
-  'A quote starting with an emoji ("> 💡 …") is a callout.';
+  'A quote starting with an emoji ("> 💡 …") is a callout. ' +
+  'A link to another page: [words](/doc/<page id>); a mention of one, shown with its icon and title as they are now: [@Title](/doc/<page id>).';
 
 /** A page as Markdown, each block marked with its id, to change one at a time. */
 function formatPage(page) {
@@ -192,8 +193,149 @@ function formatDatabase({ db, fields, rows }) {
     const relation = f.options?.relation?.pageId ? `: to database ${f.options.relation.pageId}${f.options.relation.allowMultiple === true ? ', several rows' : ''}` : '';
     return `- ${f.name} (${f.type.toLowerCase()}${choices.length ? `: ${choices.join(', ')}` : relation})`;
   });
-  return [`# ${db.title || 'Untitled database'}`, '', 'Columns:', ...columns, '', `Rows (${rows.length}):`, JSON.stringify(rows, null, 2)].join('\n');
+  const views = (db.views ?? []).map((view) => formatView(view, fields));
+  return [
+    `# ${db.title || 'Untitled database'}`,
+    '',
+    'Columns:',
+    ...columns,
+    ...(views.length ? ['', 'Views:', ...views] : []),
+    '',
+    `Rows (${rows.length}):`,
+    JSON.stringify(rows, null, 2),
+  ].join('\n');
 }
+
+// ---- Database views ----
+
+const VIEW_TYPES = ['table', 'board', 'gallery', 'list'];
+const NO_VALUE = new Set(['is_empty', 'is_not_empty', 'is_checked', 'is_unchecked', 'is_me', 'is_not_me']);
+// The filters each type of column has, as the app offers them (operatorsForFieldType in
+// web/src/utils/database/views.js)
+const OPERATORS = {
+  'text, url': ['is', 'is_not', 'contains', 'not_contains', 'is_empty', 'is_not_empty'],
+  number: ['is', 'is_not', 'gt', 'gte', 'lt', 'lte', 'is_empty', 'is_not_empty'],
+  date: ['is', 'is_not', 'before', 'after', 'on_or_before', 'on_or_after', 'is_empty', 'is_not_empty'],
+  select: ['is', 'is_not', 'is_empty', 'is_not_empty'],
+  'multi_select, relation': ['contains', 'not_contains', 'is_empty', 'is_not_empty'],
+  person: ['is_me', 'is_not_me', 'contains', 'not_contains', 'is_empty', 'is_not_empty'],
+  checkbox: ['is_checked', 'is_unchecked'],
+};
+const operatorsFor = (type) => {
+  const kind = String(type).toLowerCase();
+  const key = Object.keys(OPERATORS).find((types) => types.split(', ').includes(kind));
+  return OPERATORS[key ?? 'text, url'];
+};
+const OPERATOR_WORDS = {
+  is: 'is',
+  is_not: 'is not',
+  contains: 'contains',
+  not_contains: "doesn't contain",
+  is_empty: 'is empty',
+  is_not_empty: 'is not empty',
+  gt: 'is more than',
+  gte: 'is at least',
+  lt: 'is less than',
+  lte: 'is at most',
+  before: 'is before',
+  after: 'is after',
+  on_or_before: 'is on or before',
+  on_or_after: 'is on or after',
+  is_checked: 'is checked',
+  is_unchecked: 'is unchecked',
+  is_me: 'is me',
+  is_not_me: "isn't me",
+};
+
+/** A view in a line: its type, then what it shows and how. */
+function formatView(view, fields) {
+  const config = view.config ?? {};
+  const nameOf = (fieldId) => fields.find((f) => f.id === fieldId)?.name ?? fieldId;
+  const parts = [];
+  // A rule still waiting for its value (just added in the app) filters nothing
+  const rules = (config.filters?.rules ?? []).filter((r) => NO_VALUE.has(r.operator) || String(r.value ?? '').trim() !== '');
+  if (rules.length) {
+    const join = config.filters.match === 'OR' ? ' or ' : ' and ';
+    const rule = (r) => `${nameOf(r.fieldId)} ${OPERATOR_WORDS[r.operator] ?? r.operator}${NO_VALUE.has(r.operator) ? '' : ` ${JSON.stringify(r.value)}`}`;
+    parts.push(`rows where ${rules.map(rule).join(join)}`);
+  }
+  if (config.sorts?.length) parts.push(`sorted by ${config.sorts.map((sort) => `${nameOf(sort.fieldId)}${sort.direction === 'desc' ? ' (descending)' : ''}`).join(', ')}`);
+  if (config.groupFieldId) parts.push(`grouped by ${nameOf(config.groupFieldId)}`);
+  if (config.hiddenFieldIds?.length) parts.push(`hiding ${config.hiddenFieldIds.map(nameOf).join(', ')}`);
+  return `- ${view.name} (${String(view.type).toLowerCase()})${parts.length ? `: ${parts.join('; ')}` : ''}`;
+}
+
+function findView(db, view) {
+  const views = db.views ?? [];
+  const found = views.find((v) => v.id === view) ?? views.find((v) => sameName(v.name, view));
+  if (!found) throw new Error(`No view "${view}". Views: ${views.map((v) => v.name).join(', ') || 'none'}`);
+  return found;
+}
+
+/** A filter as the API keeps it, refused if its column can't be filtered that way. */
+function viewFilter(fields, { column, operator, value }) {
+  const field = findColumn(fields, column);
+  const operators = operatorsFor(field.type);
+  if (!operators.includes(operator)) throw new Error(`A ${field.type.toLowerCase()} column like "${field.name}" can be filtered by: ${operators.join(', ')}`);
+  if (NO_VALUE.has(operator)) return { fieldId: field.id, operator, value: null };
+  if (value === undefined || value === null || String(value).trim() === '') throw new Error(`Filtering "${field.name}" by ${operator} needs a value`);
+  let given = typeof value === 'number' ? value : String(value).trim();
+  if (field.type === 'NUMBER' && !Number.isFinite(Number(given))) throw new Error(`Filtering "${field.name}" needs a number, not "${given}"`);
+  if (field.type === 'DATE' && !/^\d{4}-\d{2}-\d{2}/.test(String(given))) throw new Error(`Filtering "${field.name}" needs a date (YYYY-MM-DD), not "${given}"`);
+  if (HAS_CHOICES.has(field.type.toLowerCase())) {
+    const choices = (field.options?.choices ?? []).map(choiceValue).filter(Boolean);
+    const choice = choices.find((c) => sameName(c, String(given)));
+    if (!choice) throw new Error(`No choice "${given}" in "${field.name}". Choices: ${choices.join(', ') || 'none'}`);
+    given = choice;
+  }
+  return { fieldId: field.id, operator, value: given };
+}
+
+/** A view's type and settings as the API takes them, from those given (others left as they are). */
+function viewBody(fields, view, { name, type, filters, match, sorts, groupBy, hide }) {
+  const body = {};
+  if (name !== undefined) {
+    if (!name.trim()) throw new Error('Give the view a name');
+    body.name = name.trim();
+  }
+  const kind = type === undefined ? String(view?.type ?? 'TABLE').toLowerCase() : String(type).trim().toLowerCase();
+  if (!VIEW_TYPES.includes(kind)) throw new Error(`Not a view type: "${type}". Types: ${VIEW_TYPES.join(', ')}`);
+  if (type !== undefined) body.type = kind.toUpperCase();
+  const config = { ...(view?.config ?? {}) };
+  if (filters !== undefined) config.filters = { match: config.filters?.match ?? 'AND', rules: filters.map((filter) => viewFilter(fields, filter)) };
+  if (match !== undefined) config.filters = { rules: [], ...config.filters, match: match === 'any' ? 'OR' : 'AND' };
+  if (sorts !== undefined) config.sorts = sorts.map(({ column, direction }) => ({ fieldId: findColumn(fields, column).id, direction: direction === 'desc' ? 'desc' : 'asc' }));
+  if (hide !== undefined) config.hiddenFieldIds = hide.map((column) => findColumn(fields, column).id);
+  if (groupBy !== undefined && groupBy !== null && groupBy !== '') {
+    const field = findColumn(fields, groupBy);
+    if (field.type !== 'SELECT') throw new Error(`A board is grouped by a select column's choices; "${field.name}" is ${field.type.toLowerCase()}`);
+    if (kind !== 'board') throw new Error('Only a board is grouped: give type board');
+    config.groupFieldId = field.id;
+  } else if (groupBy !== undefined || (type !== undefined && kind !== 'board')) {
+    config.groupFieldId = null;
+  } else if (kind === 'board' && (!view || (type !== undefined && !config.groupFieldId))) {
+    // A board new, or just made one, as in the app: grouped by the first select
+    config.groupFieldId = fields.find((f) => f.type === 'SELECT')?.id ?? null;
+  }
+  if ([filters, match, sorts, hide, groupBy, type].some((part) => part !== undefined)) body.config = config;
+  return body;
+}
+
+const viewSchema = {
+  type: z.string().optional().describe(`View type: ${VIEW_TYPES.join(', ')} (default table)`),
+  filters: z
+    .array(z.object({ column: z.string(), operator: z.string(), value: z.union([z.string(), z.number()]).optional() }))
+    .optional()
+    .describe(
+      `Rows shown: each a column, an operator and (for most) a value: a choice for a select, a number, a date (YYYY-MM-DD). Operators by column type: ${Object.entries(OPERATORS)
+        .map(([types, operators]) => `${types}: ${operators.join(', ')}`)
+        .join('; ')}.`,
+    ),
+  match: z.enum(['all', 'any']).optional().describe('Whether rows match all the filters (default) or any of them'),
+  sorts: z.array(z.object({ column: z.string(), direction: z.enum(['asc', 'desc']).optional() })).optional().describe('Sorted by these columns, in order'),
+  groupBy: z.string().nullable().optional().describe("For a board: the select column whose choices are its columns (a new board: the first select)"),
+  hide: z.array(z.string()).optional().describe('Columns the view hides'),
+};
 
 // The column types these tools make: not "linked from" (shown in the app, from a relation)
 const COLUMN_TYPES = ['text', 'number', 'date', 'checkbox', 'select', 'multi_select', 'url', 'person', 'relation'];
@@ -524,6 +666,44 @@ tool(
     const { changed, kept } = await api(`/database-fields/${id(field.id)}/change`, { method: 'POST', body });
     const keptNote = kept ? `, ${kept} kept aside (they didn't fit)` : '';
     return `Updated column "${body.name ?? field.name}": ${changed} cell${changed === 1 ? '' : 's'} changed${keptNote}.`;
+  },
+);
+
+tool(
+  'create_database_view',
+  'Add a view to a database: a table, board, gallery or list of its rows, filtered, sorted, and (a board) grouped by a select. get_database lists the views there.',
+  { pageId: z.string().describe('Page id of the database'), name: z.string().describe('View name'), ...viewSchema },
+  async ({ pageId, ...given }) => {
+    const { fields } = await getDatabase(pageId);
+    const body = viewBody(fields, null, given);
+    const view = await api(`/pages/${id(pageId)}/database/views`, { method: 'POST', body: { type: 'TABLE', config: {}, ...body } });
+    return `Added view "${view.name}".`;
+  },
+);
+
+tool(
+  'update_database_view',
+  'Change a database view (by name or id): its name, type, filters, sorts, grouping or hidden columns. What isn’t given stays as it was; a list given (filters, sorts, hide) replaces the one there. Someone with the database open sees the change when they open it again.',
+  { pageId: z.string().describe('Page id of the database'), view: z.string().describe('The view, by name or id'), name: z.string().optional().describe('Its new name'), ...viewSchema },
+  async ({ pageId, view, ...given }) => {
+    const { db, fields } = await getDatabase(pageId);
+    const found = findView(db, view);
+    const body = viewBody(fields, found, given);
+    if (!Object.keys(body).length) throw new Error('Give something to change: name, type, filters, match, sorts, groupBy or hide');
+    await api(`/database-views/${id(found.id)}`, { method: 'PATCH', body });
+    return `Updated view "${body.name ?? found.name}".`;
+  },
+);
+
+tool(
+  'delete_database_view',
+  'Delete a database view (by name or id). Its rows stay: a view only shows them.',
+  { pageId: z.string().describe('Page id of the database'), view: z.string().describe('The view, by name or id') },
+  async ({ pageId, view }) => {
+    const { db } = await getDatabase(pageId);
+    const found = findView(db, view);
+    await api(`/database-views/${id(found.id)}`, { method: 'DELETE' });
+    return `Deleted view "${found.name}".`;
   },
 );
 
