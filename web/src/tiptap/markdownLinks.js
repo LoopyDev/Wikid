@@ -2,7 +2,7 @@ import { Extension, InputRule } from '@tiptap/core';
 import { PluginKey } from 'prosemirror-state';
 import Suggestion from '@tiptap/suggestion';
 import MarkdownLinkHint from './MarkdownLinkHint.vue';
-import { matchingPages, suggestionPopup } from './pageSuggestions';
+import { matchingPages, suggestionPopup, withPrivateFlag } from './pageSuggestions';
 import { LINK_ADDRESS, OPEN_LINK, inUnclosedCode, textBefore } from './typingContext';
 import { isSafeLinkHref, normalizeLinkHref, pageLinkTarget } from '../utils/editorLinks';
 
@@ -44,7 +44,7 @@ const linkWords = (tr, schema, { from, wordsTo, to }, href) => {
 export const MarkdownLinks = Extension.create({
   name: 'markdownLinks',
   addOptions() {
-    return { listPages: null };
+    return { listPages: null, othersCanRead: null };
   },
   addInputRules() {
     return [
@@ -66,7 +66,8 @@ export const MarkdownLinks = Extension.create({
   },
   addProseMirrorPlugins() {
     const extension = this;
-    const pagesFor = (query) => (query.startsWith('/') ? matchingPages(extension.options.listPages, query.slice(1)) : []);
+    const pagesFor = (query) =>
+      query.startsWith('/') ? withPrivateFlag(matchingPages(extension.options.listPages, query.slice(1)), extension.options.othersCanRead) : [];
     return [
       Suggestion({
         editor: this.editor,

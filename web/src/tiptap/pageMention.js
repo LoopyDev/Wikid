@@ -5,7 +5,7 @@ import { VueNodeViewRenderer } from '@tiptap/vue-3';
 import PageMentionView from './PageMentionView.vue';
 import PageMentionList from './PageMentionList.vue';
 import { mentionLabel } from './pageMentionLabel';
-import { matchingPages, suggestionPopup } from './pageSuggestions';
+import { matchingPages, suggestionPopup, withPrivateFlag } from './pageSuggestions';
 
 // Page mentions: a page named in a line of text, shown with its icon and title as they are now
 // (PageMentionView.vue). It holds only the page's id: the title is looked up for whoever reads it,
@@ -26,7 +26,7 @@ const mentionSuggestion = (extension, char, key) =>
     allowSpaces: true,
     // Not in code, or in the middle of a word (an email address has an "@")
     allowedPrefixes: [' ', '(', ' '],
-    items: ({ query }) => matchingPages(extension.options.listPages, query),
+    items: ({ query }) => withPrivateFlag(matchingPages(extension.options.listPages, query), extension.options.othersCanRead),
     command: ({ editor, range, props: page }) => {
       editor
         .chain()
@@ -55,7 +55,9 @@ export default Node.create({
   // (The arrow keys go past it, not onto it: typing then replaced it)
   selectable: false,
   addOptions() {
-    return { resolvePage: null, listPages: null, openPage: null };
+    // othersCanRead(): whether people besides its author can read the page being edited (a mention
+    // of a private page then shows a lock, and choosing one says only you can open it)
+    return { resolvePage: null, listPages: null, openPage: null, othersCanRead: null };
   },
   addAttributes() {
     return {

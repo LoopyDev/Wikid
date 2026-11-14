@@ -57,7 +57,9 @@ defineExpose({ onKeyDown });
     >
       <PageIcon class="link-editor__page-icon" :icon="page.icon" fallback="📄" aria-hidden="true" />
       <span class="link-editor__page-title">{{ page.title || 'Untitled page' }}</span>
+      <i v-if="page.onlyYou" class="bi bi-lock-fill link-editor__page-lock" aria-label="Private"></i>
     </li>
+    <li v-if="items[selectedIndex]?.onlyYou" class="link-editor__note" role="presentation">Only you can open this page; others will see “Private page”</li>
   </ul>
   <div v-else class="page-mention-list context-menu page-mention-list--empty">No pages match</div>
 </template>

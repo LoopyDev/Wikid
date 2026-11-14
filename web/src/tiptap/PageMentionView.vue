@@ -11,6 +11,8 @@ const props = defineProps(nodeViewProps);
 
 const page = computed(() => props.extension.options.resolvePage?.(props.node.attrs.pageId) || null);
 const label = computed(() => mentionLabel(page.value));
+// A private page, on a page others can read: they can't open it (they see "Private page")
+const onlyYou = computed(() => page.value?.visibility === 'PRIVATE' && !!props.extension.options.othersCanRead?.());
 
 const open = (event) => {
   if (!page.value || page.value.isDeleted) return;
@@ -33,5 +35,5 @@ const open = (event) => {
     :class="['page-mention', { 'page-mention--unavailable': !page || page.isDeleted }]"
     contenteditable="false"
     @click="open"
-  ><PageIcon v-if="page && !page.isDeleted" class="page-mention__icon" :icon="page.icon" fallback="📄" aria-hidden="true" /><span class="page-mention__title">{{ label }}</span></NodeViewWrapper>
+  ><PageIcon v-if="page && !page.isDeleted" class="page-mention__icon" :icon="page.icon" fallback="📄" aria-hidden="true" /><span class="page-mention__title">{{ label }}</span><i v-if="onlyYou" class="bi bi-lock-fill page-mention__lock" title="Only you can open this page; others see “Private page”" aria-label="Private"></i></NodeViewWrapper>
 </template>

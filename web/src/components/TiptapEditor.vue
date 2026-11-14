@@ -29,6 +29,7 @@ import TextBubbleMenu from './TextBubbleMenu.vue';
 import { useEditorAi } from '../composables/useEditorAi';
 import { createSlashItems } from '../tiptap/slashItems';
 import { pageLinkTarget } from '../utils/editorLinks';
+import { privateLinksKey } from '../tiptap/linkEditor';
 import { mentionLabel } from '../tiptap/pageMentionLabel';
 import LinkEditor from './LinkEditor.vue';
 import { useBlockHandles } from '../composables/useBlockHandles';
@@ -182,7 +183,7 @@ const openLinkEditor = ({ newLink = false } = {}) => {
       editing: true,
       mention: true,
       mentionTitle: mentionLabel(page),
-      mentionPage: { id: mentionNode.attrs.pageId, title: mentionLabel(page), icon: page?.icon || '' },
+      mentionPage: { id: mentionNode.attrs.pageId, title: mentionLabel(page), icon: page?.icon || '', visibility: page?.visibility },
       textEditable: true,
       anchor: { left: at.left, bottom: at.bottom },
     };
@@ -298,9 +299,22 @@ const removeLink = () => {
   }
   ed.chain().focus().setTextSelection(range).unsetLink().setTextSelection(range.to).run();
 };
+// Whether people besides its author can read this page (not a private page): a mention of, or link
+// to, a private page here then shows a lock, and choosing one says only you can open it
+const othersCanReadPage = () => getResolvedPage(props.pageId)?.visibility !== 'PRIVATE';
+const isPrivatePage = (pageId) => getResolvedPage(pageId)?.visibility === 'PRIVATE';
+// The locks on links to private pages, worked out again when the pages change (one made private or
+// shared, or the list loaded after the page): they're otherwise only redone as the text changes
+watch(
+  () => workspace.pages,
+  () => {
+    const ed = editor.value;
+    if (ed && !ed.isDestroyed) ed.view.dispatch(ed.state.tr.setMeta(privateLinksKey, true).setMeta('addToHistory', false));
+  }
+);
 // The pages a link can go to, for the link editor's search
 const linkablePages = computed(() =>
-  linkEditorState.value ? listWorkspacePages().map((page) => ({ id: page.id, title: page.title, icon: page.icon })) : []
+  linkEditorState.value ? listWorkspacePages().map((page) => ({ id: page.id, title: page.title, icon: page.icon, visibility: page.visibility })) : []
 );
 // A link to a page here: opened in place (loaded if it isn't in the list, or a word on why it can't
 // be opened), at the block it names if it does. The address loses the old page's "#block-…".
@@ -883,15 +897,19 @@ editor = useEditor({
     },
     markdownLinks: {
       listPages: listWorkspacePages,
+      othersCanRead: () => othersCanReadPage(),
     },
     pageMentions: {
       resolvePage: getResolvedPage,
       listPages: listWorkspacePages,
       openPage: (pageId) => openLinkedPage(pageId, ''),
+      othersCanRead: () => othersCanReadPage(),
     },
     links: {
       open: () => openLinkEditor(),
       openPage: (pageId, hash) => openLinkedPage(pageId, hash),
+      isPrivatePage: (pageId) => isPrivatePage(pageId),
+      othersCanRead: () => othersCanReadPage(),
     },
     slashCommands: {
       commands: slashItems,
@@ -2100,6 +2118,7 @@ defineExpose({
         :text-editable="linkEditorState.textEditable"
         :mention="!!linkEditorState.mention"
         :mention-page="linkEditorState.mentionPage || null"
+        :others-can-read="othersCanReadPage()"
         :pages="linkablePages"
         @save="saveLink"
         @remove="removeLink"

@@ -12,6 +12,13 @@ export const matchingPages = (listPages, query) => {
   return (listPages?.() || []).filter((page) => !q || (page.title || 'Untitled page').toLowerCase().includes(q)).slice(0, MAX_RESULTS);
 };
 
+// Each page marked `onlyYou` when it's private and the page being edited isn't (others reading it
+// won't be able to open it: the lists say so)
+export const withPrivateFlag = (pages, othersCanRead) => {
+  const shared = othersCanRead?.() ?? false;
+  return pages.map((page) => ({ ...page, onlyYou: shared && page.visibility === 'PRIVATE' }));
+};
+
 // A suggestion's pop-up, under the text being typed: `component` shows it (and takes the arrow keys
 // and Enter through its onKeyDown). Escape closes it (the suggestion ends, the text stays).
 export const suggestionPopup = (component) => () => {
