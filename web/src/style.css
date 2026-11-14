@@ -11720,12 +11720,80 @@ a.db-list__title {
   font: inherit;
   color: var(--text-primary);
 }
+.db-board__card:focus-visible {
+  outline: 2px solid var(--caret-color);
+  outline-offset: 1px;
+}
 .db-board__card:hover {
   border-color: var(--caret-color);
 }
 .db-board__card-title {
   font-weight: 600;
   font-size: 0.9rem;
+}
+.db-board__column--drop {
+  outline: 2px dashed var(--caret-color);
+  outline-offset: -2px;
+}
+.db-board__card-wrap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+.db-board__card-wrap--dragging {
+  opacity: 0.5;
+}
+/* "Move to": the card's column, to choose another; shown on hover or focus, always on touch screens */
+.db-board__move {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  max-width: 45%;
+  font: inherit;
+  font-size: 0.75rem;
+  padding: 2px 4px;
+  border: 1px solid var(--surface-border);
+  border-radius: 6px;
+  background: var(--modal-card-bg);
+  color: var(--text-secondary, var(--text-primary));
+  opacity: 0;
+  pointer-events: none;
+}
+.db-board__card-wrap:hover .db-board__move,
+.db-board__move:focus-visible,
+.db-board__move:focus {
+  opacity: 1;
+  pointer-events: auto;
+}
+/* On a touch screen, always there: below the card, so it covers none of it */
+@media (hover: none) {
+  .db-board__move {
+    position: static;
+    align-self: flex-end;
+    max-width: none;
+    margin-top: 4px;
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+.db-board__notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgba(148, 163, 184, 0.15);
+  font-size: 0.85rem;
+}
+.db-board__notice-undo {
+  font: inherit;
+  font-weight: 600;
+  border: none;
+  background: none;
+  color: var(--caret-color);
+  cursor: pointer;
+  padding: 0;
 }
 .db-board__empty {
   padding: 8px;

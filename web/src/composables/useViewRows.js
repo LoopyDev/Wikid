@@ -195,5 +195,5 @@ export function useViewRows({ fields, fieldById, tableRows, activeSavedView, isB
     if (targetPage && typeof openRowPageOverlay === 'function') openRowPageOverlay(targetPage);
   };
 
-  return { viewFilteredRows, viewSorting, shownRows, boardColumns, cardBodyFields, cardFieldCandidates, galleryCardField, galleryCardValue, openRowCard, rowTitle };
+  return { viewFilteredRows, viewSorting, shownRows, boardGroupField, boardColumns, cardBodyFields, cardFieldCandidates, galleryCardField, galleryCardValue, openRowCard, rowTitle };
 }
