@@ -122,6 +122,8 @@ export class DatabaseViewsService {
     const cardFieldId = fieldIds.has(source.cardFieldId) ? (source.cardFieldId as string) : null;
     // A board's or gallery's cards in the colour of their value in this (select) column
     const cardColorFieldId = selectFieldIds.has(source.cardColorFieldId) ? (source.cardColorFieldId as string) : null;
+    // How cards (and a board's columns) show their colour: a stripe, or a soft tint
+    const cardColorStyle = source.cardColorStyle === 'tint' ? 'tint' : 'stripe';
     // Gallery cards: which columns they show (null: every column the view shows), and how many of
     // a cover's linked rows before "Show more"
     const cardFieldIds = Array.isArray(source.cardFieldIds)
@@ -141,6 +143,7 @@ export class DatabaseViewsService {
       groupFieldId,
       cardFieldId,
       cardColorFieldId,
+      cardColorStyle,
       cardFieldIds,
       coverMaxItems,
       showColors,

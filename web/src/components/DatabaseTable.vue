@@ -18,7 +18,7 @@ import { linkHref } from '../utils/database/links';
 import { settleChoiceCell } from '../utils/database/choiceChange';
 import { getAssetTagValue, getMultiSelectValues, getRelationEntries, getRowIdValue, normalizeCellValue, normalizeFilterValues, normalizeRelationEntry, renderRowIdCell, shouldClearCell, stringifyValue, valueForField } from '../utils/database/cellValues';
 import { clearYMap, cloneForSeed, ensureCollabRowDataMap, generateId, hydrateRow, readCollabOrder } from '../utils/database/collabRows';
-import { ROW_COLORS, ROW_COLOR_KEY, rowColor, multiSelectDotStyle, multiSelectPillStyle } from '../utils/database/colors';
+import { ROW_COLORS, ROW_COLOR_KEY, rowColor, rgbaFromHex, multiSelectDotStyle, multiSelectPillStyle } from '../utils/database/colors';
 import { ADD_COLUMN_ID, ADD_COLUMN_LABEL, ADD_COLUMN_SIZE, ASSET_TAG_COLUMN_SIZE, AUTO_SIZE_BASE, AUTO_SIZE_BUFFER, AUTO_SIZE_CHAR_LIMIT, AUTO_SIZE_CHAR_WIDTH, AUTO_SIZE_FIRST_EXTRA, AUTO_SIZE_MULTI_MEMBERS_PLACEHOLDER, AUTO_SIZE_MULTI_PILL_GAP, AUTO_SIZE_MULTI_PILL_PADDING, AUTO_SIZE_MULTI_PLACEHOLDER, AUTO_SIZE_PAGE_ICON_EXTRA, AUTO_SIZE_RELATION_PLACEHOLDER, AUTO_SIZE_SELECT_EXTRA, AUTO_SIZE_SELECT_PLACEHOLDER, COLUMN_DEFAULT_SIZE, COLUMN_MAX_SIZE, COLUMN_MIN_SIZE, FIRST_COLUMN_MIN_SIZE, ROW_ID_COLUMN_ID, ROW_ID_COLUMN_LABEL, ROW_ID_COLUMN_MIN_SIZE, ROW_ID_COLUMN_SIZE } from '../utils/database/columnLayout';
 import { AUDIT_VIEW_ID, DEFAULT_INITIAL_STATUS, GOVERNANCE_FILTER_ID, auditStatusOptions, getAuditStatusClass, getComplianceRecordId } from '../utils/database/compliance';
 import { fieldTypeIcons, fieldTypes, getFieldSource, getLinkedFromConfig, getRelationConfig, isAssetTagField, isLinkedFromField, isFieldDeleteLocked, isFieldOptionsLocked, isFieldReadOnly, isFieldTypeLocked, isLastEditedField, isMembersField, isPageField, isPeopleField, isPersonField, isCreatedByField, CREATED_BY_OPTIONS, isRelationField, isSelectField, normalizeFieldOptions } from '../utils/database/fieldOptions';
@@ -1385,7 +1385,7 @@ watch(
 onBeforeUnmount(() => clearTimeout(connectionNoticeTimer));
 const { attachAwarenessListener, caretLeftForCell, cellEditor, releaseCell, clearLocalCellCursor, focusCellInput, getCellPresence, handleCaretMouse, handleCaretNavigate, markCellBlur, markCellFocus, markCellTyping, onTableFocusOut, presenceUser, setCellInputRef, updateAwarenessUser } = useCellPresence({ emit, activeUser, collabProvider, isCollabEnabled, tableWrapRef, flushPendingEnsureRowPages, scheduleSortRefresh });
 
-const { savedViews, normalizeSavedView, createSavedView, deleteSavedView, renameSavedView, patchActiveViewConfig, activeViewFilters, activeViewSorts, activeFilterCount, setFilterMatch, addFilterRule, updateFilterRule, changeFilterRuleField, removeFilterRule, addSortRule, updateSortRule, removeSortRule, setBoardGroupField, setGalleryCardField, setGalleryCardFields, setGalleryCoverMax, setGalleryShowColors, setCardColorField, setListOpenField, fieldChoices, filterMenu, filterMenuRef, filterMenuStyle, openFilterMenu, closeFilterMenu, sortMenu, sortMenuRef, sortMenuStyle, openSortMenu, closeSortMenu } = useSavedViews({ props, workspace, fields, fieldById, activeViewId, activeSavedView, hasApi, activeUser, error, canCreateForms, runWithSavingIndicator, closeFormMenu, closeColumnsMenu, getChoiceLabel, databaseRootRef });
+const { savedViews, normalizeSavedView, createSavedView, deleteSavedView, renameSavedView, patchActiveViewConfig, activeViewFilters, activeViewSorts, activeFilterCount, setFilterMatch, addFilterRule, updateFilterRule, changeFilterRuleField, removeFilterRule, addSortRule, updateSortRule, removeSortRule, setBoardGroupField, setGalleryCardField, setGalleryCardFields, setGalleryCoverMax, setGalleryShowColors, setCardColorField, setCardColorStyle, setListOpenField, fieldChoices, filterMenu, filterMenuRef, filterMenuStyle, openFilterMenu, closeFilterMenu, sortMenu, sortMenuRef, sortMenuStyle, openSortMenu, closeSortMenu } = useSavedViews({ props, workspace, fields, fieldById, activeViewId, activeSavedView, hasApi, activeUser, error, canCreateForms, runWithSavingIndicator, closeFormMenu, closeColumnsMenu, getChoiceLabel, databaseRootRef });
 
 watch(
   () => [fieldMenu.value.open, fieldMenu.value.fieldId],
@@ -2331,21 +2331,33 @@ const cardColorField = computed(() => {
   const field = fieldById.value.get(activeSavedView.value?.config?.cardColorFieldId);
   return field && isSelectField(field) ? field : null;
 });
+// How cards, and a board's columns, show their colours: a stripe (a card's left edge, a column's
+// top), or a soft tint over their own background. Given as CSS variables, so a card's hover
+// highlight still shows.
+const cardColorTint = computed(() => activeSavedView.value?.config?.cardColorStyle === 'tint');
+const tintOf = (color, alpha) => rgbaFromHex(color, alpha) || `color-mix(in srgb, ${color} ${Math.round(alpha * 100)}%, transparent)`;
+const colorStyleFor = (color, { column = false } = {}) => {
+  if (!color) return null;
+  if (cardColorTint.value) return { '--db-colour': color, '--db-tint': tintOf(color, column ? 0.1 : 0.14) };
+  return { '--db-colour': color };
+};
+const colorClassFor = (color, base) => (color ? `${base}--${cardColorTint.value ? 'tinted' : 'colored'}` : null);
 // Each row's card colour, worked out once a change rather than per binding (a multi-select's first
 // value with a colour)
-const cardColorStyles = computed(() => {
+const cardColors = computed(() => {
   const field = cardColorField.value;
-  const styles = new Map();
-  if (!field) return styles;
+  const colors = new Map();
+  if (!field) return colors;
   for (const row of tableRows.value) {
     const values = field.type === 'SELECT' ? [valueForField(row, field)] : getMultiSelectValues(row, field);
     const color = values.map((value) => choiceColorForValue(field, value)).find(Boolean);
-    if (color) styles.set(row.id, { borderLeftColor: color });
+    if (color) colors.set(row.id, color);
   }
-  return styles;
+  return colors;
 });
-const cardColorStyle = (row) => cardColorStyles.value.get(row.id) || null;
-const galleryCardStyle = (row) => cardColorStyle(row) || (galleryShowColors.value && rowColor(row) ? { borderLeftColor: rowColor(row) } : null);
+const cardColor = (row) => cardColors.value.get(row.id) || null;
+// A gallery's card: its colour-by colour, else (with "Show colours") its own row's
+const galleryCardColor = (row) => cardColor(row) || (galleryShowColors.value ? rowColor(row) : null);
 const galleryPills = (row, field) => {
   if (!galleryShowColors.value || !field) return null;
   if (field.type === 'SELECT' || field.type === 'MULTI_SELECT' || isPersonField(field)) {
@@ -4092,6 +4104,18 @@ onBeforeUnmount(() => {
                     <option v-for="field in selectFields" :key="field.id" :value="field.id">{{ field.name || 'Field' }}</option>
                   </select>
                 </label>
+                <label class="db-view-options__row">
+                  <span class="db-view-options__label">Colour style</span>
+                  <select
+                    class="db-view-config__select"
+                    aria-label="Colour style"
+                    :value="cardColorTint ? 'tint' : 'stripe'"
+                    @change="setCardColorStyle($event.target.value)"
+                  >
+                    <option value="stripe">Stripe</option>
+                    <option value="tint">Tint</option>
+                  </select>
+                </label>
                 <div class="db-view-options__heading">Card fields</div>
                 <label v-for="field in cardFieldCandidates" :key="field.id" class="db-card-fields__option">
                   <input type="checkbox" :checked="cardFieldShown(field.id)" @change="toggleCardField(field.id)" />
@@ -4109,8 +4133,8 @@ onBeforeUnmount(() => {
               role="button"
               tabindex="0"
               class="db-gallery__card"
-              :class="{ 'db-gallery__card--colored': galleryCardStyle(row) }"
-              :style="galleryCardStyle(row)"
+              :class="colorClassFor(galleryCardColor(row), 'db-gallery__card')"
+              :style="colorStyleFor(galleryCardColor(row))"
               @click="openRowCard(row)"
               @keydown.enter.self.prevent="openRowCard(row)"
               @keydown.space.self.prevent="openRowCard(row)"
@@ -4250,16 +4274,25 @@ onBeforeUnmount(() => {
                 {{ field.name || 'Field' }}
               </option>
             </select>
-            <label class="db-view-config-bar__label" for="db-board-card-colour">Colour cards by</label>
-            <select
-              id="db-board-card-colour"
-              class="db-view-config__select"
-              :value="activeSavedView?.config?.cardColorFieldId || ''"
-              @change="setCardColorField($event.target.value)"
-            >
-              <option value="">None</option>
-              <option v-for="field in selectFields" :key="field.id" :value="field.id">{{ field.name || 'Field' }}</option>
-            </select>
+            <label class="db-view-config-bar__label">
+              Colour cards by
+              <select
+                class="db-view-config__select"
+                :value="activeSavedView?.config?.cardColorFieldId || ''"
+                @change="setCardColorField($event.target.value)"
+              >
+                <option value="">None</option>
+                <option v-for="field in selectFields" :key="field.id" :value="field.id">{{ field.name || 'Field' }}</option>
+              </select>
+            </label>
+            <!-- The cards', and the columns' (in their own choice's colour) -->
+            <label class="db-view-config-bar__label">
+              Colour style
+              <select class="db-view-config__select" :value="cardColorTint ? 'tint' : 'stripe'" @change="setCardColorStyle($event.target.value)">
+                <option value="stripe">Stripe</option>
+                <option value="tint">Tint</option>
+              </select>
+            </label>
           </div>
           <div v-if="boardMoveNotice" class="db-board__notice" role="status">
             “{{ boardMoveNotice.title }}” moved to {{ boardMoveNotice.label }}; this view doesn't show it.
@@ -4269,7 +4302,8 @@ onBeforeUnmount(() => {
             <div
               v-for="column in boardColumns"
               :key="column.key"
-              :class="['db-board__column', { 'db-board__column--drop': boardDropKey === column.key }]"
+              :class="['db-board__column', colorClassFor(column.color, 'db-board__column'), { 'db-board__column--drop': boardDropKey === column.key }]"
+              :style="colorStyleFor(column.color, { column: true })"
               @dragover="onBoardColumnDragOver(column, $event)"
               @dragleave="onBoardColumnDragLeave(column, $event)"
               @drop="onBoardColumnDrop(column, $event)"
@@ -4289,8 +4323,8 @@ onBeforeUnmount(() => {
                   <div
                     role="button"
                     tabindex="0"
-                    :class="['db-board__card', { 'db-board__card--colored': cardColorStyle(row) }]"
-                    :style="cardColorStyle(row)"
+                    :class="['db-board__card', colorClassFor(cardColor(row), 'db-board__card')]"
+                    :style="colorStyleFor(cardColor(row))"
                     :draggable="canMoveBoardCards ? 'true' : 'false'"
                     @click="openRowCard(row)"
                     @keydown.enter.prevent="openRowCard(row)"

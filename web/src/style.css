@@ -11646,9 +11646,6 @@ a.db-list__title {
   color: var(--text-muted);
 }
 /* "Show colours": a card in its own row's colour, its values as coloured pills */
-.db-gallery__card--colored {
-  border-left-width: 4px;
-}
 .db-gallery__field-pills {
   display: inline-flex;
   flex-wrap: wrap;
@@ -11744,8 +11741,31 @@ select.db-cell-input option,
   border-radius: 50%;
   flex: 0 0 auto;
 }
-.db-board__card--colored {
+.db-board__card--colored,
+.db-gallery__card--colored {
   border-left-width: 4px;
+  border-left-color: var(--db-colour);
+}
+/* Tinted: the colour softly over the card's own background, its border all round in it (but for
+   the hover highlight) */
+.db-board__card--tinted,
+.db-gallery__card--tinted {
+  border-color: var(--db-colour);
+  background-image: linear-gradient(var(--db-tint), var(--db-tint));
+}
+.db-board__card--colored:hover,
+.db-gallery__card--colored:hover {
+  border-left-color: var(--db-colour);
+}
+.db-board__card--tinted:hover,
+.db-gallery__card--tinted:hover {
+  border-color: var(--caret-color);
+}
+.db-board__column--colored {
+  border-top: 3px solid var(--db-colour);
+}
+.db-board__column--tinted {
+  background-image: linear-gradient(var(--db-tint), var(--db-tint));
 }
 .db-board__column--drop {
   outline: 2px dashed var(--caret-color);

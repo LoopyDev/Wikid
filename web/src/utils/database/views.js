@@ -154,6 +154,7 @@ export const normalizeViewConfig = (config) => {
     hiddenFieldIds,
     groupFieldId: typeof src.groupFieldId === 'string' ? src.groupFieldId : null,
     cardColorFieldId: typeof src.cardColorFieldId === 'string' ? src.cardColorFieldId : null,
+    cardColorStyle: src.cardColorStyle === 'tint' ? 'tint' : 'stripe',
     cardFieldId: typeof src.cardFieldId === 'string' ? src.cardFieldId : null,
     // Gallery cards: the columns they show (null: every column the view shows), and how many of a
     // cover's linked rows show before "Show more"

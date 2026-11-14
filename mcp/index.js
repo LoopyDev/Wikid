@@ -227,6 +227,9 @@ function formatDatabase({ db, fields, rows }) {
 // ---- Database views ----
 
 const VIEW_TYPES = ['table', 'board', 'gallery', 'list'];
+// How cards (and a board's columns) show their colours: a stripe down a card's left (a column's
+// top), or a soft tint behind them
+const COLOUR_STYLES = ['stripe', 'tint'];
 const NO_VALUE = new Set(['is_empty', 'is_not_empty', 'is_checked', 'is_unchecked', 'is_me', 'is_not_me']);
 // The filters each type of column has, as the app offers them (operatorsForFieldType in
 // web/src/utils/database/views.js)
@@ -279,7 +282,10 @@ function formatView(view, fields) {
   }
   if (config.sorts?.length) parts.push(`sorted by ${config.sorts.map((sort) => `${nameOf(sort.fieldId)}${sort.direction === 'desc' ? ' (descending)' : ''}`).join(', ')}`);
   if (config.groupFieldId) parts.push(`grouped by ${nameOf(config.groupFieldId)}`);
-  if (config.cardColorFieldId) parts.push(`cards coloured by ${nameOf(config.cardColorFieldId)}`);
+  const tinted = config.cardColorStyle === 'tint';
+  if (config.cardColorFieldId) parts.push(`cards coloured by ${nameOf(config.cardColorFieldId)}${tinted ? ', tinted' : ''}`);
+  else if (tinted && String(view.type).toUpperCase() === 'BOARD') parts.push('columns tinted');
+  else if (tinted && String(view.type).toUpperCase() === 'GALLERY') parts.push('cards tinted when coloured');
   if (config.hiddenFieldIds?.length) parts.push(`hiding ${config.hiddenFieldIds.map(nameOf).join(', ')}`);
   return `- ${view.name} (${String(view.type).toLowerCase()})${parts.length ? `: ${parts.join('; ')}` : ''}`;
 }
@@ -311,7 +317,7 @@ function viewFilter(fields, { column, operator, value }) {
 }
 
 /** A view's type and settings as the API takes them, from those given (others left as they are). */
-function viewBody(fields, view, { name, type, filters, match, sorts, groupBy, colourBy, hide }) {
+function viewBody(fields, view, { name, type, filters, match, sorts, groupBy, colourBy, colourStyle, hide }) {
   const body = {};
   if (name !== undefined) {
     if (!name.trim()) throw new Error('Give the view a name');
@@ -347,7 +353,12 @@ function viewBody(fields, view, { name, type, filters, match, sorts, groupBy, co
       config.cardColorFieldId = field.id;
     }
   }
-  if ([filters, match, sorts, hide, groupBy, colourBy, type].some((part) => part !== undefined)) body.config = config;
+  if (colourStyle !== undefined) {
+    if (!hasCards) throw new Error("Only a board's or gallery's cards are coloured: give type board or gallery");
+    if (!COLOUR_STYLES.includes(colourStyle)) throw new Error(`Not a colour style: "${colourStyle}". Styles: ${COLOUR_STYLES.join(', ')}`);
+    config.cardColorStyle = colourStyle;
+  }
+  if ([filters, match, sorts, hide, groupBy, colourBy, colourStyle, type].some((part) => part !== undefined)) body.config = config;
   return body;
 }
 
@@ -365,6 +376,7 @@ const viewSchema = {
   sorts: z.array(z.object({ column: z.string(), direction: z.enum(['asc', 'desc']).optional() })).optional().describe('Sorted by these columns, in order'),
   groupBy: z.string().nullable().optional().describe("For a board: the select column whose choices are its columns (a new board: the first select)"),
   colourBy: z.string().nullable().optional().describe("For a board or gallery: a select or multi_select column whose choices' colours its cards take (null: none)"),
+  colourStyle: z.string().optional().describe("For a board or gallery: how cards (and a board's columns, in their choice's colour) show colours: stripe (default) or tint"),
   hide: z.array(z.string()).optional().describe('Columns the view hides'),
 };
 

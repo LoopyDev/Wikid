@@ -56,7 +56,7 @@ Then ask Claude about your wiki ("what's on the onboarding page?", "add a page o
 | `create_database` | A database, with its columns |
 | `add_database_column`, `update_database_column` | A column added (a relation, too: to another database's rows); renamed, its type changed, or its choices added, renamed, removed or coloured (sky, green, yellow, orange, red, purple, indigo, teal, slate, or `#rrggbb`) |
 | `delete_database_column` | A column and its cells, with `confirm: true` (not the title column) |
-| `create_database_view`, `update_database_view`, `delete_database_view` | Views of a database: table, board, gallery or list; filtered, sorted, a board grouped by a select, cards coloured by a select, columns hidden |
+| `create_database_view`, `update_database_view`, `delete_database_view` | Views of a database: table, board, gallery or list; filtered, sorted, a board grouped by a select, cards coloured by a select (a stripe, or a tint), columns hidden |
 
 ### Images
 
