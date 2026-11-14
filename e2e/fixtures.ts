@@ -1,4 +1,7 @@
-import { test as base, expect, type Browser, type BrowserContext, type Page } from '@playwright/test';
+import { test as base, expect, request, type Browser, type BrowserContext, type Page } from '@playwright/test';
+
+// Where the app is (as the config has it), for requests made outside a page
+const BASE_URL = process.env.WIKID_BASE_URL || 'http://localhost:8088';
 
 // Demo users seeded by the Docker stack (password "wikid"), all owners of the demo workspace.
 export const USERS = {
@@ -20,6 +23,23 @@ export async function signIn(context: BrowserContext, email: string) {
   await context.addInitScript((u) => {
     window.localStorage.setItem('wikid:user', JSON.stringify(u));
   }, { id: user.id, name: user.displayName });
+}
+
+/**
+ * Makes someone a member of a workspace, as an owner (`owner`'s session) would: invited, then the
+ * invitation accepted, signed in as them through the API alone (no browser of theirs needed).
+ */
+export async function addMember(owner: Page, workspaceId: string, email: string, role = 'EDITOR') {
+  const invited = await owner.request.post(`/api/workspaces/${workspaceId}/members`, { data: { email, role } });
+  expect(invited.status(), `invite ${email}`).toBe(201);
+  const them = await request.newContext({ baseURL: BASE_URL });
+  try {
+    expect((await them.post('/api/auth/login', { data: { email, password: DEMO_PASSWORD } })).status(), `login as ${email}`).toBe(201);
+    const accepted = await them.post(`/api/invitations/${(await invited.json()).invitation.id}/accept`);
+    expect(accepted.status(), `${email} accepts`).toBe(201);
+  } finally {
+    await them.dispose();
+  }
 }
 
 /** Creates a page through the API and returns its id. */
@@ -123,8 +143,7 @@ export const test = base.extend<Fixtures>({
     const created = await alice.request.post('/api/workspaces', { data: { name: unique('E2E workspace') } });
     expect(created.status()).toBe(201);
     const id = (await created.json()).workspace.id as string;
-    const member = await alice.request.post(`/api/workspaces/${id}/members`, { data: { email: USERS.bob.email, role: 'EDITOR' } });
-    expect(member.status()).toBe(201);
+    await addMember(alice, id, USERS.bob.email, 'EDITOR');
     await use(id);
     await alice.request.delete(`/api/workspaces/${id}`);
   },

@@ -510,6 +510,91 @@ button {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.user-menu-invitation {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: var(--accent-subtle);
+}
+.user-menu-invitation-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--context-menu-text);
+}
+.user-menu-invitation-text strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.user-menu-invitation-text span {
+  opacity: 0.75;
+}
+.user-menu-invitation-actions {
+  display: flex;
+  gap: 6px;
+}
+.user-menu-invitation-actions button {
+  flex: 1;
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--context-menu-border);
+  background: transparent;
+  color: var(--context-menu-text);
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.user-menu-invitation-actions .user-menu-invitation-accept {
+  border-color: var(--accent-strong);
+  background: var(--accent-strong);
+  color: #fff;
+}
+.user-menu-invitation-actions .user-menu-invitation-accept:hover:not(:disabled) {
+  background: var(--accent-strong-hover);
+}
+.user-menu-invitation-actions .user-menu-invitation-decline:hover:not(:disabled) {
+  background: var(--accent-subtle);
+}
+.user-menu-invitation-actions button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.user-menu-invitation-error {
+  margin: 0;
+  padding: 0 8px;
+  font-size: 0.8rem;
+  color: var(--danger);
+}
+/* Read out, not shown */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+.user-switch__badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--accent-strong);
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 600;
+}
 .user-menu-empty {
   padding: 4px 8px;
   font-size: 0.85rem;

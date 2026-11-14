@@ -125,8 +125,9 @@ describe('members', () => {
     expect((await alice.post(`/workspaces/${workspace}/members`, { email: USERS.alice.email, role: 'VIEWER' })).status).toBe(409);
     const members = (await alice.get(`/workspaces/${workspace}/members`)).body as any[];
     expect(members.find((m) => (m.user?.id ?? m.userId) === USERS.alice.id)?.role).toBe('OWNER');
-    // Adding someone again as what they already are is fine (a double click, say)
-    expect((await alice.post(`/workspaces/${workspace}/members`, { email: USERS.alice.email, role: 'OWNER' })).status).toBe(201);
+    // Or as what they already are: a member isn't invited (a double click on the form invites
+    // someone once, the second time the same invitation)
+    expect((await alice.post(`/workspaces/${workspace}/members`, { email: USERS.alice.email, role: 'OWNER' })).status).toBe(409);
   });
 });
 

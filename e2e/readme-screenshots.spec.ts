@@ -129,9 +129,10 @@ test('readme screenshots', async ({ browser }) => {
     await api.put(`/api/pages/${meetingNotes}/content`, {
       data: { content: meeting('Weekly lab meeting, Monday 9:30.', [[4, 'Freezer -80 temperature alarms'], [6, 'New starters: induction dates'], [10, 'Fume hood 3 service']]) },
     });
-    await api.post(`/api/workspaces/${ws}/members`, { data: { email: USERS.bob.email, role: 'EDITOR' } });
+    const invited = await (await api.post(`/api/workspaces/${ws}/members`, { data: { email: USERS.bob.email, role: 'EDITOR' } })).json();
     const bobContext = await browser.newContext({ viewport: { width: 1440, height: 900 } });
     await signIn(bobContext, USERS.bob.email);
+    await bobContext.request.post(`/api/invitations/${invited.invitation.id}/accept`);
     await bobContext.addInitScript((t) => localStorage.setItem('wikid:theme', t), theme);
     const bob = await bobContext.newPage();
     await page.goto(`/doc/${meetingNotes}`);

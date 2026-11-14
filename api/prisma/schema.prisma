@@ -20,6 +20,8 @@ model User {
   mustChangePassword Boolean         @default(false)
   pages              Page[]          @relation("PageAuthor")
   memberships        UserWorkspace[]
+  invitations        WorkspaceInvitation[] @relation("Invited")
+  invitationsSent    WorkspaceInvitation[] @relation("InvitedBy")
   personalWorkspace  Workspace?      @relation("PersonalWorkspace")
   sessions           UserSession[]
 }
@@ -47,6 +49,7 @@ model Workspace {
   databases       Database[]
   pages           Page[]
   memberships     UserWorkspace[]
+  invitations     WorkspaceInvitation[]
   adminActions    WorkspaceAdminAction[]
   personalOwner   User?           @relation("PersonalWorkspace", fields: [personalOwnerId], references: [id])
 }
@@ -75,6 +78,22 @@ model UserWorkspace {
   workspace   Workspace     @relation(fields: [workspaceId], references: [id])
 
   @@unique([userId, workspaceId])
+}
+
+// Someone asked to join a workspace, with the role they'd have: a member once they accept it
+model WorkspaceInvitation {
+  id          String        @id @default(uuid()) @db.Uuid
+  workspaceId String        @db.Uuid
+  userId      String        @db.Uuid
+  role        WorkspaceRole @default(EDITOR)
+  invitedById String?       @db.Uuid
+  createdAt   DateTime      @default(now())
+  workspace   Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user        User          @relation("Invited", fields: [userId], references: [id], onDelete: Cascade)
+  invitedBy   User?         @relation("InvitedBy", fields: [invitedById], references: [id], onDelete: SetNull)
+
+  @@unique([workspaceId, userId])
+  @@index([userId])
 }
 
 model Page {

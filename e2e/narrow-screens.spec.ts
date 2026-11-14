@@ -1,4 +1,4 @@
-import { test, expect, createPage, openPage, editor, blockTexts, signIn, USERS } from './fixtures';
+import { test, expect, createPage, openPage, editor, blockTexts, placeCursor, signIn, USERS } from './fixtures';
 import type { Page } from '@playwright/test';
 
 // A tablet upright and a phone: the sidebar is a drawer over the page, and nothing runs off the side.
@@ -78,8 +78,8 @@ test.describe('narrow screens', () => {
     await expect(page.getByRole('main').locator('.crumbs > :last-child')).toHaveText('Notes with a long title for a phone screen');
     await expect(page.getByRole('main').locator('.crumbs > :last-child')).toBeVisible();
 
-    await editor(page).locator('p').first().click();
-    await page.keyboard.press('End');
+    // At the end of the paragraph (End alone goes to the end of the wrapped line clicked on)
+    await placeCursor(page, 0, 'end');
     await page.keyboard.type(' Typed.', { delay: 20 });
     await expect.poll(() => blockTexts(page)).toEqual(['A line of text long enough to wrap on a phone, and then some more. Typed.']);
 

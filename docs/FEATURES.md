@@ -16,6 +16,7 @@ What Wikid does today, and how much to rely on each part. Wikid is in early deve
 |---|---|---|
 | Nested pages, reordering, moving pages between workspaces | Stable | |
 | Workspaces with Owner, Editor and Viewer roles | Stable | |
+| Inviting people to a workspace: they accept or decline, and its owners see who's invited and can take an invitation back | Beta | New. Invitations show in the workspace menu (a count by the workspace's name); there's no email yet. |
 | Private and public pages | Stable | Private pages are visible to their author only. |
 | Bin: restore, or delete for good | Stable | |
 | Page history: versions with who edited them, what each changed, restoring a version | Beta | New. A version is an editing session (saves less than 5 minutes apart, up to 30 minutes). Changes are marked block by block (added, changed, removed), not word by word. Kept from the first edit after updating. Database pages have no history yet. |
@@ -116,4 +117,5 @@ route only lets the right people in, and two-factor authentication. Then, roughl
 6. Read-only share links
 7. Single sign-on (OIDC: Google, Microsoft Entra, Okta, Keycloak, Authentik)
 8. Page owners and "last reviewed" dates
-9. Later: invite links, optional email (invites, password reset), and open sign-up behind an admin switch
+9. Later: invite links, optional email (invites, password reset), and open sign-up behind an admin switch (first
+   stopping the member form saying which accounts exist)

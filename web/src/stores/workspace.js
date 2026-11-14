@@ -78,6 +78,8 @@ export const useWorkspaceStore = defineStore('workspace', {
     returnToPageId: null,
     expiredUserId: null,
     workspaces: [],
+    // Invitations to join a workspace, waiting for this person's answer
+    invitations: [],
     activeWorkspaceId: null,
     activeWorkspaceRole: null,
     doc: fallbackDoc,
@@ -224,6 +226,7 @@ export const useWorkspaceStore = defineStore('workspace', {
         this.activePageId = null;
         this.activePageWorkspaceId = null;
         this.workspaces = [];
+        this.invitations = [];
         this.activeWorkspaceId = null;
         this.activeWorkspaceRole = null;
         this.doc = fallbackDoc;
@@ -243,6 +246,7 @@ export const useWorkspaceStore = defineStore('workspace', {
         this.workspaces = Array.isArray(memberships) ? memberships : [];
         this.hasApi = true;
         await Promise.all([this.fetchUserPreferences(), this.loadServerConfig()]);
+        this.loadInvitations();
         const savedWorkspaceId = this.loadLastWorkspaceId();
         const defaultWorkspace =
           this.workspaces.find((entry) => entry.workspace?.id === savedWorkspaceId) ||
@@ -272,6 +276,7 @@ export const useWorkspaceStore = defineStore('workspace', {
         this.activePageId = null;
         this.activePageWorkspaceId = null;
         this.workspaces = [];
+        this.invitations = [];
         this.activeWorkspaceId = null;
         this.activeWorkspaceRole = null;
         this.doc = fallbackDoc;
@@ -282,6 +287,36 @@ export const useWorkspaceStore = defineStore('workspace', {
         this.loadingPages = false;
         this.sessionChecked = true;
       }
+    },
+    // Invitations waiting for an answer (kept as they were if they can't be fetched now)
+    async loadInvitations() {
+      if (!this.activeUser) return;
+      try {
+        const list = await api.listInvitations();
+        this.invitations = Array.isArray(list) ? list : [];
+      } catch {
+        // tried again when the menu next opens
+      }
+    },
+    // Accepted, the workspace joins the list (its id is returned, to open it); declined, it's gone
+    async answerInvitation(invitationId, accept) {
+      const drop = () => {
+        this.invitations = this.invitations.filter((entry) => entry.id !== invitationId);
+      };
+      let answered;
+      try {
+        answered = await api.answerInvitation(invitationId, accept);
+      } catch (err) {
+        // Answered elsewhere, or taken back meanwhile: gone (said why), with nothing to join
+        if (err?.status === 404) drop();
+        throw err;
+      }
+      drop();
+      const workspaceId = accept ? answered?.workspaceId : null;
+      if (!workspaceId) return null;
+      // A member now, whether or not the list catches up this moment (it does when next loaded)
+      await this.refreshWorkspaces().catch(() => {});
+      return workspaceId;
     },
     async refreshWorkspaces() {
       if (!this.activeUser || !this.hasApi) return [];
@@ -709,6 +744,7 @@ export const useWorkspaceStore = defineStore('workspace', {
       this.error = null;
       this.activePageWorkspaceId = null;
       this.workspaces = [];
+      this.invitations = [];
       this.activeWorkspaceId = null;
       this.activeWorkspaceRole = null;
       this.pendingTitleUpdates = {};

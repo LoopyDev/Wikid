@@ -67,7 +67,14 @@ const {
   titleDraft,
   privateOpen,
   publicOpen,
+  invitations,
 } = storeToRefs(workspace);
+// Invitations sent while the tab was in the background show once it's back
+const loadInvitationsOnReturn = () => {
+  if (document.visibilityState === 'visible') workspace.loadInvitations();
+};
+onMounted(() => document.addEventListener('visibilitychange', loadInvitationsOnReturn));
+onBeforeUnmount(() => document.removeEventListener('visibilitychange', loadInvitationsOnReturn));
 
 const pageTitle = computed(() => {
   const draft = typeof titleDraft.value === 'string' ? titleDraft.value : '';
@@ -2301,6 +2308,14 @@ if (typeof window !== 'undefined') {
         <button class="user-switch" type="button" @click="toggleUserMenu($event)">
           <span class="user-switch__label">
             <span class="user-name">{{ activeUser ? activeWorkspaceName : 'Log in' }}</span>
+            <span
+              v-if="activeUser && invitations.length"
+              class="user-switch__badge"
+              :title="invitations.length === 1 ? 'An invitation to a workspace' : `${invitations.length} invitations to workspaces`"
+            >
+              {{ invitations.length }}
+              <span class="visually-hidden">{{ invitations.length === 1 ? 'invitation' : 'invitations' }}</span>
+            </span>
             <span class="caret">▾</span>
           </span>
         </button>

@@ -267,13 +267,13 @@ describe('admin user management and passwords', () => {
     // A shared workspace owned by alice, where the user writes a public and a private page.
     const alice = await loginAs(USERS.alice.email);
     const shared = (await alice.post('/workspaces', { name: unique('Shared') })).body.workspace.id;
-    expect((await alice.post(`/workspaces/${shared}/members`, { email, role: 'EDITOR' })).status).toBe(201);
+    await addMember(alice, shared, email, 'EDITOR', user);
     const publicPage = (await user.post('/pages', { workspaceId: shared, title: 'Public notes' })).body;
     const privatePage = (await user.post('/pages', { workspaceId: shared, title: 'Private notes', visibility: 'PRIVATE' })).body;
     const privateChild = (await user.post('/pages', { workspaceId: shared, parentId: privatePage.id })).body;
     // A workspace they co-own with alice, and their personal workspace with a database that has a view.
     const own = (await user.post('/workspaces', { name: unique('Own') })).body.workspace.id;
-    expect((await user.post(`/workspaces/${own}/members`, { email: USERS.alice.email, role: 'OWNER' })).status).toBe(201);
+    await addMember(user, own, USERS.alice.email, 'OWNER', alice);
     const personal = (await user.get('/workspaces')).body.find((m: any) => m.workspaceId !== shared && m.workspaceId !== own);
     const personalPage = (await user.post('/pages', { workspaceId: personal.workspaceId, kind: 'DATABASE' })).body;
     expect((await user.post(`/pages/${personalPage.id}/database/views`, { name: 'Board', type: 'BOARD' })).status).toBe(201);

@@ -1,4 +1,4 @@
-import { test, expect, unique, signIn, USERS } from './fixtures';
+import { test, expect, unique, signIn, addMember, USERS } from './fixtures';
 
 // The system admin's Workspaces panel: every workspace (not only the admin's), an owner set and a
 // member removed to repair one, each change shown to its members, and deleting one.
@@ -6,7 +6,7 @@ import { test, expect, unique, signIn, USERS } from './fixtures';
 test('the admin repairs and deletes a workspace from the panel; its members see what changed', async ({ browser, alice, bob }) => {
   const created = await alice.request.post('/api/workspaces', { data: { name: unique('Locked out') } });
   const { id, name } = (await created.json()).workspace as { id: string; name: string };
-  expect((await alice.request.post(`/api/workspaces/${id}/members`, { data: { email: USERS.bob.email, role: 'EDITOR' } })).status()).toBe(201);
+  await addMember(alice, id, USERS.bob.email, 'EDITOR');
 
   const context = await browser.newContext();
   await signIn(context, USERS.admin.email);

@@ -1,4 +1,4 @@
-import { test, expect, createPage, openPage, editor, unique, USERS } from './fixtures';
+import { test, expect, createPage, openPage, editor, unique, addMember, USERS } from './fixtures';
 import type { Page } from '@playwright/test';
 
 // A link to a page that can't be opened: the reason in its place, at its address, and nothing
@@ -65,7 +65,7 @@ test.describe("pages that can't be opened", () => {
     const created = await alice.request.post('/api/workspaces', { data: { name: unique('Elsewhere') } });
     const other = (await created.json()).workspace as { id: string; name: string };
     try {
-      expect((await alice.request.post(`/api/workspaces/${other.id}/members`, { data: { email: USERS.bob.email, role: 'EDITOR' } })).status()).toBe(201);
+      await addMember(alice, other.id, USERS.bob.email, 'EDITOR');
       const moving = await createPage(alice, workspaceId, { title: 'On the move' });
       await openPage(bob, moving);
       await expect(editor(bob)).toBeVisible();
