@@ -77,6 +77,14 @@ export const collabSchema = new Schema({
         ...blockAttrs,
       },
     },
+    // A page named in a line of text, by its id only: its title is looked up for whoever reads it
+    // (someone else's private page shows as a private page)
+    pageMention: {
+      inline: true,
+      group: 'inline',
+      atom: true,
+      attrs: { pageId: { default: '' } },
+    },
     hardBreak: {
       inline: true,
       group: 'inline',

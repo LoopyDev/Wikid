@@ -27,6 +27,8 @@ const LEFT_OUT: Record<string, keyof TemplateCleanup> = {
   databaseView: 'databaseViews',
   databaseForm: 'databaseForms',
   pageLink: 'pageLinks',
+  // (A mention of a page here: counted with the page links)
+  pageMention: 'pageLinks',
   gaussianSplat: 'splats',
 };
 

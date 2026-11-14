@@ -92,6 +92,9 @@ test.describe('links', () => {
     const suggestion = linkEditor(page).getByRole('option', { name: title });
     await expect(suggestion).toBeVisible();
     await suggestion.click();
+    // Words chosen: linked to the page (not made a mention), once Done
+    await expect(linkEditor(page).getByLabel(/Show as a mention/)).not.toBeChecked();
+    await linkEditor(page).getByRole('button', { name: 'Done' }).click();
     await expect(linkEditor(page)).toHaveCount(0);
     await expect.poll(() => links(page)).toEqual([['see the guide', `/doc/${target}`]]);
 

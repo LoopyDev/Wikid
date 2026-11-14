@@ -258,3 +258,34 @@ describe('changing blocks', () => {
     expect(replaceAll([{ type: 'paragraph' }], 'Hello')).toEqual([p(null, text('Hello'))]);
   });
 });
+
+describe('page mentions', () => {
+  const id = 'ca27b9ee-36f3-4e5f-9cdd-aaf0e385f380';
+  it('"[@Title](/doc/<id>)" reads as a mention of that page; other links stay links', () => {
+    expect(markdownToContent(`See [@Onboarding](/doc/${id}).`)[0].content).toEqual([
+      { type: 'text', text: 'See ' },
+      { type: 'pageMention', attrs: { pageId: id } },
+      { type: 'text', text: '.' },
+    ]);
+    // Without the "@", or to another site: a link
+    expect(markdownToContent(`[Onboarding](/doc/${id})`)[0].content?.[0]).toMatchObject({ type: 'text', marks: [{ type: 'link' }] });
+    expect(markdownToContent('[@someone](https://example.com)')[0].content?.[0]).toMatchObject({ type: 'text', marks: [{ type: 'link' }] });
+  });
+
+  it('a mention given no title is written so it reads back as itself, so a page with one can be rewritten', () => {
+    const page = [{ type: 'paragraph', content: [{ type: 'text', text: 'See ' }, { type: 'pageMention', attrs: { pageId: id } }] }];
+    expect(contentToMarkdown(page)).toBe(`See [@page](/doc/${id})`);
+    expect(markdownKeeps(page)).toBe(true);
+  });
+
+  it('a bold mention, and two side by side, read back as mentions', () => {
+    const mention = { type: 'pageMention', attrs: { pageId: id, label: 'Onboarding', href: `/doc/${id}` } };
+    const page = [{ type: 'paragraph', content: [{ ...mention, marks: [{ type: 'bold' }] }, mention] }];
+    const markdown = contentToMarkdown(page);
+    expect(markdown).toBe(`[@Onboarding](/doc/${id})[@Onboarding](/doc/${id})`);
+    expect(markdownToContent(markdown)[0].content).toEqual([
+      { type: 'pageMention', attrs: { pageId: id } },
+      { type: 'pageMention', attrs: { pageId: id } },
+    ]);
+  });
+});

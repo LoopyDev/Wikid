@@ -32,6 +32,12 @@ function renderInline(nodes: ContentNode[] | undefined): string {
   return runs
     .map((node) => {
       if (node.type === 'hardBreak') return '\\\n';
+      // A page mention: "[@Title](/doc/<id>)", read back as one. Its title and address are given by
+      // page-content.service (the page's title for this reader); without, "@page"
+      if (node.type === 'pageMention' && node.attrs?.pageId) {
+        const label = typeof node.attrs.label === 'string' && node.attrs.label ? node.attrs.label : 'page';
+        return `[@${escapeText(label)}](${node.attrs.href || `/doc/${node.attrs.pageId}`})`;
+      }
       if (node.type !== 'text') return '';
       const marks = node.marks ?? [];
       const has = (type: string) => marks.some((m) => m.type === type);

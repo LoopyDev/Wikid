@@ -59,9 +59,17 @@ function inlineNodes(tokens: Token[] | undefined, marks: Mark[] = []): ContentNo
       case 'codespan':
         out.push({ type: 'text', text: decode(token.text), marks: [...marks, { type: 'code' }] });
         break;
-      case 'link':
+      case 'link': {
+        // "[@Title](/doc/<id>)": a page mention (how one reads as Markdown); the title in it is
+        // only for reading, the page's own is shown
+        const mentioned = /^\/doc\/([0-9a-fA-F-]{36})$/.exec(token.href ?? '');
+        if (mentioned && /^@/.test(token.text ?? '')) {
+          out.push({ type: 'pageMention', attrs: { pageId: mentioned[1] } });
+          break;
+        }
         out.push(...inline(token.tokens, [...marks, { type: 'link', attrs: { href: token.href } }]));
         break;
+      }
       case 'br':
         out.push({ type: 'hardBreak' });
         break;

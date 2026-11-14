@@ -15,6 +15,10 @@ const props = defineProps({
   editing: { type: Boolean, default: false },
   // Whether the words can be changed here (not for words across several blocks: only linked)
   textEditable: { type: Boolean, default: true },
+  // A page mention being edited (rather than linked words), and its page ({ id, title, icon }: shown
+  // even when it isn't among `pages`, someone else's private page say)
+  mention: { type: Boolean, default: false },
+  mentionPage: { type: Object, default: null },
   // The pages it can link to: { id, title, icon }
   pages: { type: Array, default: () => [] },
 });
@@ -32,6 +36,16 @@ const pickedPage = ref(null);
 const pickedHash = ref('');
 const activeIndex = ref(0);
 const error = ref('');
+// A page as a mention (its icon and title, kept up to date) rather than the words linked to it:
+// unless there are words to link, chosen or typed in the Text box (up to when it's saved), or the
+// box is ticked or unticked by hand
+const mentionChoice = ref(null);
+const asMention = computed({
+  get: () => (mentionChoice.value ?? !textValue.value.trim()),
+  set: (value) => {
+    mentionChoice.value = value;
+  },
+});
 // Escape closes the list of pages first, then the editor
 const listDismissed = ref(false);
 
@@ -44,16 +58,19 @@ const suggestions = computed(() => {
     .slice(0, MAX_SUGGESTIONS);
 });
 
+// A page chosen from the list: the Link box shows it, and Enter or Done puts it in
 const pickPage = (page) => {
   pickedPage.value = page;
   pickedHash.value = '';
   linkValue.value = page.title || 'Untitled page';
-  // Linked from nothing chosen: the page's title is the link's words
-  if (!textValue.value.trim()) textValue.value = page.title || 'Untitled page';
-  save();
+  linkInput.value?.focus();
 };
 
 const save = () => {
+  if (pickedPage.value && asMention.value) {
+    emit('save', { mention: true, pageId: pickedPage.value.id });
+    return;
+  }
   const href = pickedPage.value ? `/doc/${pickedPage.value.id}${pickedHash.value}` : normalizeLinkHref(linkValue.value);
   if (!href) {
     if (props.editing) emit('remove');
@@ -64,7 +81,8 @@ const save = () => {
     error.value = 'Links can go to web addresses (https://…), email (mailto:) and pages here.';
     return;
   }
-  emit('save', { text: textValue.value.trim() ? textValue.value : linkValue.value.trim(), href });
+  const fallback = pickedPage.value ? pickedPage.value.title || 'Untitled page' : linkValue.value.trim();
+  emit('save', { text: textValue.value.trim() ? textValue.value : fallback, href });
 };
 
 const onLinkInput = () => {
@@ -136,7 +154,7 @@ const onPointerDownOutside = (event) => {
 };
 
 onMounted(async () => {
-  const linked = pageOf(props.href);
+  const linked = pageOf(props.href) || (props.mentionPage ? { page: props.mentionPage, hash: '' } : null);
   if (linked) {
     pickedPage.value = linked.page;
     pickedHash.value = linked.hash;
@@ -197,9 +215,13 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onPointerDownOut
         <span class="link-editor__page-title">{{ page.title || 'Untitled page' }}</span>
       </li>
     </ul>
+    <label v-if="pickedPage" class="link-editor__mention">
+      <input v-model="asMention" type="checkbox" />
+      <span>Show as a mention (the page's icon and title, kept up to date)</span>
+    </label>
     <p v-if="error" class="link-editor__error" role="alert">{{ error }}</p>
     <div class="link-editor__actions">
-      <button v-if="editing" type="button" class="ghost-btn" @click="emit('remove')">Remove link</button>
+      <button v-if="editing" type="button" class="ghost-btn" @click="emit('remove')">{{ mention ? 'Remove mention' : 'Remove link' }}</button>
       <button type="button" class="ghost-btn ghost-btn-background" @click="save">Done</button>
     </div>
   </div>

@@ -878,6 +878,13 @@ ${hasSplats ? JS_SPLAT_INIT : ''}
         return '<hr>';
       case 'hardBreak':
         return '<br>';
+      // A page named in a line: by its title if it's in the export (a link to it there); otherwise
+      // without one (the export has only the titles of the pages it includes)
+      case 'pageMention': {
+        const linked = pageMap.get(attrs.pageId || '');
+        if (linked) return `<a href="#page-${esc(attrs.pageId)}" class="page-mention">${renderIcon(linked.icon || '')}${esc(linked.title || 'Untitled page')}</a>`;
+        return '<span class="page-mention page-mention--external">a page not in this export</span>';
+      }
       case 'image': {
         const src = attrs.src || '';
         const alt = esc(attrs.alt || '');
