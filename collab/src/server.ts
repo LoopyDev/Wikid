@@ -330,10 +330,37 @@ const normalizeRowData = (value: any) => {
   return value as Record<string, any>;
 };
 
-const applyRowUpdate = (document: Y.Doc, rowId: string, data: Record<string, any>, pageId?: string | null, createdBy?: string | null) => {
+// Cells to set, null to clear, into a row's data
+const applyCells = (data: Y.Map<any>, values: Record<string, unknown>) => {
+  for (const [key, value] of Object.entries(values)) {
+    if (value === null || value === undefined) {
+      if (data.has(key)) data.delete(key);
+    } else if (!sameJson(data.get(key) instanceof Y.AbstractType ? data.get(key).toJSON() : data.get(key), value)) {
+      data.set(key, value);
+    }
+  }
+};
+
+// `values`: only these cells changed (the API's `cells`), so an edit made meanwhile here to another
+// cell stays; a row the document hasn't got yet goes in whole (`data`). A copy of the API's
+// updateCollabDatabaseRowState.
+const applyRowUpdate = (
+  document: Y.Doc,
+  rowId: string,
+  data: Record<string, any>,
+  pageId?: string | null,
+  createdBy?: string | null,
+  values?: Record<string, unknown> | null,
+) => {
   const rowsMap = document.getMap('rows');
   const rowOrder = document.getArray('rowOrder');
   const storedRow = rowsMap.get(rowId);
+  const storedCells = storedRow instanceof Y.Map ? storedRow.get('data') : null;
+  if (values && storedRow instanceof Y.Map && storedCells instanceof Y.Map) {
+    applyCells(storedCells, values);
+    if (pageId && storedRow.get('pageId') !== pageId) storedRow.set('pageId', pageId);
+    return;
+  }
   let rowMap: Y.Map<any>;
   if (storedRow instanceof Y.Map) {
     rowMap = storedRow;
@@ -416,7 +443,8 @@ const applyFieldChange = (document: Y.Doc, field: FieldChange) => {
 };
 // A column changed with its cells (a copy of the API's applyCollabColumnChange): the column and
 // each row's cells together, null clearing a cell; rows not in the document left out
-type CellChange = { rowId: string; values: Record<string, unknown> };
+// was: per cell, what it may hold for the change to apply (see the API's CollabCellChange)
+type CellChange = { rowId: string; values: Record<string, unknown>; was?: Record<string, unknown[]> };
 const applyColumnChange = (document: Y.Doc, field: FieldChange, cells: CellChange[]) => {
   if (!document.getMap('fields').size) return;
   applyFieldChange(document, field);
@@ -425,13 +453,9 @@ const applyColumnChange = (document: Y.Doc, field: FieldChange, cells: CellChang
     const row = rowsMap.get(cell.rowId);
     const data = row instanceof Y.Map ? row.get('data') : null;
     if (!(data instanceof Y.Map) || !cell.values || typeof cell.values !== 'object') continue;
-    for (const [key, value] of Object.entries(cell.values)) {
-      if (value === null || value === undefined) {
-        if (data.has(key)) data.delete(key);
-      } else if (!sameJson(data.get(key) instanceof Y.AbstractType ? data.get(key).toJSON() : data.get(key), value)) {
-        data.set(key, value);
-      }
-    }
+    const now = (key: string) => (data.get(key) instanceof Y.AbstractType ? data.get(key).toJSON() : data.get(key));
+    if (cell.was && typeof cell.was === 'object' && Object.entries(cell.was).some(([key, forms]) => Array.isArray(forms) && !forms.some((form) => sameJson(now(key), form)))) continue;
+    applyCells(data, cell.values);
   }
 };
 const applyFieldDelete = (document: Y.Doc, fieldId: string) => {
@@ -662,8 +686,9 @@ const server = new Server({
           response.end(JSON.stringify({ ok: false, error: 'rowId is required' }));
           throw null;
         }
+        const values = body?.values && typeof body.values === 'object' && !Array.isArray(body.values) ? body.values : null;
         await connection.transact((document) => {
-          applyRowUpdate(document, rowId, data, pageId, createdBy);
+          applyRowUpdate(document, rowId, data, pageId, createdBy, values);
         });
       }
       response.writeHead(200, { 'Content-Type': 'application/json' });

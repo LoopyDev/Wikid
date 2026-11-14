@@ -28,6 +28,26 @@ test.describe('database basics', () => {
     await expect.poll(() => main(page).locator('tbody tr input[inputmode="decimal"]').nth(1).inputValue().then(Number)).toBe(-0.25);
   });
 
+  test('a formatted number pasted into a number cell ("1,234.50") is saved, not only shown', async ({ alice: page, workspaceId }) => {
+    await openPage(page, await createPage(page, workspaceId));
+    const id = await newDatabaseFromSidebar(page, unique('Pasted'));
+    await addNamedRow(page, id, 'First');
+    const count = (await (await page.request.post(`/api/pages/${id}/database/fields`, { data: { name: 'Count', type: 'NUMBER' } })).json()).id;
+    await page.reload();
+    const cell = main(page).locator('tbody tr input[inputmode="decimal"]').first();
+    await cell.focus();
+    // As pasting from a spreadsheet does
+    await cell.evaluate((input) => {
+      const clipboardData = new DataTransfer();
+      clipboardData.setData('text/plain', '1,234.50');
+      input.dispatchEvent(new ClipboardEvent('paste', { clipboardData, bubbles: true, cancelable: true }));
+    });
+    await expect(cell).toHaveValue('1234.50');
+    await page.keyboard.press('Tab');
+    const saved = async () => (await (await page.request.get(`/api/pages/${id}/database`)).json()).rows[0]?.data?.[count] ?? null;
+    await expect.poll(saved, { timeout: 15_000 }).toBe(1234.5);
+  });
+
   test('"Add row" puts the cursor in the new row, so typing names it (it added more rows)', async ({ alice: page, workspaceId }) => {
     await openPage(page, await createPage(page, workspaceId));
     const id = await newDatabaseFromSidebar(page, unique('Rows'));

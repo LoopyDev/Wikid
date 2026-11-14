@@ -38,8 +38,10 @@ describe('the values a cell of each type keeps', () => {
     expect(sanitize({ '__kept:amount': 'about ten' })).toEqual({ '__kept:amount': 'about ten' });
     // Left in the cell from before values were kept
     expect(sanitize({ amount: 'about ten' })).toEqual({ '__kept:amount': 'about ten' });
-    // A value that fits wins; kept values of columns that are gone go
-    expect(sanitize({ amount: 3, '__kept:amount': 'about ten' })).toEqual({ amount: 3 });
+    // Kept beside a value that fits, as the live document has it (a multi-select's removed choice
+    // beside its other tags; the app takes it away when the cell is edited); kept values of columns
+    // that are gone go
+    expect(sanitize({ amount: 3, '__kept:amount': 'about ten' })).toEqual({ amount: 3, '__kept:amount': 'about ten' });
     expect(sanitize({ '__kept:gone': 'x' })).toEqual({});
   });
 });
