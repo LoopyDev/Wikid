@@ -1,5 +1,7 @@
 import { beforeAll, describe, expect, it } from 'vitest';
+import * as Y from 'yjs';
 import { Session, USERS, addMember, createPage, createWorkspace, loginAs, unique } from './helpers';
+import { openLiveDocument } from './live';
 
 const MISSING_ID = '00000000-0000-4000-8000-000000000000';
 
@@ -713,3 +715,120 @@ describe('compliance mode', () => {
   });
 });
 
+describe('changing a column, and its cells with it', () => {
+  const addRow = async (pageId: string, data: Record<string, unknown>) => (await alice.post(`/pages/${pageId}/database/rows`, { data })).body.id as string;
+  const cellsOf = async (pageId: string, fieldId: string) => {
+    const db = (await alice.get(`/pages/${pageId}/database`)).body;
+    return db.rows.map((row: any) => [row.data[fieldId], row.data[`__kept:${fieldId}`]]);
+  };
+
+  it("converts the cells to a column's new type, keeps what doesn't fit, and brings it back when changed back", async () => {
+    const { pageId, titleFieldId } = await createDatabase();
+    const amount = await addField(pageId, { name: 'Amount', type: 'TEXT' });
+    for (const value of ['12', 'about ten']) await addRow(pageId, { [titleFieldId]: value, [amount.id]: value });
+
+    const res = await alice.post(`/database-fields/${amount.id}/change`, { type: 'NUMBER' });
+    expect(res.status).toBe(201);
+    expect(res.body).toMatchObject({ field: { id: amount.id, type: 'NUMBER' }, changed: 2, kept: 1 });
+    expect(await cellsOf(pageId, amount.id)).toEqual([[12, undefined], [undefined, 'about ten']]);
+
+    expect((await alice.post(`/database-fields/${amount.id}/change`, { type: 'TEXT', name: 'Amount (text)' })).body).toMatchObject({
+      field: { name: 'Amount (text)', type: 'TEXT' },
+      kept: 0,
+    });
+    expect(await cellsOf(pageId, amount.id)).toEqual([['12', undefined], ['about ten', undefined]]);
+  });
+
+  it('a select gives a choice to each value it takes in', async () => {
+    const { pageId } = await createDatabase();
+    const status = await addField(pageId, { name: 'Status', type: 'TEXT' });
+    for (const value of ['Open', 'Done', 'Open']) await addRow(pageId, { [status.id]: value });
+    const res = await alice.post(`/database-fields/${status.id}/change`, { type: 'SELECT' });
+    expect(res.body.field.options.choices.map((c: any) => c.value)).toEqual(['Open', 'Done']);
+  });
+
+  it("follows a choice renamed, keeps aside one removed, and brings it back when it's a choice again", async () => {
+    const { pageId } = await createDatabase();
+    const status = await addField(pageId, { name: 'Status', type: 'SELECT', options: { choices: [{ value: 'Open', color: '#f00' }, { value: 'Done' }] } });
+    const tags = await addField(pageId, { name: 'Tags', type: 'MULTI_SELECT', options: { choices: ['Red', 'Blue'] } });
+    await addRow(pageId, { [status.id]: 'Open', [tags.id]: ['Red', 'Blue'] });
+    await addRow(pageId, { [status.id]: 'Done' });
+
+    const renamed = await alice.post(`/database-fields/${status.id}/change`, {
+      options: { choices: [{ value: 'In progress', color: '#f00' }] },
+      renames: { Open: 'In progress' },
+    });
+    expect(renamed.status).toBe(201);
+    expect(renamed.body).toMatchObject({ changed: 2, kept: 1 });
+    expect(await cellsOf(pageId, status.id)).toEqual([['In progress', undefined], [undefined, 'Done']]);
+    await alice.post(`/database-fields/${status.id}/change`, { options: { choices: ['In progress', 'Done'] } });
+    expect(await cellsOf(pageId, status.id)).toEqual([['In progress', undefined], ['Done', undefined]]);
+
+    await alice.post(`/database-fields/${tags.id}/change`, { options: { choices: ['Crimson'] }, renames: { Red: 'Crimson' } });
+    expect((await cellsOf(pageId, tags.id))[0]).toEqual([['Crimson'], ['Blue']]);
+  });
+
+  it('keeps the choices there unless others are given: renamed alone, other options changed, select to multi-select', async () => {
+    const { pageId } = await createDatabase();
+    const status = await addField(pageId, { name: 'Status', type: 'SELECT', options: { choices: [{ value: 'Open', color: '#f00' }, { value: 'Spare', color: '#0f0' }] } });
+    await addRow(pageId, { [status.id]: 'Open' });
+    const choices = async () => (await alice.get(`/pages/${pageId}/database`)).body.fields.find((f: any) => f.id === status.id).options.choices;
+
+    expect((await alice.post(`/database-fields/${status.id}/change`, { renames: { Open: 'Todo' } })).body).toMatchObject({ changed: 1, kept: 0 });
+    expect(await cellsOf(pageId, status.id)).toEqual([['Todo', undefined]]);
+    expect((await choices()).map((c: any) => [c.value, c.color])).toEqual([['Todo', '#f00'], ['Spare', '#0f0']]);
+
+    await alice.post(`/database-fields/${status.id}/change`, { options: {} });
+    expect((await choices()).map((c: any) => c.value)).toEqual(['Todo', 'Spare']);
+
+    await alice.post(`/database-fields/${status.id}/change`, { type: 'MULTI_SELECT' });
+    expect((await choices()).map((c: any) => [c.value, c.color])).toEqual([['Todo', '#f00'], ['Spare', '#0f0']]);
+    expect(await cellsOf(pageId, status.id)).toEqual([[['Todo'], undefined]]);
+  });
+
+  it("won't change the type of the title column", async () => {
+    const { titleFieldId } = await createDatabase();
+    expect((await alice.post(`/database-fields/${titleFieldId}/change`, { type: 'NUMBER' })).status).toBe(400);
+  });
+
+  it('changes the live document too, so the next save from it keeps the change', async () => {
+    const { pageId } = await createDatabase();
+    const amount = await addField(pageId, { name: 'Amount', type: 'TEXT' });
+    const rowId = await addRow(pageId, { [amount.id]: 'about ten' });
+    const live = await openLiveDocument(alice, workspaceId, pageId, { database: true });
+    // Filled from the database, as the app does when it first opens it
+    const db = (await alice.get(`/pages/${pageId}/database`)).body;
+    live.doc.transact(() => {
+      for (const field of db.fields) {
+        live.doc.getMap('fields').set(field.id, new Y.Map(Object.entries({ name: field.name, type: field.type, options: field.options })));
+        live.doc.getArray('fieldOrder').push([field.id]);
+      }
+      for (const row of db.rows) {
+        live.doc.getMap('rows').set(row.id, new Y.Map<any>([['data', new Y.Map(Object.entries(row.data))]]));
+        live.doc.getArray('rowOrder').push([row.id]);
+      }
+    });
+    try {
+      await alice.post(`/database-fields/${amount.id}/change`, { type: 'NUMBER' });
+      const data = () => ((live.doc.getMap('rows').get(rowId) as Y.Map<any>)?.get('data') as Y.Map<any>)?.toJSON();
+      await expect.poll(() => (live.doc.getMap('fields').get(amount.id) as Y.Map<any>)?.get('type')).toBe('NUMBER');
+      await expect.poll(data).toEqual({ [`__kept:${amount.id}`]: 'about ten' });
+      // An edit from the live document, then saved: the change stays
+      (live.doc.getMap('rows').get(rowId) as Y.Map<any>).get('data').set(amount.id, 7);
+      await expect.poll(() => cellsOf(pageId, amount.id), { timeout: 15_000 }).toEqual([[7, undefined]]);
+      expect((await alice.get(`/pages/${pageId}/database`)).body.fields.find((f: any) => f.id === amount.id).type).toBe('NUMBER');
+    } finally {
+      live.close();
+    }
+  });
+
+  it('is refused to a viewer, and in a compliance database (each record changed needs a reason there)', async () => {
+    const { pageId } = await createDatabase();
+    const field = await addField(pageId, { name: 'Amount', type: 'TEXT' });
+    expect((await bob.post(`/database-fields/${field.id}/change`, { type: 'NUMBER' })).status).toBe(403);
+    await alice.patch(`/pages/${pageId}/database`, { complianceMode: true });
+    const refused = await alice.post(`/database-fields/${field.id}/change`, { type: 'NUMBER' });
+    expect(refused.status).toBe(400);
+    expect(refused.body.message).toMatch(/compliance/i);
+  });
+});

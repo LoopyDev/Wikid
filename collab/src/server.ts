@@ -410,6 +410,26 @@ const applyFieldChange = (document: Y.Doc, field: FieldChange) => {
   if (!(stored instanceof Y.Map)) fieldsMap.set(field.id, fieldMap);
   if (!fieldOrder.toArray().map((id) => String(id)).includes(field.id)) fieldOrder.push([field.id]);
 };
+// A column changed with its cells (a copy of the API's applyCollabColumnChange): the column and
+// each row's cells together, null clearing a cell; rows not in the document left out
+type CellChange = { rowId: string; values: Record<string, unknown> };
+const applyColumnChange = (document: Y.Doc, field: FieldChange, cells: CellChange[]) => {
+  if (!document.getMap('fields').size) return;
+  applyFieldChange(document, field);
+  const rowsMap = document.getMap('rows');
+  for (const cell of cells) {
+    const row = rowsMap.get(cell.rowId);
+    const data = row instanceof Y.Map ? row.get('data') : null;
+    if (!(data instanceof Y.Map) || !cell.values || typeof cell.values !== 'object') continue;
+    for (const [key, value] of Object.entries(cell.values)) {
+      if (value === null || value === undefined) {
+        if (data.has(key)) data.delete(key);
+      } else if (!sameJson(data.get(key) instanceof Y.AbstractType ? data.get(key).toJSON() : data.get(key), value)) {
+        data.set(key, value);
+      }
+    }
+  }
+};
 const applyFieldDelete = (document: Y.Doc, fieldId: string) => {
   const fieldsMap = document.getMap('fields');
   const fieldOrder = document.getArray('fieldOrder');
@@ -471,6 +491,7 @@ const server = new Server({
       path !== '/collab/push/db-row-delete' &&
       path !== '/collab/push/db-field' &&
       path !== '/collab/push/db-field-delete' &&
+      path !== '/collab/push/db-column' &&
       path !== '/collab/push/update' &&
       path !== '/collab/flush' &&
       path !== '/collab/broadcast'
@@ -580,6 +601,17 @@ const server = new Server({
         await connection.transact((document) => {
           if (path === '/collab/push/db-field') applyFieldChange(document, { id: fieldId, name: field.name, type: field.type, options: field.options });
           else applyFieldDelete(document, fieldId);
+        });
+      } else if (path === '/collab/push/db-column') {
+        const field = body?.field;
+        const cells = Array.isArray(body?.cells) ? body.cells.filter((cell: any) => typeof cell?.rowId === 'string') : null;
+        if (typeof field?.id !== 'string' || typeof field?.name !== 'string' || typeof field?.type !== 'string' || !cells) {
+          response.writeHead(400, { 'Content-Type': 'application/json' });
+          response.end(JSON.stringify({ ok: false, error: 'field and cells are required' }));
+          throw null;
+        }
+        await connection.transact((document) => {
+          applyColumnChange(document, { id: field.id.trim(), name: field.name, type: field.type, options: field.options }, cells);
         });
       } else if (path === '/collab/push/db-row-delete') {
         const rowId = typeof body?.rowId === 'string' ? body.rowId.trim() : '';

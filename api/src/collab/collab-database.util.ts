@@ -332,3 +332,40 @@ export const applyCollabFieldDelete = (doc: Y.Doc, fieldId: string) => {
   }, 'db-field-delete-server');
   return true;
 };
+
+// A column changed through the API with its cells (a type change, or choices renamed or removed):
+// the column and each row's cells in one change, so no one sees the column changed and its cells
+// not yet. values: per row, the cells to set, null to clear. Rows not in the document are left
+// out (it is filled from the database when first opened). The collab server has a copy.
+export type CollabCellChange = { rowId: string; values: Record<string, unknown> };
+
+export const updateCollabColumnChangeState = (state: Uint8Array, field: CollabFieldChange, cells: CollabCellChange[]) => {
+  const doc = new Y.Doc();
+  Y.applyUpdate(doc, new Uint8Array(state));
+  return applyCollabColumnChange(doc, field, cells) ? encodeCollabState(doc) : null;
+};
+
+export const applyCollabColumnChange = (doc: Y.Doc, field: CollabFieldChange, cells: CollabCellChange[]) => {
+  if (!doc.getMap('fields').size) return false;
+  let changed = false;
+  doc.transact(() => {
+    changed = applyCollabFieldChange(doc, field);
+    const rowsMap = doc.getMap('rows');
+    for (const cell of cells) {
+      const row = rowsMap.get(cell.rowId);
+      const data = row instanceof Y.Map ? row.get('data') : null;
+      if (!(data instanceof Y.Map)) continue;
+      for (const [key, value] of Object.entries(cell.values)) {
+        if (value === null || value === undefined) {
+          if (!data.has(key)) continue;
+          data.delete(key);
+        } else {
+          if (valuesEqual(data.get(key), value)) continue;
+          data.set(key, value);
+        }
+        changed = true;
+      }
+    }
+  }, 'db-column-server');
+  return changed;
+};

@@ -54,7 +54,7 @@ Then ask Claude about your wiki ("what's on the onboarding page?", "add a page o
 | `get_database` | A database's columns and rows |
 | `add_database_row`, `update_database_row` | Rows, with cells by column name |
 | `create_database` | A database, with its columns |
-| `add_database_column`, `update_database_column` | A column added (a relation, too: to another database's rows); renamed, or given more choices |
+| `add_database_column`, `update_database_column` | A column added (a relation, too: to another database's rows); renamed, its type changed, or its choices added, renamed or removed |
 | `delete_database_column` | A column and its cells, with `confirm: true` (not the title column) |
 
 ### Images
@@ -84,4 +84,4 @@ A quote starting with an emoji (`> 💡 …`) is a callout. Columns can't go ins
 
 Pages are changed **block by block**: Markdown has no database views, colours or image sizes, so a page rewritten whole from Markdown would lose them. Blocks the tool doesn't touch stay exactly as they are, and a page that someone has open shows each change straight away. Changes go into the page's history under the user the server logs in as.
 
-Columns are added, renamed and given more choices, but a column's type isn't changed and a choice isn't renamed or removed here: Wikid moves the cells over when that's done in the app, and these tools would leave them behind.
+When a column's type changes, or a choice is renamed or removed, its cells follow, as in the app: each is converted or renamed, and one that no longer fits is kept aside (shown greyed in Wikid until it's replaced; changing back brings it back). In a compliance database, where each record changed needs a reason, do those in Wikid.

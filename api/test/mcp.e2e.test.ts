@@ -288,4 +288,40 @@ describe('MCP server', () => {
       expect(refused.text).toMatch(says);
     }
   });
+
+  it("changes a column's type and renames or removes choices, the cells following", async () => {
+    const pageId = (await call('create_database', {
+      workspaceId,
+      title: 'Changes',
+      columns: [{ name: 'Amount', type: 'text' }, { name: 'Status', type: 'select', choices: ['Open', 'Done', 'Later'] }],
+    })).text.match(/Database ([0-9a-f-]{36})/)?.[1] as string;
+    await call('add_database_row', { pageId, cells: { Name: 'A', Amount: '12', Status: 'Open' } });
+    await call('add_database_row', { pageId, cells: { Name: 'B', Amount: 'about ten', Status: 'Done' } });
+    const cells = async () => JSON.parse((await call('get_database', { pageId })).text.split(/Rows \(\d+\):/)[1]).map((row: any) => row.cells);
+
+    const typed = await call('update_database_column', { pageId, column: 'Amount', type: 'number' });
+    expect(typed.isError, typed.text).toBe(false);
+    expect(typed.text).toMatch(/1 kept aside/);
+    expect((await cells()).map((c: any) => c.Amount)).toEqual([12, undefined]);
+
+    const choices = await call('update_database_column', { pageId, column: 'Status', renameChoices: { Open: 'In progress' }, removeChoices: ['Done'], addChoices: ['Blocked'] });
+    expect(choices.isError, choices.text).toBe(false);
+    expect((await call('get_database', { pageId })).text).toContain('- Status (select: In progress, Later, Blocked)');
+    expect((await cells()).map((c: any) => c.Status)).toEqual(['In progress', undefined]);
+
+    // A choice that isn't there, or a name another has, is refused before anything changes
+    for (const [args, says] of [
+      [{ renameChoices: { Nope: 'X' } }, /No choice "Nope"/],
+      [{ renameChoices: { Later: 'blocked' } }, /already/],
+      [{ removeChoices: ['Nope'] }, /No choice "Nope"/],
+      // A removed choice's name isn't free: its cells would quietly become the renamed one's
+      [{ removeChoices: ['Later'], renameChoices: { Blocked: 'Later' } }, /already/],
+      [{ relatesTo: pageId }, /relatesTo/],
+    ] as const) {
+      const refused = await call('update_database_column', { pageId, column: 'Status', ...args });
+      expect(refused.isError, JSON.stringify(args)).toBe(true);
+      expect(refused.text).toMatch(says);
+    }
+    expect((await call('update_database_column', { pageId, column: 'Name', type: 'number' })).isError).toBe(true);
+  });
 });
