@@ -122,12 +122,19 @@ export function useDatabaseCollab({ props, workspace, fields, rows, sorting, col
           const existing = existingById.get(nextRow.id);
           if (!existing) return;
           if (!existing.data || typeof existing.data !== 'object') existing.data = {};
-          if (nextRow.data && typeof nextRow.data === 'object') {
-            for (const [k, v] of Object.entries(nextRow.data)) {
-              existing.data[k] = v;
+          const nextData = nextRow.data && typeof nextRow.data === 'object' ? nextRow.data : {};
+          for (const [k, v] of Object.entries(nextData)) {
+            existing.data[k] = v;
+          }
+          // A cell cleared (by someone else, or the API) is gone from the row: it goes here too.
+          // (Not while writes of ours wait for the document to sync: what they set isn't in it yet)
+          if (collabSynced.value && !writesAfterSync.length) {
+            for (const k of Object.keys(existing.data)) {
+              if (!Object.hasOwn(nextData, k)) delete existing.data[k];
             }
           }
           if (nextRow.pageId) existing.pageId = nextRow.pageId;
+          if (nextRow.createdBy !== undefined) existing.createdBy = nextRow.createdBy;
           if (nextRow.updatedAt) existing.updatedAt = nextRow.updatedAt;
           if (nextRow.complianceStatus !== undefined) existing.complianceStatus = nextRow.complianceStatus;
         });
