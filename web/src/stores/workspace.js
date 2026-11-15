@@ -1385,11 +1385,21 @@ export const useWorkspaceStore = defineStore('workspace', {
         return null;
       }
     },
-    async duplicatePage(page) {
+    /** The databases among a page and its subpages: whether any are ordinary, and any compliance. */
+    databasesIn(pageId) {
+      const ids = new Set([pageId, ...this.getDescendantIds(pageId)]);
+      const databases = this.pages.filter((p) => ids.has(p.id) && p.kind === 'DATABASE' && !p.isDeleted);
+      return {
+        plain: databases.some((p) => !p.databaseComplianceMode),
+        compliance: databases.some((p) => p.databaseComplianceMode),
+      };
+    },
+    /** rows: false copies the databases in it without their rows (columns, views and forms only). */
+    async duplicatePage(page, { rows = true } = {}) {
       if (!this.hasApi || !this.activeUser) return;
       if (!this.canEditActiveWorkspace) return;
       try {
-        const copy = await api.duplicatePage(page.id, { userId: this.activeUser.id, userName: this.activeUser.name });
+        const copy = await api.duplicatePage(page.id, { userId: this.activeUser.id, userName: this.activeUser.name, rows });
         // The copy's subpages come with it
         await this.loadPageList(copy.workspaceId || this.activeWorkspaceId, { keepBin: true });
         this.selectPage(this.pages.find((p) => p.id === copy.id) || copy);

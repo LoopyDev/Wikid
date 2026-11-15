@@ -570,8 +570,14 @@ export class PagesController {
 
   // A copy of the page and its subpages, next to it
   @Post('pages/:id/duplicate')
-  duplicatePage(@Param('id') id: string, @CurrentUserId() userId?: string, @CurrentUserName() userName?: string) {
-    return this.pages.duplicatePage(id, { userId, userName });
+  duplicatePage(
+    @Param('id') id: string,
+    // false: a database inside is copied without its rows (its columns, views and forms only)
+    @Body('rows') rows?: unknown,
+    @CurrentUserId() userId?: string,
+    @CurrentUserName() userName?: string,
+  ) {
+    return this.pages.duplicatePage(id, { userId, userName }, { rows: rows !== false });
   }
 
   @Delete('pages/:id')

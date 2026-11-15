@@ -11,6 +11,7 @@ import { CollabSyncService } from './collab-sync.service';
 import { WikiService } from './wiki.service';
 import { PageContentService } from './page-content.service';
 import { SettingsService } from '../settings/settings.service';
+import { DatabaseCopyService } from './database-copy.service';
 import { MAX_LISTED_IDS, POSITION_INCREMENT, canEdit, normalizePageTitle, canReadOthersPrivatePages } from './pages.shared';
 
 // Pages: listing, reading, editing, edit locks, visibility, moving, reordering, setup,
@@ -25,6 +26,7 @@ export class PagesService {
     private readonly wiki: WikiService,
     private readonly pageContent: PageContentService,
     private readonly settings: SettingsService,
+    private readonly databaseCopy: DatabaseCopyService,
   ) {}
 
   private locks = new Map<string, { userId: string; userName: string; expires: number }>();
@@ -613,14 +615,39 @@ export class PagesService {
   /**
    * A copy of a page next to it: what it has now (its live document, not the stored copy, which can
    * be minutes behind), its icon and width, and its subpages (those this person can see), each with
-   * block ids of its own. A database page in it is copied as a new, empty database.
+   * block ids of its own. A database in it is copied with its columns, views and forms and, unless
+   * options.rows is false, its rows (each with its page). A compliance database is copied without
+   * its records either way.
    */
-  async duplicatePage(id: string, user?: { userId?: string; userName?: string }) {
+  async duplicatePage(id: string, user?: { userId?: string; userName?: string }, options: { rows?: boolean } = {}) {
     await this.access.requirePageAccess(id, user, { requireWrite: true });
     const page = await this.prisma.page.findUniqueOrThrow({ where: { id } });
+    // Only the subpages this person can see (not someone else's private ones)
+    const subpagesOf = async (parentId: string, hidden = false) =>
+      (
+        await this.prisma.page.findMany({
+          where: { parentId, isDeleted: false, ...(hidden ? {} : { isHidden: false }) },
+          orderBy: { position: 'asc' },
+        })
+      ).filter((subpage) => subpage.visibility !== PageVisibility.PRIVATE || subpage.authorId === user?.userId);
+    // A compliance database in what's copied can only be copied while they can be made: refused
+    // before anything's copied, saying why. (What's copied: the pages seen, and their rows' pages)
+    const inCopy: string[] = [];
+    for (const queue = [page]; queue.length; ) {
+      const next = queue.pop()!;
+      inCopy.push(next.id);
+      queue.push(...(await subpagesOf(next.id, true)));
+    }
+    const compliance = await this.prisma.database.count({ where: { pageId: { in: inCopy }, complianceMode: true } });
+    if (compliance) await this.settings.assertComplianceAvailable();
     const made: string[] = [];
+    // Each page copied (the original's id, and its copy's), and the databases among them
+    const copies = new Map<string, string>();
+    let databases: Array<{ sourcePageId: string; targetPageId: string }> = [];
     const copyTree = async (source: Page, parentId: string | null, title?: string) => {
       const content = source.kind === PageKind.DOC ? { type: 'doc', content: withoutBlockIds(await this.pageContent.readContent(source.id, user ?? {})) } : null;
+      const sourceDatabase =
+        source.kind === PageKind.DATABASE ? await this.prisma.database.findUnique({ where: { pageId: source.id }, select: { complianceMode: true } }) : null;
       const created = await this.createPage({
         workspaceId: source.workspaceId,
         title: title ?? source.title,
@@ -632,22 +659,35 @@ export class PagesService {
         icon: source.icon,
         content,
         fullWidth: source.fullWidth,
+        ...(sourceDatabase
+          ? {
+              complianceMode: sourceDatabase.complianceMode,
+              ...(sourceDatabase.complianceMode ? { database: { workflow: (await this.databaseCopy.workflowOf(source.id)) ?? undefined } } : {}),
+            }
+          : {}),
       });
       made.push(created.id);
-      const subpages = await this.prisma.page.findMany({
-        where: { parentId: source.id, isDeleted: false, isHidden: false },
-        orderBy: { position: 'asc' },
-      });
-      for (const subpage of subpages) {
-        // Only the subpages this person can see (not someone else's private ones)
-        if (subpage.visibility === PageVisibility.PRIVATE && subpage.authorId !== user?.userId) continue;
-        await copyTree(subpage, created.id);
-      }
+      copies.set(source.id, created.id);
+      if (sourceDatabase) databases.push({ sourcePageId: source.id, targetPageId: created.id });
+      for (const subpage of await subpagesOf(source.id)) await copyTree(subpage, created.id);
       return created;
     };
     let copy: Page;
     try {
       copy = await copyTree(page, page.parentId ?? null, `${page.title || 'Untitled'} copy`);
+      // Then the databases' columns, views, forms and (as chosen) rows, once every page they could
+      // point at has its copy; and what's under the rows' pages, which can have databases too
+      while (databases.length) {
+        const batch = databases;
+        databases = [];
+        const rowPages = await this.databaseCopy.copyAll(batch, copies, { rows: options.rows !== false, user });
+        made.push(...rowPages.map((rowPage) => rowPage.copyId));
+        this.collabSync.announcePagesChanged(page.workspaceId, rowPages.map((rowPage) => rowPage.copyId));
+        for (const rowPage of rowPages) {
+          copies.set(rowPage.sourceId, rowPage.copyId);
+          for (const subpage of await subpagesOf(rowPage.sourceId)) await copyTree(subpage, rowPage.copyId);
+        }
+      }
     } catch (err) {
       // Not half a copy: what was made goes again
       // (Who was told of each, from before they go)

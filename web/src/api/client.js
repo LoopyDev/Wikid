@@ -358,8 +358,8 @@ export const api = {
     return request(`/pages/${pageId}/markdown${buildQs({ userId, userName, for: 'export' })}`);
   },
   // A copy of a page and its subpages, next to it (made on the server, from what the page has now)
-  async duplicatePage(pageId, { userId, userName } = {}) {
-    return request(`/pages/${pageId}/duplicate${buildQs({ userId, userName })}`, { method: 'POST' });
+  async duplicatePage(pageId, { userId, userName, rows = true } = {}) {
+    return request(`/pages/${pageId}/duplicate${buildQs({ userId, userName })}`, { method: 'POST', body: JSON.stringify({ rows }) });
   },
   async deletePage(pageId, { userId, userName } = {}) {
     return request(`/pages/${pageId}${buildQs({ userId, userName })}`, {

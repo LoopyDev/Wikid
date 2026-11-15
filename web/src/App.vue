@@ -27,6 +27,7 @@ import LoginPage from './components/LoginPage.vue';
 import ChooseNewPassword from './components/ChooseNewPassword.vue';
 import UserMenu from './components/UserMenu.vue';
 import DeletePageModal from './components/DeletePageModal.vue';
+import DuplicatePageModal from './components/DuplicatePageModal.vue';
 import BinModal from './components/BinModal.vue';
 import TemplatesModal from './components/TemplatesModal.vue';
 import SaveTemplateModal from './components/SaveTemplateModal.vue';
@@ -601,6 +602,7 @@ const windowOpen = computed(
     deleteModalVisible.value ||
     !!exportRequest.value ||
     !!saveTemplatePage.value ||
+    !!duplicateRequest.value ||
     !!historyPageId.value ||
     !!moveWorkspacePage.value ||
     !!complianceSetupRequest.value
@@ -1635,9 +1637,21 @@ const promptRename = (page) => {
   }
   closeMenu();
 };
+// A page with a database in it asks first whether the copy has its rows; others are copied at once
+const duplicateRequest = ref(null);
 const duplicatePage = (page) => {
-  workspace.duplicatePage(page);
   closeMenu();
+  const databases = workspace.databasesIn(page.id);
+  if (!databases.plain && !databases.compliance) {
+    workspace.duplicatePage(page);
+    return;
+  }
+  duplicateRequest.value = { page, ...databases, complianceOff: databases.compliance && !workspace.complianceAvailable };
+};
+const confirmDuplicate = ({ rows }) => {
+  const { page } = duplicateRequest.value;
+  duplicateRequest.value = null;
+  workspace.duplicatePage(page, { rows });
 };
 const convertToWiki = async (page) => {
   if (!page?.id) return;
@@ -3064,6 +3078,15 @@ if (typeof window !== 'undefined') {
         :subtree="deleteModalSubtree"
         @cancel="cancelDeleteModal"
         @confirm="confirmDeleteModal"
+      />
+      <DuplicatePageModal
+        v-if="duplicateRequest"
+        :page="duplicateRequest.page"
+        :has-plain="duplicateRequest.plain"
+        :has-compliance="duplicateRequest.compliance"
+        :compliance-off="duplicateRequest.complianceOff"
+        @cancel="duplicateRequest = null"
+        @confirm="confirmDuplicate"
       />
       <TemplatesModal v-if="showTemplatesModal" @close="showTemplatesModal = false" />
       <SaveTemplateModal

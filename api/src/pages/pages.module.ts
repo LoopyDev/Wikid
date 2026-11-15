@@ -24,6 +24,7 @@ import { UploadsService } from '../uploads/uploads.service';
 
 import { LoginRateLimiter } from '../auth/login-rate-limiter';
 import { SettingsModule } from '../settings/settings.module';
+import { DatabaseCopyService } from './database-copy.service';
 @Module({
   imports: [ComplianceModule, CollabModule, SettingsModule],
   controllers: [PagesController, TemplatesController],
@@ -32,6 +33,7 @@ import { SettingsModule } from '../settings/settings.module';
     PageAccessService,
     CollabSyncService,
     DatabaseSetupService,
+    DatabaseCopyService,
     WikiService,
     PagesService,
     PageHistoryService,

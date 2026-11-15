@@ -43,6 +43,51 @@ test.describe('sidebar', () => {
     expect(pages.filter((p: any) => p.parentId === copyId).map((p: any) => p.title)).toEqual(['Child page']);
   });
 
+  test('duplicating a page with a database in it asks whether the copy has its rows', async ({ alice: page, workspaceId }) => {
+    const title = unique('Project');
+    const id = await createPage(page, workspaceId, { title });
+    const db = await createPage(page, workspaceId, { title: 'Tasks', kind: 'DATABASE', parentId: id });
+    const name = (await (await page.request.get(`/api/pages/${db}/database`)).json()).fields.find((f: any) => f.name === 'Name').id;
+    expect((await page.request.post(`/api/pages/${db}/database/rows`, { data: { data: { [name]: 'Write' } } })).status()).toBe(201);
+    await openPage(page, id);
+    const rowsOfCopy = async () => {
+      const pages = await (await page.request.get(`/api/pages?workspaceId=${workspaceId}`)).json();
+      const copied = pages.find((p: any) => p.parentId === currentPageId(page) && p.kind === 'DATABASE');
+      const database = await (await page.request.get(`/api/pages/${copied.id}/database`)).json();
+      // (The copy's columns have ids of their own)
+      const copiedName = database.fields.find((f: any) => f.name === 'Name').id;
+      return database.rows.map((r: any) => r.data[copiedName] ?? null);
+    };
+    const dialog = page.getByRole('dialog', { name: 'Duplicate page' });
+
+    // With its rows, as it starts
+    await openItemMenu(page, title);
+    await page.locator('.page-menu').getByRole('button', { name: 'Duplicate' }).click();
+    await expect(dialog.getByRole('radio', { name: /Copy databases with their rows/ })).toBeChecked();
+    await expect(dialog).not.toContainText('Compliance');
+    await dialog.getByRole('button', { name: 'Duplicate' }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(main(page).getByRole('textbox', { name: 'Untitled page' })).toHaveValue(`${title} copy`);
+    await expect.poll(rowsOfCopy).toEqual(['Write']);
+
+    // Columns and views only
+    const firstCopy = currentPageId(page);
+    await openItemMenu(page, title);
+    await page.locator('.page-menu').getByRole('button', { name: 'Duplicate' }).click();
+    await dialog.getByRole('radio', { name: /Columns and views only/ }).check();
+    await dialog.getByRole('button', { name: 'Duplicate' }).click();
+    await expect.poll(() => currentPageId(page)).not.toBe(firstCopy);
+    await expect.poll(rowsOfCopy).toEqual([]);
+
+    // Cancel copies nothing; a page with no database in it is copied at once
+    await openItemMenu(page, title);
+    await page.locator('.page-menu').getByRole('button', { name: 'Duplicate' }).click();
+    await dialog.getByRole('button', { name: 'Cancel' }).click();
+    await expect(dialog).toHaveCount(0);
+    const pages = await (await page.request.get(`/api/pages?workspaceId=${workspaceId}`)).json();
+    expect(pages.filter((p: any) => p.title === `${title} copy`)).toHaveLength(2);
+  });
+
   test('drags a page into the Private or Public section when that section is empty', async ({ alice: page, workspaceId }) => {
     const title = unique('Movable');
     const id = await createPage(page, workspaceId, { title });
