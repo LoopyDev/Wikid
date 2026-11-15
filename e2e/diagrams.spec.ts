@@ -10,8 +10,11 @@ const STAND_IN = `<!doctype html><script>
   const send = (msg) => parent.postMessage(JSON.stringify(msg), '*');
   window.addEventListener('message', (event) => {
     const msg = JSON.parse(event.data);
+    window.told = [...(window.told || []), msg];
     if (msg.action === 'load') { window.loaded = msg.xml; send({ event: 'load' }); }
-    if (msg.action === 'export') send({ event: 'export', data: ${JSON.stringify(SVG)}, xml: msg.xml });
+    const answer = () => send({ event: 'export', data: ${JSON.stringify(SVG)}, xml: msg.xml });
+    // (Held back when the test says, as a slow one would be)
+    if (msg.action === 'export') { if (window.holdExport) window.release = answer; else answer(); }
   });
   send({ event: 'init' });
 </script>`;
@@ -77,9 +80,16 @@ test.describe('diagrams', () => {
 
     await reopen();
     await change(XML(3));
-    // The editor's own Exit asks too
-    await exit();
+    await page.getByRole('button', { name: 'Close' }).click();
     await prompt(page).getByRole('button', { name: "Don't save" }).click();
+    await expect(modal(page)).toHaveCount(0);
+    expect(await saved()).toBe('');
+
+    // The editor's own Exit closes at once: it has asked about changes itself by then
+    await reopen();
+    await change(XML(5));
+    await exit();
+    await expect(prompt(page)).toHaveCount(0);
     await expect(modal(page)).toHaveCount(0);
     expect(await saved()).toBe('');
 
@@ -88,8 +98,31 @@ test.describe('diagrams', () => {
     await change(XML(4));
     await save(XML(4));
     await expect.poll(saved).toBe(XML(4));
+    // ...and the editor told it's saved, once the picture's back (its own Exit then doesn't warn
+    // that changes will be lost)
+    const toldSaved = () =>
+      page.frameLocator('.drawio-modal__iframe').locator('body').evaluate(() => (window as any).told.filter((m: any) => m.action === 'status' && m.modified === false).length);
+    await expect.poll(toldSaved).toBe(1);
     await page.getByRole('button', { name: 'Close' }).click();
     await expect(prompt(page)).toHaveCount(0);
     await expect(modal(page)).toHaveCount(0);
+
+    // Changed again while a save's picture is still being made: that change isn't saved, so the
+    // editor isn't told it is, and closing asks
+    await reopen();
+    const frame = page.frameLocator('.drawio-modal__iframe').locator('body');
+    await frame.evaluate(() => ((window as any).holdExport = true));
+    await change(XML(6));
+    await save(XML(6));
+    await expect.poll(() => frame.evaluate(() => typeof (window as any).release)).toBe('function');
+    await change(XML(7));
+    await frame.evaluate(() => (window as any).release());
+    await expect.poll(saved).toBe(XML(6));
+    await page.waitForTimeout(300);
+    expect(await toldSaved()).toBe(0);
+    await page.getByRole('button', { name: 'Close' }).click();
+    await prompt(page).getByRole('button', { name: "Don't save" }).click();
+    await expect(modal(page)).toHaveCount(0);
+    expect(await saved()).toBe(XML(6));
   });
 });

@@ -24,6 +24,10 @@ const pendingClose = ref(false);
 // diagram as it is then): closing asks first
 const unsaved = ref(false);
 const currentXml = ref('');
+// Changes the editor has reported, and how many there had been at the last save: the editor is
+// told it's saved only if none came between the save and its picture
+let changesReported = 0;
+let changesAtSave = -1;
 const askingToSave = ref(false);
 
 const openEditor = () => {
@@ -32,6 +36,8 @@ const openEditor = () => {
   askingToSave.value = false;
   unsaved.value = false;
   currentXml.value = '';
+  changesReported = 0;
+  changesAtSave = -1;
   isOpen.value = true;
 };
 
@@ -41,8 +47,9 @@ const closeEditor = () => {
   askingToSave.value = false;
 };
 
-// The ✕, a click outside, the editor's own Exit, or Escape while the page has the keyboard (in the
-// editor, Escape is the editor's): with changes not saved, "Save?" first
+// The ✕, a click outside, or Escape while the page has the keyboard (in the editor, Escape is the
+// editor's). Its own Exit asks for itself (diagrams.net warns of changes it counts as unsaved, and
+// it's told only of a save with nothing changed since): with changes not saved, "Save?" first
 const requestClose = () => {
   if (unsaved.value) askingToSave.value = true;
   else closeEditor();
@@ -59,6 +66,7 @@ const keepEditing = () => {
 const saveXml = (newXml) => {
   props.updateAttributes({ xml: newXml });
   unsaved.value = false;
+  changesAtSave = changesReported;
 };
 // Escape asks rather than closes, and goes no further: a page overlay behind would close too, taking
 // the diagram and its changes with it. (The prompt's own Escape is its dialog's.)
@@ -102,6 +110,7 @@ const handleMessage = (event) => {
     if (typeof msg.xml === 'string') {
       currentXml.value = msg.xml;
       unsaved.value = true;
+      changesReported += 1;
     }
   } else if (msg.event === 'save') {
     const newXml = msg.xml || '';
@@ -119,6 +128,10 @@ const handleMessage = (event) => {
     if (msg.data) {
       props.updateAttributes({ svg: msg.data });
     }
+    // Told it's saved (after the picture, which counts as a change for it): else the editor still
+    // counts the changes as unsaved, and its Exit warns that they'll be lost. Not if it changed
+    // again since the save (those changes aren't saved), nor as it closes
+    if (!pendingClose.value && changesReported === changesAtSave) postToFrame({ action: 'status', modified: false });
     if (pendingClose.value) {
       closeEditor();
     }
@@ -126,9 +139,8 @@ const handleMessage = (event) => {
     // The picture couldn't be made: the diagram is saved, so it closes (the page shows the last one)
     closeEditor();
   } else if (msg.event === 'exit') {
-    // The editor's own Exit (or after an export already handled)
-    if (pendingClose.value) closeEditor();
-    else requestClose();
+    // The editor's own Exit: it has asked about changes not saved itself by then
+    closeEditor();
   }
 };
 
