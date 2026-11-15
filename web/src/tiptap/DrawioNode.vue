@@ -20,16 +20,53 @@ const isOpen = ref(false);
 const iframeRef = ref(null);
 // Track whether we're waiting for an export after a save
 const pendingClose = ref(false);
+// Changed in the editor since it was opened or last saved (the editor reports each change, with the
+// diagram as it is then): closing asks first
+const unsaved = ref(false);
+const currentXml = ref('');
+const askingToSave = ref(false);
 
 const openEditor = () => {
   if (!isEditable.value) return;
   pendingClose.value = false;
+  askingToSave.value = false;
+  unsaved.value = false;
+  currentXml.value = '';
   isOpen.value = true;
 };
 
 const closeEditor = () => {
   isOpen.value = false;
   pendingClose.value = false;
+  askingToSave.value = false;
+};
+
+// The ✕, a click outside, the editor's own Exit, or Escape while the page has the keyboard (in the
+// editor, Escape is the editor's): with changes not saved, "Save?" first
+const requestClose = () => {
+  if (unsaved.value) askingToSave.value = true;
+  else closeEditor();
+};
+const saveAndClose = () => {
+  askingToSave.value = false;
+  saveXml(currentXml.value);
+  pendingClose.value = true;
+  requestExport(currentXml.value);
+};
+const keepEditing = () => {
+  askingToSave.value = false;
+};
+const saveXml = (newXml) => {
+  props.updateAttributes({ xml: newXml });
+  unsaved.value = false;
+};
+// Escape asks rather than closes, and goes no further: a page overlay behind would close too, taking
+// the diagram and its changes with it. (The prompt's own Escape is its dialog's.)
+const onKeydown = (event) => {
+  if (!isOpen.value || askingToSave.value || event.key !== 'Escape' || event.isComposing) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  requestClose();
 };
 
 const postToFrame = (msg) => {
@@ -54,14 +91,21 @@ const handleMessage = (event) => {
   }
 
   if (msg.event === 'init') {
+    // (autosave: the editor reports each change, so closing knows if there's one not saved; nothing
+    // is saved until Save)
     postToFrame({
       action: 'load',
       xml: xml.value || '<mxGraphModel/>',
-      autosave: 0,
+      autosave: 1,
     });
+  } else if (msg.event === 'autosave') {
+    if (typeof msg.xml === 'string') {
+      currentXml.value = msg.xml;
+      unsaved.value = true;
+    }
   } else if (msg.event === 'save') {
     const newXml = msg.xml || '';
-    props.updateAttributes({ xml: newXml });
+    saveXml(newXml);
     if (msg.exit) {
       // User clicked Save & Close — wait for export before closing
       pendingClose.value = true;
@@ -78,18 +122,25 @@ const handleMessage = (event) => {
     if (pendingClose.value) {
       closeEditor();
     }
-  } else if (msg.event === 'exit') {
-    // User closed without saving (or after export already handled)
+  } else if (msg.event === 'error' && pendingClose.value) {
+    // The picture couldn't be made: the diagram is saved, so it closes (the page shows the last one)
     closeEditor();
+  } else if (msg.event === 'exit') {
+    // The editor's own Exit (or after an export already handled)
+    if (pendingClose.value) closeEditor();
+    else requestClose();
   }
 };
 
 onMounted(() => {
   window.addEventListener('message', handleMessage);
+  // (First, before a page overlay's own Escape)
+  window.addEventListener('keydown', onKeydown, true);
 });
 
 onBeforeUnmount(() => {
   window.removeEventListener('message', handleMessage);
+  window.removeEventListener('keydown', onKeydown, true);
 });
 </script>
 
@@ -115,7 +166,7 @@ onBeforeUnmount(() => {
     </div>
 
     <Teleport to="body">
-      <div v-if="isOpen" class="drawio-modal" @click.self="closeEditor">
+      <div v-if="isOpen" class="drawio-modal" @click.self="requestClose">
         <div class="drawio-modal__inner">
           <iframe
             ref="iframeRef"
@@ -124,7 +175,15 @@ onBeforeUnmount(() => {
             frameborder="0"
             allowfullscreen
           />
-          <button class="drawio-modal__close" type="button" aria-label="Close" @click="closeEditor">✕</button>
+          <button class="drawio-modal__close" type="button" aria-label="Close" @click="requestClose">✕</button>
+          <div v-if="askingToSave" v-dialog="keepEditing" class="drawio-save-prompt" role="alertdialog" aria-label="Save changes?" aria-modal="true">
+            <p>Save your changes to this diagram?</p>
+            <div class="drawio-save-prompt__actions">
+              <button class="drawio-save-prompt__save" type="button" @click="saveAndClose">Save</button>
+              <button type="button" @click="closeEditor">Don't save</button>
+              <button type="button" @click="keepEditing">Keep editing</button>
+            </div>
+          </div>
         </div>
       </div>
     </Teleport>
