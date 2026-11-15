@@ -43,10 +43,12 @@ export function searchWords(text: string): string[] {
   return (text.normalize('NFKC').match(/[\p{L}\p{N}]+/gu) || []).slice(0, 8).map((word) => word.toLowerCase());
 }
 
+const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 // Text a part-word was found in, with each word's every appearance wrapped in [[[ ]]]
 export function markWords(text: string, words: string[]): string {
   if (!text || !words.length) return text || '';
-  const pattern = new RegExp(`(${[...words].sort((a, b) => b.length - a.length).join('|')})`, 'giu');
+  const pattern = new RegExp(`(${[...words].sort((a, b) => b.length - a.length).map((word) => escapeRegExp(word)).join('|')})`, 'giu');
   return text.replace(pattern, '[[[$1]]]');
 }
 
