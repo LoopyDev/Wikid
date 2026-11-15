@@ -23,10 +23,9 @@ export function useBoardStickyCards(boxRef, enabled, changes) {
       const header = column.querySelector('.db-board__column-header');
       const cards = column.querySelector('.db-board__cards');
       if (!header || !cards) continue;
-      // The column's own spacing, as its styles have it
-      const style = getComputedStyle(column);
-      const underHeader = header.offsetHeight + px(style.rowGap);
-      const lastCardAtBottom = box.clientHeight - boxBelow - px(style.paddingBottom) - cards.offsetHeight;
+      // (The space round the cards is their own padding, in their height)
+      const underHeader = header.offsetHeight;
+      const lastCardAtBottom = box.clientHeight - boxBelow - cards.offsetHeight;
       cards.style.setProperty('--db-cards-top', `${Math.min(underHeader, lastCardAtBottom)}px`);
     }
   };

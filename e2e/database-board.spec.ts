@@ -86,6 +86,17 @@ test.describe('board view', () => {
     };
     await expect.poll(async () => (await below('Doing 1')).top).toBeGreaterThan(0);
     expect((await below('Doing 1')).top).toBeLessThan(100);
+    // Its column is drawn round its header and cards only, not on down the box (though it can take
+    // a card dropped anywhere down it)
+    const painted = column(page, 'Doing');
+    expect(await painted.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe('rgba(0, 0, 0, 0)');
+    const belowLastCard = async () => {
+      const cardsBox = (await painted.locator('.db-board__cards').boundingBox())!;
+      const lastCard = (await card(page, 'Doing 2').boundingBox())!;
+      return cardsBox.y + cardsBox.height - (lastCard.y + lastCard.height);
+    };
+    await expect.poll(belowLastCard).toBeLessThanOrEqual(16);
+    expect(await painted.locator('.db-board__cards').evaluate((el) => getComputedStyle(el).backgroundColor)).not.toBe('rgba(0, 0, 0, 0)');
     // A column longer than the box, though shorter than the longest: its last card, whole, at the bottom
     await expect.poll(async () => Math.round((await below('Done 14')).bottom)).toBeGreaterThanOrEqual(0);
     expect((await below('Done 14')).bottom).toBeLessThan(40);

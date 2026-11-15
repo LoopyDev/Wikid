@@ -116,7 +116,8 @@ test.describe('select colours', () => {
     await expect(card).toHaveCSS('background-image', 'linear-gradient(rgba(255, 0, 0, 0.14), rgba(255, 0, 0, 0.14))');
     await expect(card).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
     await expect(card).toHaveCSS('border-top-color', 'rgb(255, 0, 0)');
-    await expect(column('To do')).toHaveCSS('background-image', 'linear-gradient(rgba(0, 0, 255, 0.1), rgba(0, 0, 255, 0.1))');
+    // (On what's drawn of the column: round its cards, and its header)
+    await expect(column('To do').locator('.db-board__cards')).toHaveCSS('background-image', /^linear-gradient\(rgba\(0, 0, 255, 0\.1\), rgba\(0, 0, 255, 0\.1\)\)/);
     // A tinted card still shows the hover highlight (the menu, over the first cards, closed)
     await closeViewOptions(page);
     await card.hover();
