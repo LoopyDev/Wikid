@@ -308,9 +308,7 @@ onBeforeUnmount(() => {
   border: 2px solid transparent;
   transition: border-color 0.15s;
 }
-.gs-node--selected {
-  border-color: var(--accent);
-}
+/* (Selected: outlined as every block is, in style.css) */
 .gs-viewer {
   position: relative;
   width: 100%;

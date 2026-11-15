@@ -5940,10 +5940,6 @@ button {
   margin: 0.5rem 0;
 }
 
-.drawio-node--selected .drawio-preview {
-  box-shadow: 0 0 0 2px rgba(14, 165, 233, 0.5);
-}
-
 .drawio-preview {
   position: relative;
   border: 1px solid var(--surface-border);
@@ -6101,10 +6097,6 @@ button {
   margin: 10px 0;
 }
 
-.tiptap-callout--selected {
-  box-shadow: 0 0 0 2px rgba(14, 165, 233, 0.3);
-}
-
 .tiptap-callout__icon {
   width: 36px;
   height: 36px;
@@ -6149,11 +6141,6 @@ button {
 .tiptap-toggle-heading {
   position: relative;
   margin: 10px 0;
-}
-
-.tiptap-toggle-heading--selected {
-  box-shadow: 0 0 0 2px rgba(14, 165, 233, 0.3);
-  border-radius: 12px;
 }
 
 .tiptap-toggle-heading__chevron {
@@ -6315,10 +6302,6 @@ button {
   border: 1px solid var(--surface-border);
   background: var(--surface-muted);
   margin: 10px 0;
-}
-
-.tiptap-toc--selected {
-  box-shadow: 0 0 0 2px rgba(14, 165, 233, 0.3);
 }
 
 .tiptap-toc__header {
@@ -7190,44 +7173,44 @@ button {
   box-shadow: 0 8px 24px rgba(59, 130, 246, 0.2);
 }
 
-.tiptap-block-selected {
-  position: relative;
-  isolation: isolate;
-  overflow: visible;
+/* What's selected, outlined: a block with its menu open, a block selected on its own (an image, a
+   diagram, a callout, a divider, an embedded database or page link), and a block that isn't text
+   inside a larger selection; an image there is washed over in the selection's colour, as text is.
+   Only an outline is added: a block keeps its own shape and shadow. */
+:root {
+  --selection-ring: rgba(59, 130, 246, 0.9);
+  --selection-wash: rgba(59, 130, 246, 0.32);
 }
-
-.tiptap-block-selected::after {
+:is(.tiptap-block-selected, .tiptap-in-selection, hr.ProseMirror-selectednode, [data-selected='true'] > .tiptap-image-resizable,
+  .drawio-node--selected .drawio-preview, .tiptap-callout--selected, .tiptap-toggle-heading--selected, .tiptap-toc--selected,
+  .ce-page-link--selected, .ce-database-view--selected, .ce-database-form--selected, .gs-node--selected) {
+  outline: 2px solid var(--selection-ring);
+  outline-offset: 3px;
+}
+/* (Text blocks have square corners; outlined, rounded ones read better) */
+:is(p, h1, h2, h3, h4, h5, h6, blockquote, li).tiptap-block-selected {
+  border-radius: 8px;
+}
+/* An image's row isn't marked, its picture is: outlined with its menu open, washed in a selection */
+:is(.tiptap-block-selected, .tiptap-in-selection):has(> .tiptap-image-resizable) {
+  outline: none;
+}
+.tiptap-block-selected > .tiptap-image-resizable {
+  outline: 2px solid var(--selection-ring);
+  outline-offset: 3px;
+}
+/* (Round as the picture is) */
+:is(.tiptap-block-selected, [data-selected='true']) > .tiptap-image-resizable {
+  border-radius: 10px;
+}
+.tiptap-in-selection > .tiptap-image-resizable::after {
   content: '';
   position: absolute;
-  inset: -4px;
-  border-radius: 12px;
-  border: 2px solid rgba(59, 130, 246, 0.85);
-  background: transparent;
-  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.12), 0 0 16px rgba(59, 130, 246, 0.45),
-    0 0 28px rgba(59, 130, 246, 0.2);
+  inset: 0;
+  border-radius: 10px;
+  background: var(--selection-wash);
   pointer-events: none;
-  z-index: 1;
-}
-
-:is(.tiptap-editor .ProseMirror, .tiptap-editor.ProseMirror) :is(p, h1, h2, h3, h4, h5, h6, blockquote, li).tiptap-block-selected {
-  border-radius: 12px;
-  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.12), 0 0 16px rgba(59, 130, 246, 0.45),
-    0 0 28px rgba(59, 130, 246, 0.2);
-}
-
-:is(.tiptap-editor .ProseMirror, .tiptap-editor.ProseMirror) :is(p, h1, h2, h3, h4, h5, h6, blockquote, li).tiptap-block-selected::after {
-  content: none;
-}
-
-:is(.tiptap-editor .ProseMirror, .tiptap-editor.ProseMirror) hr.tiptap-block-selected {
-  outline: 2px solid rgba(59, 130, 246, 0.85);
-  outline-offset: 4px;
-  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.12), 0 0 16px rgba(59, 130, 246, 0.45),
-    0 0 28px rgba(59, 130, 246, 0.2);
-}
-
-:is(.tiptap-editor .ProseMirror, .tiptap-editor.ProseMirror) hr.tiptap-block-selected::after {
-  content: none;
+  z-index: 3;
 }
 
 .block-menu {
@@ -8184,10 +8167,6 @@ button {
 .slash-empty {
   padding: 12px;
   color: var(--text-muted);
-}
-
-.ce-page-link--selected {
-  box-shadow: 0 0 0 2px rgba(14, 165, 233, 0.35);
 }
 
 .ce-page-link__actions {
