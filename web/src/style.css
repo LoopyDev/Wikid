@@ -6009,6 +6009,44 @@ button {
   display: block;
 }
 
+.drawio-save-prompt {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 0.95rem;
+}
+
+.drawio-save-prompt p {
+  margin: 0;
+}
+
+.drawio-save-prompt__actions {
+  display: flex;
+  gap: 8px;
+}
+
+.drawio-save-prompt__actions button {
+  padding: 6px 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  background: rgba(0, 0, 0, 0.35);
+  color: #fff;
+  font: inherit;
+  cursor: pointer;
+}
+
+.drawio-save-prompt__actions .drawio-save-prompt__save {
+  border-color: var(--accent-strong);
+  background: var(--accent-strong);
+}
+
 .drawio-modal__close {
   position: absolute;
   top: 10px;
