@@ -1,4 +1,4 @@
-import { test, expect, createPage, openPage, editor, blockTexts, outline, placeCursor, pastePlainText } from './fixtures';
+import { test, expect, createPage, openPage, editor, blockTexts, outline, placeCursor, focusEditorAt, pastePlainText } from './fixtures';
 
 // Everyday editing that used to go wrong.
 
@@ -192,8 +192,8 @@ test.describe('editing basics', () => {
     const p = (text?: string) => (text ? { type: 'paragraph', content: [{ type: 'text', text }] } : { type: 'paragraph' });
     const callout = (...content: unknown[]) => ({ type: 'callout', attrs: { icon: '💡' }, content });
     // The cursor at the start or end of the callout's first line (Home and End scroll the page on a Mac)
-    const inCallout = (where: 'start' | 'end') =>
-      page.evaluate((at) => {
+    const inCallout = async (where: 'start' | 'end') => {
+      const target = await page.evaluate((at) => {
         const editorEl = document.querySelector('.ProseMirror:not(.page-hold *)') as any;
         const doc = editorEl.editor.state.doc;
         let target = -1;
@@ -206,8 +206,10 @@ test.describe('editing basics', () => {
           }
           return true;
         });
-        editorEl.editor.chain().focus().setTextSelection(target).run();
+        return target;
       }, where);
+      await focusEditorAt(page, target);
+    };
     const open = async (content: unknown[]) => {
       const id = await createPage(page, workspaceId);
       expect((await page.request.put(`/api/pages/${id}/content`, { data: { content: { type: 'doc', content } } })).status()).toBe(200);
@@ -263,8 +265,8 @@ test.describe('editing basics', () => {
     const p = (text?: string) => (text ? { type: 'paragraph', content: [{ type: 'text', text }] } : { type: 'paragraph' });
     const toggle = (collapsed: boolean, title: string, ...content: unknown[]) => ({ type: 'toggleHeading', attrs: { collapsed }, content: [{ type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: title }] }, ...content] });
     // The cursor at the start of the toggle's heading, or the end of its last line
-    const inToggle = (where: 'start' | 'end') =>
-      page.evaluate((at) => {
+    const inToggle = async (where: 'start' | 'end') => {
+      const target = await page.evaluate((at) => {
         const editorEl = document.querySelector('.ProseMirror:not(.page-hold *)') as any;
         let target = -1;
         editorEl.editor.state.doc.descendants((node: any, pos: number) => {
@@ -275,8 +277,10 @@ test.describe('editing basics', () => {
           }
           return true;
         });
-        editorEl.editor.chain().focus().setTextSelection(target).run();
+        return target;
       }, where);
+      await focusEditorAt(page, target);
+    };
     const open = async (content: unknown[]) => {
       const id = await createPage(page, workspaceId);
       expect((await page.request.put(`/api/pages/${id}/content`, { data: { content: { type: 'doc', content } } })).status()).toBe(200);

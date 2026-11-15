@@ -154,6 +154,8 @@ test.describe('editor', () => {
 });
 
 test('shows an uploaded 3D scan', async ({ alice: page, workspaceId }) => {
+  // Drawn by software WebGL in the test browser: slow when the machine is busy (other tests alongside)
+  test.setTimeout(120_000);
   // A small scan made by e2e/assets/make-test-scan.py: a coloured sphere
   const pageId = await createPage(page, workspaceId, { title: unique('Scan') });
   const upload = await page.request.post('/api/uploads', {
@@ -169,6 +171,9 @@ test('shows an uploaded 3D scan', async ({ alice: page, workspaceId }) => {
 
   // The viewer should draw the sphere: count clearly coloured pixels in a screenshot of it.
   const viewer = page.locator('.gs-node canvas');
+  await expect(viewer).toBeVisible();
+  await expect(page.locator('.gs-node .gs-overlay')).toHaveCount(0, { timeout: 30_000 });
+  // Loaded, not given up on (a failed fetch also takes the overlay away, and leaves no viewer)
   await expect(viewer).toBeVisible();
   const colouredPixels = async () => {
     const shot = (await viewer.screenshot()).toString('base64');
@@ -187,6 +192,6 @@ test('shows an uploaded 3D scan', async ({ alice: page, workspaceId }) => {
       return count;
     }, shot);
   };
-  await expect.poll(colouredPixels, { timeout: 15_000 }).toBeGreaterThan(5000);
+  await expect.poll(colouredPixels, { timeout: 60_000 }).toBeGreaterThan(5000);
 });
 
