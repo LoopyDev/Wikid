@@ -70,6 +70,69 @@ describe('search', () => {
     expect(results[0].snippet).toContain(`[[[${value}]]]`);
   });
 
+  it('finds part of a word: a word cut off part way, or from its middle', async () => {
+    const tag = word('t');
+    const page = await createPage(alice, workspaceId, { title: `Quarterly organization review ${tag}` });
+    await alice.put(`/pages/${page.id}/content`, { content: docWithParagraphs('The deployment of the authentication service went well.') });
+    // Cut off part way: these are stored under their stems ("organ", "deploy"), which a cut-off
+    // word isn't the start of
+    for (const q of ['organiz', 'quarterl', 'deploym', 'authenticat']) {
+      expect((await search(alice, `${q} ${tag}`)).map((r) => r.pageId), q).toEqual([page.id]);
+    }
+    // From the middle of a word
+    for (const q of ['nization', 'ployment', 'thentica']) {
+      expect((await search(alice, `${q} ${tag}`)).map((r) => r.pageId), q).toEqual([page.id]);
+    }
+    // The part found is marked, in the title and the text
+    const [result] = await search(alice, `nization ployment ${tag}`);
+    expect(result.titleHighlight).toContain('orga[[[nization]]]');
+    expect(result.snippet).toContain('de[[[ployment]]]');
+  });
+
+  it("a part-word's snippet keeps a long word running through the match whole", async () => {
+    const tag = word('u');
+    const page = await createPage(alice, workspaceId, { title: 'Links' });
+    const filler = 'Some words before the link go on for a while here so that the text is long enough. ';
+    await alice.put(`/pages/${page.id}/content`, { content: docWithParagraphs(`${filler}See https://example.com/a/very/long/path/to/the/x${tag}y-guide and then more words after it to fill the line out.`) });
+    const [result] = await search(alice, tag);
+    expect(result.snippet).toContain(`x[[[${tag}]]]y-guide`);
+    expect(result.snippet.startsWith('…')).toBe(true);
+  });
+
+  it('a page with the whole word comes before one with it inside a longer word', async () => {
+    const tag = word('w');
+    const inside = await createPage(alice, workspaceId, { title: `Pre${tag}post` });
+    const whole = await createPage(alice, workspaceId, { title: `About ${tag}` });
+    expect((await search(alice, tag)).map((r) => r.pageId)).toEqual([whole.id, inside.id]);
+  });
+
+  it('finds part of a word in a database row', async () => {
+    const tag = word('r');
+    const db = await createPage(alice, workspaceId, { kind: 'DATABASE', title: 'Clusters' });
+    const notes = (await alice.post(`/pages/${db.id}/database/fields`, { name: 'Notes', type: 'TEXT' })).body.id;
+    await alice.post(`/pages/${db.id}/database/rows`, { data: { [notes]: `kube${tag}rnetes` } });
+    const results = await search(bob, tag);
+    expect(results).toHaveLength(1);
+    expect(results[0]).toMatchObject({ type: 'row', databaseTitle: 'Clusters' });
+    expect(results[0].snippet).toContain(`kube[[[${tag}]]]rnetes`);
+  });
+
+  it('searches one workspace when asked', async () => {
+    const tag = word('s');
+    const other = await createWorkspace(alice);
+    const here = await createPage(alice, workspaceId, { title: `Here ${tag}` });
+    const there = await createPage(alice, other, { title: `There ${tag}` });
+    const ids = async (q: string) => (await alice.get(q)).body.results.map((r: any) => r.pageId).sort();
+    expect(await ids(`/search?q=${tag}`)).toEqual([here.id, there.id].sort());
+    expect(await ids(`/search?q=${tag}&workspaceId=${workspaceId}`)).toEqual([here.id]);
+    expect(await ids(`/search?q=${tag}&workspaceId=${other}`)).toEqual([there.id]);
+    // Not one of yours: nothing (not someone else's pages)
+    expect((await carol.get(`/search?q=${tag}&workspaceId=${workspaceId}`)).body.results).toEqual([]);
+    // Not a workspace id: said so, not "no results"
+    expect((await alice.get(`/search?q=${tag}&workspaceId=nope`)).status).toBe(400);
+    expect((await alice.get(`/search?q=${tag}&workspaceId=${workspaceId}&workspaceId=${other}`)).status).toBe(400);
+  });
+
   it('returns nothing for an empty or symbols-only search', async () => {
     expect(await search(alice, '')).toEqual([]);
     expect(await search(alice, ' !!! ')).toEqual([]);

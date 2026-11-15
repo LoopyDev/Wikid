@@ -48,11 +48,12 @@ test.describe('search', () => {
     await dialog(page).getByRole('searchbox').fill(inText);
     const results = dialog(page).getByRole('option');
     await expect(results).toHaveCount(2);
-    await expect(dialog(page).getByText('Sightings ·')).toBeVisible();
+    // Its database named (not the workspace: all of them are this one's)
+    await expect(dialog(page).locator('.search-result__meta', { hasText: /^Sightings$/ })).toBeVisible();
 
     // Opening the row's result opens the row's own page.
     const rowPageId = (await (await page.request.get(`/api/pages/${dbId}/database`)).json()).rows[0].pageId;
-    await results.filter({ hasText: 'Sightings ·' }).click();
+    await results.filter({ has: page.locator('.search-result__meta', { hasText: /^Sightings$/ }) }).click();
     await expect(page).toHaveURL(new RegExp(`/doc/${rowPageId}`));
 
     // Escape closes the search.
@@ -60,6 +61,31 @@ test.describe('search', () => {
     await expect(dialog(page)).toBeVisible();
     await page.keyboard.press('Escape');
     await expect(dialog(page)).toHaveCount(0);
+  });
+
+  test("searches this workspace first, with a switch for all; finds part of a word", async ({ alice: page, workspaceId }) => {
+    const other = await page.request.post('/api/workspaces', { data: { name: unique('Elsewhere') } });
+    const otherId = (await other.json()).workspace.id as string;
+    const tag = word('okapi');
+    const here = await createPage(page, workspaceId, { title: `Reorganization ${tag}` });
+    await createPage(page, otherId, { title: `Reorganization ${tag} too` });
+    await openPage(page, here);
+
+    await page.keyboard.press('ControlOrMeta+k');
+    const scope = dialog(page).getByRole('group', { name: 'Search in' });
+    await expect(scope.getByRole('button').first()).toHaveAttribute('aria-pressed', 'true');
+    // Part of a word ("organiz" in "Reorganization"), marked
+    await dialog(page).getByRole('searchbox').fill(`organiz ${tag}`);
+    const results = dialog(page).getByRole('option');
+    await expect(results).toHaveCount(1);
+    await expect(results.first().locator('mark').first()).toHaveText('organiz');
+    // Its workspace isn't named: they're all from this one
+    await expect(results.first().locator('.search-result__meta')).toHaveCount(0);
+
+    await scope.getByRole('button', { name: 'All workspaces' }).click();
+    await expect(results).toHaveCount(2);
+    await expect(results.locator('.search-result__meta').filter({ hasText: 'Elsewhere' })).toHaveCount(1);
+    await page.request.delete(`/api/workspaces/${otherId}`);
   });
 
   test('opens a page in another workspace', async ({ alice: page, workspaceId }) => {
@@ -71,7 +97,12 @@ test.describe('search', () => {
 
     await page.keyboard.press('ControlOrMeta+k');
     await dialog(page).getByRole('searchbox').fill(target);
+    // This workspace first: nothing here, and a way to search them all
+    await expect(dialog(page).getByRole('status')).toContainText('No results in');
+    await dialog(page).getByRole('button', { name: 'Search all workspaces' }).click();
     await expect(dialog(page).getByRole('option')).toHaveCount(1);
+    await expect(dialog(page).getByRole('button', { name: 'All workspaces' })).toHaveAttribute('aria-pressed', 'true');
+    // (The search box keeps the keyboard)
     await page.keyboard.press('Enter');
     await expect(page).toHaveURL(new RegExp(`/doc/${id}`));
     await expect(page.getByRole('complementary').locator('.user-name')).toContainText('Elsewhere');
