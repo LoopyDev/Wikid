@@ -1,8 +1,8 @@
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import 'emoji-picker-element';
 import emojiDataUrl from 'emoji-picker-element-data/en/emojibase/data.json?url';
-import { buildIconToken, iconEntries, isIconToken, parseIconToken } from '../utils/icons';
+import { buildIconToken, iconEntries, isIconToken, parseIconToken, resolveIcon } from '../utils/icons';
 import { loadIconMeta, searchIcons } from '../utils/iconSearch';
 import IconBrowser from './IconBrowser.vue';
 import PageIcon from './PageIcon.vue';
@@ -53,8 +53,44 @@ const props = defineProps({
 const emit = defineEmits(['select', 'close', 'style-select']);
 
 const EMOJI_RECENTS_KEY = 'wikid:recent-emojis';
+// Icons chosen lately, as chosen (in their colour), newest first; kept in this browser, as the
+// emoji are
+const ICON_RECENTS_KEY = 'wikid:recent-icons';
+const RECENT_ICONS_MAX = 16;
+const RECENT_EMOJIS_MAX = 24;
 const emojiDataSource = emojiDataUrl;
 const recentEmojis = ref([]);
+const recentIcons = ref([]);
+/** An icon as kept in the Recent row: under its current name (old names map to it), in its colour. */
+const canonicalIcon = (token) => {
+  const resolved = resolveIcon(token);
+  return resolved.type === 'svg' ? { token: buildIconToken(resolved.id, resolved.color), name: resolved.name } : null;
+};
+// Each with its icon's name, for its tooltip; any no longer in the set left out, and each once
+// (an old name and its new one are the same icon)
+const recentIconOptions = computed(() => {
+  const seen = new Set();
+  return recentIcons.value.map(canonicalIcon).filter((icon) => icon && !seen.has(icon.token) && seen.add(icon.token));
+});
+const readList = (key, max) => {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(key) || '[]');
+    return Array.isArray(parsed) ? [...new Set(parsed.filter((item) => typeof item === 'string' && item))].slice(0, max) : [];
+  } catch {
+    // Storage blocked, or a malformed list
+    return [];
+  }
+};
+/** Puts `value` first in a stored list, read afresh (another picker may have added to it since). */
+const rememberIn = (key, max, value, list) => {
+  const next = [value, ...readList(key, max).filter((item) => item !== value)].slice(0, max);
+  list.value = next;
+  try {
+    localStorage.setItem(key, JSON.stringify(next));
+  } catch {
+    // Storage blocked or full: the list just isn't kept
+  }
+};
 // The picker's own row of most-used emoji, under the list: unlabelled, and topped up with its
 // defaults (😒 among them) until you've used enough. The Recent row above does that job, with a
 // heading. The picker is drawn in its own shadow root, so the style to hide it goes in there.
@@ -120,19 +156,14 @@ const updatePickerState = () => {
   browserOpen.value = false;
 };
 
-const rememberEmoji = (emoji) => {
-  if (!props.showRecents) return;
-  const next = [emoji, ...recentEmojis.value.filter((item) => item !== emoji)].slice(0, 24);
-  recentEmojis.value = next;
-  if (typeof localStorage !== 'undefined') {
-    localStorage.setItem(EMOJI_RECENTS_KEY, JSON.stringify(next));
-  }
-};
-
 const selectValue = (value) => {
   emit('select', value);
-  if (!isIconToken(value)) {
-    rememberEmoji(value);
+  if (!props.showRecents || !value) return;
+  if (isIconToken(value)) {
+    const icon = canonicalIcon(value);
+    if (icon) rememberIn(ICON_RECENTS_KEY, RECENT_ICONS_MAX, icon.token, recentIcons);
+  } else {
+    rememberIn(EMOJI_RECENTS_KEY, RECENT_EMOJIS_MAX, value, recentEmojis);
   }
 };
 
@@ -152,7 +183,8 @@ const applyIconColorToSelection = (nextColor) => {
   if (!parsed?.id) return;
   const nextToken = buildIconToken(parsed.id, nextColor);
   if (nextToken === props.icon) return;
-  emit('select', nextToken);
+  // (A recoloured icon goes in the Recent row in its new colour)
+  selectValue(nextToken);
 };
 
 const selectIconColor = (value) => {
@@ -174,25 +206,21 @@ const selectTab = (tabKey) => {
   activeTab.value = tabKey;
 };
 
-onMounted(() => {
-  if (typeof localStorage === 'undefined') return;
-  const storedRecents = localStorage.getItem(EMOJI_RECENTS_KEY);
-  if (!storedRecents) return;
-  try {
-    const parsed = JSON.parse(storedRecents);
-    if (Array.isArray(parsed)) {
-      recentEmojis.value = parsed.filter(Boolean).slice(0, 24);
-    }
-  } catch {
-    // ignore malformed recent emoji cache
-  }
-});
+const loadRecents = () => {
+  recentEmojis.value = readList(EMOJI_RECENTS_KEY, RECENT_EMOJIS_MAX);
+  recentIcons.value = readList(ICON_RECENTS_KEY, RECENT_ICONS_MAX);
+};
 
+// (Immediate: the picker is usually made already open, and starts on the current icon's tab and
+// colour)
 watch(
   () => props.open,
   (open) => {
-    if (open) updatePickerState();
-  }
+    if (!open) return;
+    updatePickerState();
+    loadRecents();
+  },
+  { immediate: true }
 );
 
 watch(
@@ -245,6 +273,21 @@ watch(
     ></emoji-picker>
   </div>
   <div v-else-if="activeTab === 'icons'" class="emoji-menu__panel">
+    <div v-if="showRecents && recentIconOptions.length && !iconSearch.trim()" class="emoji-menu__section">
+      <div class="emoji-menu__section-title">Recent</div>
+      <div class="emoji-menu__grid emoji-menu__grid--icons emoji-menu__grid--recent-icons">
+        <button
+          v-for="recent in recentIconOptions"
+          :key="recent.token"
+          class="emoji-btn emoji-btn--icon"
+          type="button"
+          :title="recent.name"
+          @click="selectValue(recent.token)"
+        >
+          <PageIcon :icon="recent.token" aria-hidden="true" />
+        </button>
+      </div>
+    </div>
     <div class="emoji-menu__section-title">Icons</div>
     <div class="icon-controls">
       <input

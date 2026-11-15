@@ -75,4 +75,59 @@ test.describe('icon picker', () => {
     await expect.poll(async () => (await (await page.request.get(`/api/pages/${id}`)).json()).icon).toBe('icon:cup-hot');
     await expect(page.locator('.page-icon-main svg')).toBeVisible();
   });
+
+  test('icons chosen lately are in a Recent row on the Icons tab, in their colours, newest first', async ({ alice: page, workspaceId }) => {
+    const icon = async (id: string) => (await (await page.request.get(`/api/pages/${id}`)).json()).icon;
+    const picker = page.locator('css:light=.emoji-menu');
+    const recent = picker.locator('.emoji-menu__grid--recent-icons button');
+    const first = await createPage(page, workspaceId, { title: unique('First') });
+    await openPage(page, first);
+    await page.locator('.page-icon-main').click();
+    await picker.getByRole('button', { name: 'Icons', exact: true }).click();
+    // None yet
+    await expect(recent).toHaveCount(0);
+
+    // A red house, then a cup (red too)
+    await picker.getByLabel('Select icon color').click();
+    await picker.getByRole('listbox', { name: 'Icon color' }).getByRole('button', { name: 'Red', exact: true }).click();
+    await picker.getByLabel('Search icons').fill('house');
+    await picker.locator('button[title="house"]').click();
+    await expect.poll(() => icon(first)).toBe('icon:house|#ef4444');
+    if (!(await picker.isVisible())) await page.locator('.page-icon-main').click();
+    // (It opens on the icon's tab, in its colour)
+    await picker.getByLabel('Search icons').fill('coffee');
+    await picker.locator('button[title="cup-hot"]').click();
+    await expect.poll(() => icon(first)).toBe('icon:cup-hot|#ef4444');
+
+    // On another page (and after a reload), newest first
+    const second = await createPage(page, workspaceId, { title: unique('Second') });
+    await openPage(page, second);
+    await page.locator('.page-icon-main').click();
+    await picker.getByRole('button', { name: 'Icons', exact: true }).click();
+    await expect(picker.locator('.emoji-menu__section-title', { hasText: 'Recent' })).toBeVisible();
+    await expect(recent).toHaveCount(2);
+    await expect(recent.nth(0)).toHaveAttribute('title', 'cup-hot');
+    await expect(recent.nth(1)).toHaveAttribute('title', 'house');
+    // ...hidden while searching
+    await picker.getByLabel('Search icons').fill('star');
+    await expect(recent).toHaveCount(0);
+    await picker.getByLabel('Search icons').fill('');
+    // Chosen from there: as it was, red
+    await recent.nth(1).click();
+    await expect.poll(() => icon(second)).toBe('icon:house|#ef4444');
+
+    // Opened again, it's on the icon's tab and colour; recoloured, the Recent row has it in its new one
+    if (await picker.isVisible()) await page.keyboard.press('Escape');
+    await page.locator('.page-icon-main').click();
+    await expect(picker.getByLabel('Search icons')).toBeVisible();
+    await expect(picker.getByLabel('Select icon color')).toHaveCSS('background-color', 'rgb(239, 68, 68)');
+    await picker.getByLabel('Select icon color').click();
+    await picker.getByRole('listbox', { name: 'Icon color' }).getByRole('button', { name: 'Green', exact: true }).click();
+    await expect.poll(() => icon(second)).toBe('icon:house|#22c55e');
+    expect(await page.evaluate(() => JSON.parse(localStorage.getItem('wikid:recent-icons') || '[]'))).toEqual([
+      'icon:house|#22c55e',
+      'icon:house|#ef4444',
+      'icon:cup-hot|#ef4444',
+    ]);
+  });
 });
