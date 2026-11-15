@@ -184,6 +184,25 @@ test.describe('database views', () => {
     await expect(main(page).locator('.db-view-tab', { hasText: 'Open tasks' })).toHaveCount(0);
     await expect.poll(views).toEqual([]);
   });
+  test("a view renamed and changed in the same moment keeps both, though the page is reloaded straight after", async ({ alice: page, workspaceId }) => {
+    const db = await createPage(page, workspaceId, { title: unique('Quick'), kind: 'DATABASE' });
+    const status = await (
+      await page.request.post(`/api/pages/${db}/database/fields`, { data: { name: 'Status', type: 'SELECT', options: { choices: [{ value: 'To do', color: '#ff0000' }] } } })
+    ).json();
+    await page.request.post(`/api/pages/${db}/database/views`, { data: { name: 'Board', type: 'BOARD', config: { groupFieldId: status.id } } });
+    const view = async () => ((await (await page.request.get(`/api/pages/${db}/database`)).json()).views ?? [])[0];
+    await page.goto(`/doc/${db}`);
+    await main(page).getByRole('button', { name: 'Board' }).click();
+
+    // Renamed, then its cards coloured, then the page reloaded: all within the moment a save waits
+    page.once('dialog', (dialog) => dialog.accept('Sprint'));
+    await main(page).getByRole('button', { name: 'Board view options' }).click();
+    await page.locator('.db-view-menu').getByRole('button', { name: 'Rename view' }).click();
+    await main(page).getByLabel('Colour cards by').selectOption('Status');
+    await page.reload();
+    await expect.poll(view).toMatchObject({ name: 'Sprint', config: { groupFieldId: status.id, cardColorFieldId: status.id } });
+  });
+
   test("a view's settings stay as chosen when its saves overlap", async ({ alice: page, workspaceId }) => {
     const db = await createPage(page, workspaceId, { title: unique('Overlap'), kind: 'DATABASE' });
     const database = await (await page.request.get(`/api/pages/${db}/database`)).json();

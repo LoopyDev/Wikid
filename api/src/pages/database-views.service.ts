@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { databaseStateFromYjsState } from '../collab/collab-database.util';
@@ -177,9 +177,14 @@ export class DatabaseViewsService {
 
   async updateDatabaseView(
     id: string,
-    payload: { name?: string; type?: string; icon?: string; config?: unknown; position?: Prisma.Decimal },
+    // config: all of the view's settings; configPatch: only these change (null takes one back to
+    // none), onto the settings as they are when saved, so changes made meanwhile to others stay
+    payload: { name?: string; type?: string; icon?: string; config?: unknown; configPatch?: unknown; position?: Prisma.Decimal },
     user?: { userId?: string; userName?: string }
   ) {
+    if (payload.config !== undefined && payload.configPatch !== undefined) {
+      throw new BadRequestException("Give a view's settings as config (all of them) or configPatch (only those that change), not both");
+    }
     const view = await this.prisma.databaseView.findUnique({
       where: { id },
       select: { id: true, databaseId: true },
@@ -207,10 +212,37 @@ export class DatabaseViewsService {
     if (payload.config !== undefined) {
       updateData.config = await this.sanitizeDatabaseViewConfig(view.databaseId, payload.config);
     }
-    return this.prisma.databaseView.update({
-      where: { id },
-      data: updateData,
-    });
+    const patch = payload.configPatch;
+    if (patch === undefined) {
+      return this.prisma.databaseView.update({
+        where: { id },
+        data: updateData,
+      });
+    }
+    if (!patch || typeof patch !== 'object' || Array.isArray(patch)) throw new BadRequestException('configPatch must be an object');
+    // Onto the settings as they are, written only if no one changed them since they were read (else
+    // read again): two at once both count
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const current = await this.prisma.databaseView.findUniqueOrThrow({ where: { id }, select: { config: true, updatedAt: true } });
+      const merged: Record<string, unknown> =
+        current.config && typeof current.config === 'object' && !Array.isArray(current.config) ? { ...(current.config as Record<string, unknown>) } : {};
+      for (const [key, value] of Object.entries(patch as Record<string, unknown>)) {
+        // (Settings by name only: not an object's own machinery)
+        if (key === '__proto__' || key === 'constructor' || key === 'prototype') continue;
+        if (value === null) delete merged[key];
+        else merged[key] = value;
+      }
+      const config = await this.sanitizeDatabaseViewConfig(view.databaseId, merged);
+      // (Its settings compared too: two saves in the same millisecond have the same time)
+      const unchanged: Prisma.DatabaseViewWhereInput = {
+        id,
+        updatedAt: current.updatedAt,
+        config: current.config === null ? { equals: Prisma.AnyNull } : { equals: current.config as Prisma.InputJsonValue },
+      };
+      const written = await this.prisma.databaseView.updateMany({ where: unchanged, data: { ...updateData, config } as Prisma.DatabaseViewUpdateManyMutationInput });
+      if (written.count) return this.prisma.databaseView.findUniqueOrThrow({ where: { id } });
+    }
+    throw new ConflictException('The view changed while this was being saved; try again');
   }
 
   async deleteDatabaseView(id: string, user?: { userId?: string; userName?: string }) {

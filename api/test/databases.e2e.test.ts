@@ -532,6 +532,32 @@ describe('views', () => {
     expect((await alice.patch(`/database-views/${view.body.id}`, { name: 'x' })).status).toBe(404);
   });
 
+  it('changes only the settings given with `configPatch`, so two people changing different ones keep both', async () => {
+    const { pageId, titleFieldId } = await createDatabase();
+    const status = await addField(pageId, { name: 'Status', type: 'SELECT', options: { choices: [{ value: 'To do' }] } });
+    const view = (await alice.post(`/pages/${pageId}/database/views`, { name: 'Board', type: 'BOARD', config: { groupFieldId: status.id } })).body;
+    const configOf = async () => (await alice.get(`/pages/${pageId}/database`)).body.views.find((v: any) => v.id === view.id).config;
+
+    // At the same moment, from two tabs and MCP, say: a sort, a hidden column, a rename and card
+    // colours; none undoes another
+    const sorts = [{ fieldId: titleFieldId, direction: 'desc' }];
+    const results = await Promise.all([
+      alice.patch(`/database-views/${view.id}`, { configPatch: { sorts } }),
+      alice.patch(`/database-views/${view.id}`, { configPatch: { hiddenFieldIds: [status.id] } }),
+      alice.patch(`/database-views/${view.id}`, { name: 'Kanban', configPatch: { cardColorFieldId: status.id } }),
+    ]);
+    expect(results.map((r) => r.status)).toEqual([200, 200, 200]);
+    expect(await configOf()).toMatchObject({ groupFieldId: status.id, sorts, hiddenFieldIds: [status.id], cardColorFieldId: status.id });
+    expect((await alice.get(`/pages/${pageId}/database`)).body.views.find((v: any) => v.id === view.id).name).toBe('Kanban');
+
+    // null takes a setting back to none
+    expect((await alice.patch(`/database-views/${view.id}`, { configPatch: { cardColorFieldId: null } })).status).toBe(200);
+    expect((await configOf()).cardColorFieldId ?? null).toBeNull();
+    expect((await configOf()).sorts).toEqual(sorts);
+    // Not both ways at once
+    expect((await alice.patch(`/database-views/${view.id}`, { config: {}, configPatch: { sorts: [] } })).status).toBe(400);
+  });
+
   it("keeps a gallery's card columns and how many of a cover's linked rows to show, tidied", async () => {
     const { pageId, titleFieldId } = await createDatabase();
     const notes = await addField(pageId, { name: 'Notes', type: 'TEXT' });
