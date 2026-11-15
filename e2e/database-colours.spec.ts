@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test';
 import { test, expect, createPage, unique } from './fixtures';
-import { main } from './database-helpers';
+import { main, openViewOptions, closeViewOptions } from './database-helpers';
 
 // A select's choices in colours: a single select's too, set in its options; its cells tinted; a
 // board's columns in their choice's colour, and a board's or gallery's cards coloured by a select
@@ -63,6 +63,7 @@ test.describe('select colours', () => {
     // A choice without a colour has no dot
     await expect(columnDot('Done')).toHaveCount(0);
 
+    await openViewOptions(page);
     await main(page).getByLabel('Colour cards by').selectOption('Priority');
     const cardOf = (title: string) => main(page).locator('.db-board__card').filter({ has: page.locator('.db-board__card-title', { hasText: new RegExp(`^${title}$`) }) });
     await expect(cardOf('Write')).toHaveCSS('border-left-color', 'rgb(255, 0, 0)');
@@ -108,13 +109,15 @@ test.describe('select colours', () => {
     await expect(column('Done')).not.toHaveClass(/db-board__column--colored/);
 
     // Tinted: a soft background, and a card's border all round in its colour
+    await openViewOptions(page);
     await main(page).getByLabel('Colour style').selectOption('Tint');
     // Over the card's own background, so the column's colour doesn't show through
     await expect(card).toHaveCSS('background-image', 'linear-gradient(rgba(255, 0, 0, 0.14), rgba(255, 0, 0, 0.14))');
     await expect(card).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
     await expect(card).toHaveCSS('border-top-color', 'rgb(255, 0, 0)');
     await expect(column('To do')).toHaveCSS('background-image', 'linear-gradient(rgba(0, 0, 255, 0.1), rgba(0, 0, 255, 0.1))');
-    // A tinted card still shows the hover highlight
+    // A tinted card still shows the hover highlight (the menu, over the first cards, closed)
+    await closeViewOptions(page);
     await card.hover();
     await expect(card).not.toHaveCSS('border-top-color', 'rgb(255, 0, 0)');
     await expect.poll(async () => (await view(page, id, 'Board')).config.cardColorStyle).toBe('tint');

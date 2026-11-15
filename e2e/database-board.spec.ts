@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test';
 import { test, expect, createPage, unique } from './fixtures';
-import { main } from './database-helpers';
+import { main, openViewOptions } from './database-helpers';
 
 // A board view: a card dragged to another column (or moved with its "Move to" list, by keyboard or
 // on a phone) takes that column's choice.
@@ -35,6 +35,29 @@ const card = (page: Page, title: string) =>
 test.describe('board view', () => {
   // Wide enough for the whole board: a drag scrolls a board that runs off the side under the pointer
   test.use({ viewport: { width: 1600, height: 900 } });
+
+  test('its settings are in a View options menu, as a gallery\'s are', async ({ alice: page, workspaceId }) => {
+    const { id } = await boardWith(page, workspaceId, [['Write', 'To do']]);
+    const groupBy = main(page).getByLabel('Group by');
+    // Which fields its cards show is in there too, not a Columns button beside it
+    await expect(main(page).getByRole('button', { name: 'Columns' })).toHaveCount(0);
+    // Out of the way until asked for
+    await expect(groupBy).toBeHidden();
+    await expect(main(page).getByLabel('Colour cards by')).toBeHidden();
+    await openViewOptions(page);
+    await expect(groupBy).toBeVisible();
+    await expect(main(page).getByLabel('Colour cards by')).toBeVisible();
+    await expect(main(page).getByLabel('Colour style')).toBeVisible();
+    const statusOnCard = main(page).locator('.db-board__card-field', { hasText: 'To do' });
+    await expect(statusOnCard).toHaveCount(1);
+    await main(page).locator('.db-view-options .db-card-fields__option', { hasText: 'Status' }).locator('input').uncheck();
+    await expect(statusOnCard).toHaveCount(0);
+    // ...and they work from there
+    await groupBy.selectOption('None');
+    await expect(column(page, 'To do')).toHaveCount(0);
+    const view = async () => (await (await page.request.get(`/api/pages/${id}/database`)).json()).views[0];
+    await expect.poll(async () => (await view()).config.groupFieldId ?? null).toBe(null);
+  });
 
   test('a card dragged to another column takes its choice; to "No value", none', async ({ alice: page, workspaceId }) => {
     const { statusOf } = await boardWith(page, workspaceId, [['Write', 'To do'], ['Test', 'To do']]);

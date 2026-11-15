@@ -201,6 +201,7 @@ test.describe('database views', () => {
     page.once('dialog', (dialog) => dialog.accept('Sprint'));
     await main(page).getByRole('button', { name: 'Board view options' }).click();
     await page.locator('.db-view-menu').getByRole('button', { name: 'Rename view' }).click();
+    await openViewOptions(page);
     await main(page).getByLabel('Colour cards by').selectOption('Status');
     await page.reload();
     await expect.poll(view).toMatchObject({ name: 'Sprint', config: { groupFieldId: status.id, cardColorFieldId: status.id } });
