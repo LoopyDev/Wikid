@@ -11745,6 +11745,14 @@ a.db-list__title {
   min-width: 260px;
   gap: 4px;
 }
+/* In the toolbar, at its right: opening leftwards */
+.db-view-options-slot {
+  display: contents;
+}
+.db-view-options-slot .db-card-fields__menu {
+  left: auto;
+  right: 0;
+}
 .db-view-options__row {
   display: flex;
   align-items: center;
@@ -11798,16 +11806,24 @@ a.db-list__title {
   white-space: nowrap;
 }
 
-/* Board */
+/* Board: scrolled as one, in a box (as high as the window has room for, or set in a page), so its
+   column headers can stay at its top. Its columns are all as tall as the longest, so each header
+   stays in sight however far down it's scrolled (and a card can be dropped anywhere down one). */
 .db-board__columns {
-  display: flex;
+  /* A grid's row is as tall as its tallest column, scrolled or not (a flex row stops at the box) */
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 260px;
   gap: 12px;
-  overflow-x: auto;
+  overflow: auto;
   padding-bottom: 8px;
-  align-items: flex-start;
+  align-items: stretch;
+}
+.db-board--embedded .db-board__columns {
+  max-height: 520px;
 }
 .db-board__column {
-  flex: 0 0 260px;
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -11821,11 +11837,26 @@ a.db-list__title {
   gap: 8px;
   font-weight: 600;
   color: var(--text-primary);
+  /* Over the cards as they scroll under it: the column's own background, but solid */
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin: -10px -10px 0;
+  padding: 10px;
+  border-radius: 10px 10px 0 0;
+  background: linear-gradient(rgba(148, 163, 184, 0.08), rgba(148, 163, 184, 0.08)), var(--content-bg);
+}
+.db-board__column--tinted .db-board__column-header {
+  background: linear-gradient(var(--db-tint), var(--db-tint)), linear-gradient(rgba(148, 163, 184, 0.08), rgba(148, 163, 184, 0.08)), var(--content-bg);
 }
 .db-board__cards {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  /* Kept in sight as the board scrolls: under the header, or with the last card at the bottom
+     (--db-cards-top, worked out per column) */
+  position: sticky;
+  top: var(--db-cards-top, 0px);
 }
 .db-board__card {
   display: flex;
@@ -11884,15 +11915,22 @@ select.db-cell-input option,
 .db-gallery__card--tinted:hover {
   border-color: var(--caret-color);
 }
-.db-board__column--colored {
+/* On its header, which stays in sight as the board scrolls */
+.db-board__column--colored .db-board__column-header {
   border-top: 3px solid var(--db-colour);
 }
 .db-board__column--tinted {
   background-image: linear-gradient(var(--db-tint), var(--db-tint));
 }
-.db-board__column--drop {
-  outline: 2px dashed var(--caret-color);
-  outline-offset: -2px;
+/* Drawn over the column, its sticky header too */
+.db-board__column--drop::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  border: 2px dashed var(--caret-color);
+  border-radius: inherit;
+  pointer-events: none;
 }
 .db-board__card-wrap {
   position: relative;

@@ -25,6 +25,8 @@ import { fieldTypeIcons, fieldTypes, getFieldSource, getLinkedFromConfig, getRel
 import { DEFAULT_FORM_ICON, buildFormField, conditionValues, normalizeFormIcon } from '../utils/database/forms';
 import { OPERATOR_LABELS, choicePlaces, compareChoices, operatorNeedsValue, operatorsForFieldType, sortByType } from '../utils/database/views';
 import { colorFromId } from '../utils/presenceColor';
+import { useFitToWindow } from '../composables/useFitToWindow';
+import { useBoardStickyCards } from '../composables/useBoardStickyCards';
 import { useCellPresence } from '../composables/useCellPresence';
 import { useDatabaseCollab } from '../composables/useDatabaseCollab';
 import { useSavedViews } from '../composables/useSavedViews';
@@ -2181,6 +2183,19 @@ const draggingCardId = ref(null);
 const boardDropKey = ref(null);
 const boardMoveNotice = ref(null);
 let boardNoticeTimer = null;
+// A board scrolls as one, in a box ending at the bottom of the window (so its column headers can
+// stay at its top, and its sideways scrollbar is in sight); in a page, as a database view block, a
+// box of a set height
+const boardColumnsRef = ref(null);
+// Where a board's or gallery's View options menu goes: in the toolbar, after Filter and Sort
+const viewOptionsSlot = ref(null);
+const boardMaxHeight = useFitToWindow(boardColumnsRef, computed(() => isBoardView.value && !props.embedded));
+// ...and scrolled down, each column's cards stay in sight (see the composable)
+useBoardStickyCards(
+  boardColumnsRef,
+  isBoardView,
+  computed(() => boardColumns.value.map((column) => `${column.key}:${column.rows.length}`).join('|'))
+);
 const boardColumnOf = (rowId) => boardColumns.value.find((column) => column.rows.some((row) => row.id === rowId)) || null;
 const showBoardNotice = (notice) => {
   clearTimeout(boardNoticeTimer);
@@ -3713,6 +3728,7 @@ onBeforeUnmount(() => {
             <i class="bi bi-sort-down" aria-hidden="true"></i>
             Sort<span v-if="activeViewSorts.length" class="db-view-tab__count">{{ activeViewSorts.length }}</span>
           </button>
+          <span v-if="canConfigureView && columnsInViewOptions" ref="viewOptionsSlot" class="db-view-options-slot"></span>
           <button
             v-if="canConfigureView && !columnsInViewOptions"
             class="db-columns-button"
@@ -3841,6 +3857,7 @@ onBeforeUnmount(() => {
           <i class="bi bi-sort-down" aria-hidden="true"></i>
           Sort<span v-if="activeViewSorts.length" class="db-view-tab__count">{{ activeViewSorts.length }}</span>
         </button>
+        <span v-if="canConfigureView && columnsInViewOptions" ref="viewOptionsSlot" class="db-view-options-slot"></span>
         <button
           v-if="canConfigureView && !columnsInViewOptions"
           class="db-columns-button"
@@ -4059,8 +4076,9 @@ onBeforeUnmount(() => {
           <div v-if="!rows.length" class="database-table__empty muted">No rows yet.</div>
         </template>
         <div v-else-if="isGalleryView" class="db-gallery">
-          <div v-if="!embedded" class="db-view-config-bar">
-            <details v-if="canConfigureView" class="db-card-fields db-view-options">
+          <!-- In the toolbar, to the right of Filter and Sort -->
+          <Teleport v-if="viewOptionsSlot" :to="viewOptionsSlot">
+            <details class="db-card-fields db-view-options">
               <summary class="db-card-fields__toggle">
                 <i class="bi bi-sliders" aria-hidden="true"></i>
                 View options
@@ -4128,7 +4146,7 @@ onBeforeUnmount(() => {
                 <div v-if="!cardFieldCandidates.length" class="db-card-fields__empty">No other columns</div>
               </div>
             </details>
-          </div>
+          </Teleport>
           <div v-if="!shownRows.length" class="database-table__empty muted">No matching rows.</div>
           <div v-else class="db-gallery__grid">
             <div
@@ -4261,10 +4279,11 @@ onBeforeUnmount(() => {
           </ul>
           <MoreRows v-if="rowsNotShown" :count="rowsNotShown" />
         </div>
-        <div v-else-if="isBoardView" class="db-board">
-          <!-- Its settings behind a View options menu, as a gallery's are -->
-          <div v-if="!embedded" class="db-view-config-bar">
-            <details v-if="canConfigureView" class="db-card-fields db-view-options">
+        <div v-else-if="isBoardView" :class="['db-board', { 'db-board--embedded': embedded }]">
+          <!-- Its settings in a View options menu, as a gallery's are -->
+          <!-- In the toolbar, to the right of Filter and Sort -->
+          <Teleport v-if="viewOptionsSlot" :to="viewOptionsSlot">
+            <details class="db-card-fields db-view-options">
               <summary class="db-card-fields__toggle">
                 <i class="bi bi-sliders" aria-hidden="true"></i>
                 View options
@@ -4315,12 +4334,16 @@ onBeforeUnmount(() => {
                 <div v-if="!cardFieldCandidates.length" class="db-card-fields__empty">No other columns</div>
               </div>
             </details>
-          </div>
+          </Teleport>
           <div v-if="boardMoveNotice" class="db-board__notice" role="status">
             “{{ boardMoveNotice.title }}” moved to {{ boardMoveNotice.label }}; this view doesn't show it.
             <button type="button" class="db-board__notice-undo" @click="undoBoardMove">Undo</button>
           </div>
-          <div class="db-board__columns">
+          <div
+            ref="boardColumnsRef"
+            class="db-board__columns"
+            :style="boardMaxHeight ? { maxHeight: `${boardMaxHeight}px` } : null"
+          >
             <div
               v-for="column in boardColumns"
               :key="column.key"

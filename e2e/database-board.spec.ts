@@ -59,6 +59,41 @@ test.describe('board view', () => {
     await expect.poll(async () => (await view()).config.groupFieldId ?? null).toBe(null);
   });
 
+  test('a long board scrolls as one, in the window: its column headers stay in sight, and its sideways scrollbar too', async ({ alice: page, workspaceId }) => {
+    await page.setViewportSize({ width: 1280, height: 720 });
+    const rows = (count: number, status: string) => Array.from({ length: count }, (_, i) => [`${status} ${i + 1}`, status] as [string, string]);
+    // A long column, a short one, and one between (longer than the box, shorter than the longest)
+    await boardWith(page, workspaceId, [...rows(40, 'To do'), ...rows(2, 'Doing'), ...rows(14, 'Done')]);
+    const box = main(page).locator('.db-board__columns');
+    await expect(column(page, 'To do').locator('.db-board__card-title')).toHaveCount(40);
+    // No taller than the window, so its bottom (and the sideways scrollbar there) can be in sight
+    const { height } = (await box.boundingBox())!;
+    expect(height).toBeLessThanOrEqual(720);
+    expect(await box.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
+
+    // Scrolled down inside it, the columns' headers stay at its top
+    await box.evaluate((el) => (el.scrollTop = el.scrollHeight));
+    const header = column(page, 'To do').locator('.db-board__column-header');
+    await expect.poll(async () => Math.round((await header.boundingBox())!.y - (await box.boundingBox())!.y)).toBeLessThanOrEqual(1);
+    // A short column's too (each column as tall as the longest)...
+    const shortHeader = column(page, 'Doing').locator('.db-board__column-header');
+    await expect.poll(async () => Math.round((await shortHeader.boundingBox())!.y - (await box.boundingBox())!.y)).toBeLessThanOrEqual(1);
+    // ...and its cards stay under it, not scrolled away
+    const below = async (title: string) => {
+      const b = (await box.boundingBox())!;
+      const c = (await card(page, title).boundingBox())!;
+      return { top: c.y - b.y, bottom: b.y + b.height - (c.y + c.height) };
+    };
+    await expect.poll(async () => (await below('Doing 1')).top).toBeGreaterThan(0);
+    expect((await below('Doing 1')).top).toBeLessThan(100);
+    // A column longer than the box, though shorter than the longest: its last card, whole, at the bottom
+    await expect.poll(async () => Math.round((await below('Done 14')).bottom)).toBeGreaterThanOrEqual(0);
+    expect((await below('Done 14')).bottom).toBeLessThan(40);
+    await expect(card(page, 'Done 14')).toBeInViewport({ ratio: 1 });
+    // ...over the cards, not see-through
+    expect(await header.evaluate((el) => getComputedStyle(el).backgroundColor)).not.toBe('rgba(0, 0, 0, 0)');
+  });
+
   test('a card dragged to another column takes its choice; to "No value", none', async ({ alice: page, workspaceId }) => {
     const { statusOf } = await boardWith(page, workspaceId, [['Write', 'To do'], ['Test', 'To do']]);
     await expect(column(page, 'To do').locator('.db-board__card-title')).toHaveText(['Write', 'Test']);

@@ -105,7 +105,8 @@ test.describe('select colours', () => {
 
     // Striped: a card down its left, a column along its top; a column whose choice has no colour, plain
     await expect(card).toHaveCSS('border-left-color', 'rgb(255, 0, 0)');
-    await expect(column('To do')).toHaveCSS('border-top-color', 'rgb(0, 0, 255)');
+    // (On its header, which stays in sight as the board scrolls)
+    await expect(column('To do').locator('.db-board__column-header')).toHaveCSS('border-top-color', 'rgb(0, 0, 255)');
     await expect(column('Done')).not.toHaveClass(/db-board__column--colored/);
 
     // Tinted: a soft background, and a card's border all round in its colour
