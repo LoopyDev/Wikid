@@ -406,6 +406,11 @@ const createDatabasePage = async (options = {}) => {
     return created || null;
   } catch (err) {
     console.warn('Create database page failed', err);
+    // Compliance turned off by the admin since the page was loaded: said, and no longer offered
+    if (payload.complianceMode && err?.status === 403) {
+      workspace.error = err.message;
+      workspace.loadServerConfig();
+    }
     return null;
   }
 };

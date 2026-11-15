@@ -1,3 +1,4 @@
+import { SettingsService } from '../settings/settings.service';
 import { Injectable, BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { Prisma, WorkspaceRole, DatabaseFieldType, PageKind, PageVisibility, PageSetupStatus } from '@prisma/client';
@@ -42,6 +43,7 @@ export class DatabasesService {
     private readonly wiki: WikiService,
     private readonly pages: PagesService,
     private readonly materializer: CollabMaterializerService,
+    private readonly settings: SettingsService,
   ) {}
 
   private readonly RELATION_HISTORY_FIELDS = {
@@ -746,6 +748,8 @@ export class DatabasesService {
     if (typeof payload.complianceMode !== 'boolean') {
       return database;
     }
+    // Into compliance mode only while the admin has it on; out of it, always
+    if (payload.complianceMode && !database.complianceMode) await this.settings.assertComplianceAvailable();
     return this.prisma.database.update({
       where: { id: database.id },
       data: { complianceMode: payload.complianceMode },

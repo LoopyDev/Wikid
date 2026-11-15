@@ -107,6 +107,8 @@ export const useWorkspaceStore = defineStore('workspace', {
     sessionChecked: false,
     // The server has AI set up and the admin hasn't turned it off (see aiEnabled).
     aiAvailable: false,
+    // Compliance databases can be made: an alpha feature, off unless the admin turns it on
+    complianceAvailable: false,
     // Set when someone moves the open page (or a page it's inside) to the Bin:
     // { openPageId, pageId, pageTitle, pageIds, byName, byMe }. Only shown while that page is still open.
     remoteDeletion: null,
@@ -901,9 +903,11 @@ export const useWorkspaceStore = defineStore('workspace', {
       try {
         const config = await api.getConfig();
         this.aiAvailable = !!config?.ai?.available;
+        this.complianceAvailable = !!config?.compliance?.available;
       } catch (err) {
         console.warn('Load server config failed', err);
         this.aiAvailable = false;
+        this.complianceAvailable = false;
       }
     },
     // An account setting (kept on the server for the account, so it follows the person between

@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { isUuid } from '../utils/uuid.util';
 import { INVENTORY_TEMPLATE_FIELDS, MAINTENANCE_TEMPLATE_FIELDS, ASSIGNMENTS_TEMPLATE_FIELDS } from '../constants/database-templates.const';
 import { ComplianceService } from '../compliance/compliance.service';
+import { SettingsService } from '../settings/settings.service';
 import { POSITION_INCREMENT, DEFAULT_COMPLIANCE_WORKFLOW, getFieldSource } from './pages.shared';
 
 // Creating a database for a page: default and template fields, compliance schema,
@@ -13,6 +14,7 @@ export class DatabaseSetupService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly compliance: ComplianceService,
+    private readonly settings: SettingsService,
   ) {}
 
   private readonly DEFAULT_DB_FIELD_NAME = 'Name';
@@ -33,6 +35,9 @@ export class DatabaseSetupService {
     user?: { userId?: string; userName?: string }
   ) {
     const complianceMode = typeof options.complianceMode === 'boolean' ? options.complianceMode : false;
+    // Every compliance database is made here: only while the admin has them on (callers check
+    // first too, before anything else is made)
+    if (complianceMode) await this.settings.assertComplianceAvailable();
     const database = await this.prisma.database.create({
       data: { pageId, workspaceId, complianceMode },
     });

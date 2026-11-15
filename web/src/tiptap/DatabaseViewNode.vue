@@ -297,7 +297,7 @@ const handleHiddenFieldIdsUpdate = (next) => {
           New database
         </button>
         <button
-          v-if="canEdit && canCreate"
+          v-if="canEdit && canCreate && workspace.complianceAvailable"
           class="ghost-btn ghost-btn-background"
           type="button"
           @click.stop="handleCreateCompliance"
