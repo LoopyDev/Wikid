@@ -24,9 +24,17 @@ const bootstrapIconsDir = dirname(createRequire(import.meta.url).resolve('bootst
 // block's attributes onto the element); an element still holding the same block, by id, has only
 // moved and stays as it is. One reused for a different block is made again, as before. Remove once
 // a y-tiptap release handles it; the build fails if the code it replaces changes.
+//
+// And: undo back to an empty page, then redo, and the page came back with an empty line above it. A
+// page can't be empty, so the editor shows one empty line, and y-tiptap wrote that into the live
+// document like any other change; the redo then put the lines back beside it. While the live
+// document is empty and the editor holds only that empty line (whatever its attributes), there's
+// nothing to write: it goes in once something is typed into it. Remove once a y-tiptap release handles it; the build fails if
+// the code it replaces changes.
 let yTiptapFixApplied = false
 let yTiptapEmptyBlockFixApplied = false
 let yTiptapMovedBlockFixApplied = false
+let yTiptapEmptyPageFixApplied = false
 const yTiptapSelectionFix = {
   name: 'y-tiptap-selection-fix',
   enforce: 'pre',
@@ -64,16 +72,28 @@ const yTiptapSelectionFix = {
     if (!code.includes(planBefore)) {
       throw new Error('y-tiptap changed: check whether the moved block fix is still needed')
     }
+    // In _prosemirrorChanged: an empty live document and the editor's empty page: nothing to write
+    const emptyPageBefore =
+      'if (this.projectionError !== null || syncState.snapshot != null || syncState.prevSnapshot != null) return;\n\t\tthis.doc.transact(() => {\n\t\t\tupdateYFragment('
+    if (!code.includes(emptyPageBefore)) {
+      throw new Error('y-tiptap changed: check whether the empty page fix is still needed')
+    }
+    const emptyPageAfter =
+      'if (this.projectionError !== null || syncState.snapshot != null || syncState.prevSnapshot != null) return;\n' +
+      '\t\tif (this.type.length === 0 && doc.childCount === 1 && doc.firstChild.type.name === "paragraph" && doc.firstChild.content.size === 0) { this.syncedDoc = doc; this.beforeTransactionSelection = getRelativeSelection(this, this.view.state); return; }\n' +
+      '\t\tthis.doc.transact(() => {\n\t\t\tupdateYFragment('
     yTiptapFixApplied = true
     yTiptapEmptyBlockFixApplied = true
     yTiptapMovedBlockFixApplied = true
+    yTiptapEmptyPageFixApplied = true
     return {
       code: code
         .replace(before, after)
         .replace(loopBefore, loopAfter)
         .replace(emptyBlockBefore, emptyBlockAfter)
         .replace(movedBefore, movedAfter)
-        .replace(planBefore, planAfter),
+        .replace(planBefore, planAfter)
+        .replace(emptyPageBefore, emptyPageAfter),
       map: null,
     }
   },
@@ -81,6 +101,7 @@ const yTiptapSelectionFix = {
     if (!yTiptapFixApplied) throw new Error('The y-tiptap selection fix was not applied: was y-tiptap moved or renamed?')
     if (!yTiptapEmptyBlockFixApplied) throw new Error('The y-tiptap empty block fix was not applied: was y-tiptap moved or renamed?')
     if (!yTiptapMovedBlockFixApplied) throw new Error('The y-tiptap moved block fix was not applied: was y-tiptap moved or renamed?')
+    if (!yTiptapEmptyPageFixApplied) throw new Error('The y-tiptap empty page fix was not applied: was y-tiptap moved or renamed?')
   },
 }
 
