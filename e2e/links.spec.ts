@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test';
-import { test, expect, createPage, openPage, editor, unique, blockTexts } from './fixtures';
+import { test, expect, createPage, openPage, editor, unique, blockTexts, placeCursor } from './fixtures';
 
 // Links in a page: the link editor (its text and where it goes, apart), and links to pages.
 
@@ -44,8 +44,8 @@ test.describe('links', () => {
     await expect(page.locator('.search-backdrop')).toBeVisible();
     await page.keyboard.press('Escape');
     await expect(page.locator('.search-backdrop')).toHaveCount(0);
-    await editor(page).click();
-    await page.keyboard.press('End');
+    // Back at the end of the line (a click on the editor's middle can land below it, which adds a line)
+    await placeCursor(page, 0, 'end');
     await page.keyboard.type('/link', { delay: 30 });
     await page.keyboard.press('Enter');
     await textField(page).fill('the docs');

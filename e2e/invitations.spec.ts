@@ -65,6 +65,10 @@ test.describe('invitations', () => {
     await expect(invitation(bob, name)).toHaveCount(0);
     expect((await bob.request.get(`/api/workspaces/${id}/members`)).status()).toBe(403);
 
+    // Alice's list catches up (the tab opened again): no one's invited now
+    await settings.getByRole('button', { name: 'Workspace', exact: true }).click();
+    await settings.getByRole('button', { name: 'Members', exact: true }).click();
+    await expect(settings.getByLabel('Invited').locator('.members-row')).toHaveCount(0);
     // Invited again; this time the owner takes it back
     await settings.getByPlaceholder('Email or username').fill(USERS.bob.email);
     await settings.getByRole('button', { name: 'Invite' }).click();
@@ -78,6 +82,24 @@ test.describe('invitations', () => {
     await switcher(bob).click();
     await expect(menu(bob).getByText('Workspaces')).toBeVisible();
     await expect(invitation(bob, name)).toHaveCount(0);
+    await alice.request.delete(`/api/workspaces/${id}`);
+  });
+
+  test("cancelling one already accepted (the list a step behind) says so, and they're a member", async ({ alice, bob }) => {
+    const { id, settings } = await membersOf(alice);
+    await settings.getByPlaceholder('Email or username').fill(USERS.bob.email);
+    await settings.getByRole('button', { name: 'Invite' }).click();
+    const invited = settings.getByLabel('Invited').locator('.members-row');
+    await expect(invited).toHaveCount(1);
+    // Bob accepts while Alice's list still shows him as invited
+    const mine = (await (await bob.request.get('/api/invitations')).json()).find((i: any) => i.workspace.id === id);
+    expect((await bob.request.post(`/api/invitations/${mine.id}/accept`)).status()).toBe(201);
+
+    await invited.getByRole('button', { name: 'Cancel' }).click();
+    await expect(settings.getByRole('status')).toHaveText("Bob had already accepted: they're a member now.");
+    await expect(invited).toHaveCount(0);
+    await expect(settings.locator('.members-row', { hasText: USERS.bob.email })).toHaveCount(1);
+    await expect(settings.locator('.alert')).toHaveCount(0);
     await alice.request.delete(`/api/workspaces/${id}`);
   });
 });

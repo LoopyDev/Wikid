@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test';
-import { test, expect, createPage, openPage, editor, blockTexts, placeCursor } from './fixtures';
+import { test, expect, createPage, openPage, editor, blockTexts, placeCursor, focusEditorAt } from './fixtures';
 
 // Alice and Bob edit the same page in separate browser sessions.
 
@@ -178,11 +178,7 @@ test.describe('editing together', () => {
     await alice.keyboard.type('START  END', { delay: 20 });
     await openPage(bob, id);
     await expect.poll(() => blockTexts(bob)).toEqual(['START  END']);
-    const at = (page: Page, pos: number) =>
-      page.evaluate((p) => {
-        const ed = (document.querySelector('.ProseMirror:not(.page-hold *)') as any).editor;
-        ed.chain().focus().setTextSelection(p).run();
-      }, pos);
+    const at = focusEditorAt;
     await at(alice, 7);
     await at(bob, 8);
     await Promise.all([

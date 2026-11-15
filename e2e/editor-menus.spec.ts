@@ -614,8 +614,12 @@ test.describe('editor menus', () => {
       expect((await page.request.put(`/api/pages/${pageId}/content`, { data: { content: { type: 'doc', content } } })).status()).toBe(200);
       await openPage(page, pageId);
       await editor(page).locator('p').first().click();
-      // The mouse rests on it while the page shrinks to one line under it
-      // (Forced: the block handle can sit over it)
+      // The mouse rests on it while the page shrinks to one line under it (once it's drawn: an image
+      // still loading has no size to hover over). Forced: the block handle can sit over it
+      if (target === '.tiptap-image-resizable') {
+        await expect.poll(() => editor(page).locator(`${target} img`).first().evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0)).toBe(true);
+      }
+      await expect(editor(page).locator(target).first()).toBeVisible();
       await editor(page).locator(target).first().hover({ force: true });
       await page.keyboard.press('ControlOrMeta+a');
       await page.keyboard.type('Short now', { delay: 20 });

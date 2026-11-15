@@ -59,6 +59,9 @@ test.describe('database views', () => {
     await expect(main(page).getByRole('button', { name: 'Add row' })).toBeVisible();
     await main(page).locator('thead th').last().locator('button').first().click();
     await page.locator('.db-add-column-menu .block-menu__item', { hasText: 'Linked from' }).click();
+    // The column in, and the menu gone, before it's opened again (a click as it closes toggled it shut)
+    await expect(main(page).locator('thead th')).toHaveCount(3);
+    await expect(page.locator('.db-add-column-menu')).toHaveCount(0);
     await main(page).locator('thead th').last().locator('button').first().click();
     await page.locator('.db-add-column-menu input').fill('Notes');
     await page.locator('.db-add-column-menu .block-menu__item', { hasText: 'Text' }).click();

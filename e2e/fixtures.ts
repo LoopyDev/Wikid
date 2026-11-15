@@ -106,6 +106,19 @@ export async function waitForSaved(page: Page) {
 }
 
 /**
+ * Puts the cursor at a position in the page's editor, focused there and then, and waits until it
+ * has focus. Tiptap's own focus() waits a frame, and a key pressed meanwhile is lost.
+ */
+export async function focusEditorAt(page: Page, pos: number) {
+  await page.evaluate((at) => {
+    const ed = (document.querySelector('.ProseMirror:not(.page-hold *)') as any).editor;
+    ed.commands.setTextSelection(at);
+    ed.view.focus();
+  }, pos);
+  await expect(editor(page)).toBeFocused();
+}
+
+/**
  * Puts the cursor at the start or end of a top-level block and waits until the editor has
  * registered it. Typing in the same instant as the click can beat the editor's own update.
  */
@@ -114,7 +127,7 @@ export async function placeCursor(page: Page, index: number, where: 'start' | 'e
   await page.keyboard.press(where === 'start' ? 'Home' : 'End');
   const isThere = () =>
     page.waitForFunction(({ index, where }) => {
-      const { doc, selection } = (document.querySelector('.ProseMirror') as any).editor.state;
+      const { doc, selection } = (document.querySelector('.ProseMirror:not(.page-hold *)') as any).editor.state;
       let pos = 0;
       for (let i = 0; i < index; i += 1) pos += doc.child(i).nodeSize;
       const target = where === 'start' ? pos + 1 : pos + doc.child(index).nodeSize - 1;
@@ -122,13 +135,13 @@ export async function placeCursor(page: Page, index: number, where: 'start' | 'e
     }, { index, where }, { timeout: 3000 });
   // The key can be lost while the click is still settling (seen in CI): then the editor puts it there
   if (await isThere().then(() => true, () => false)) return;
-  await page.evaluate(({ index, where }) => {
-    const ed = (document.querySelector('.ProseMirror') as any).editor;
-    const { doc } = ed.state;
+  const target = await page.evaluate(({ index, where }) => {
+    const { doc } = (document.querySelector('.ProseMirror:not(.page-hold *)') as any).editor.state;
     let pos = 0;
     for (let i = 0; i < index; i += 1) pos += doc.child(i).nodeSize;
-    ed.chain().focus().setTextSelection(where === 'start' ? pos + 1 : pos + doc.child(index).nodeSize - 1).run();
+    return where === 'start' ? pos + 1 : pos + doc.child(index).nodeSize - 1;
   }, { index, where });
+  await focusEditorAt(page, target);
   await isThere();
 }
 

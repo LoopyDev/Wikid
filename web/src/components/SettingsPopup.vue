@@ -157,8 +157,23 @@ const cancelInvitation = async (invitation) => {
   if (!activeWorkspaceId.value || !isWorkspaceOwner.value) return;
   invitedNote.value = '';
   await withMemberAction(invitation.id, "Couldn't cancel the invitation", async () => {
-    await api.cancelWorkspaceInvitation(activeWorkspaceId.value, invitation.id);
+    let gone = false;
+    try {
+      await api.cancelWorkspaceInvitation(activeWorkspaceId.value, invitation.id);
+    } catch (err) {
+      // Answered or replaced meanwhile (the list was behind): nothing to cancel, said below
+      if (err?.status !== 404) throw err;
+      gone = true;
+    }
     await loadMembers();
+    if (!gone) return;
+    const who = invitation.user?.displayName || invitation.user?.email || 'They';
+    const userId = invitation.user?.id;
+    invitedNote.value = members.value.some((member) => member.userId === userId)
+      ? `${who} had already accepted: they're a member now.`
+      : invitations.value.some((pending) => pending.user?.id === userId)
+        ? `${who}'s invitation had been sent again: cancel that one to take it back.`
+        : `${who} had already declined.`;
   });
 };
 const ROLE_LABELS = { OWNER: 'Owner', EDITOR: 'Editor', VIEWER: 'Viewer' };
