@@ -11822,14 +11822,13 @@ a.db-list__title {
 .db-board--embedded .db-board__columns {
   max-height: 520px;
 }
+/* A column runs the board's height (somewhere to drop a card anywhere down it, and for its header
+   to stay at the top), but is drawn round its header and cards only: its header's background and
+   its cards' together, ending under its last card */
 .db-board__column {
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  background: rgba(148, 163, 184, 0.08);
-  border-radius: 10px;
-  padding: 10px;
 }
 .db-board__column-header {
   display: flex;
@@ -11841,7 +11840,6 @@ a.db-list__title {
   position: sticky;
   top: 0;
   z-index: 1;
-  margin: -10px -10px 0;
   padding: 10px;
   border-radius: 10px 10px 0 0;
   background: linear-gradient(rgba(148, 163, 184, 0.08), rgba(148, 163, 184, 0.08)), var(--content-bg);
@@ -11853,6 +11851,10 @@ a.db-list__title {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  padding: 8px 10px 10px;
+  border-radius: 0 0 10px 10px;
+  /* As the header's, on the same solid base, so the two match whatever the board is on */
+  background: linear-gradient(rgba(148, 163, 184, 0.08), rgba(148, 163, 184, 0.08)), var(--content-bg);
   /* Kept in sight as the board scrolls: under the header, or with the last card at the bottom
      (--db-cards-top, worked out per column) */
   position: sticky;
@@ -11919,17 +11921,18 @@ select.db-cell-input option,
 .db-board__column--colored .db-board__column-header {
   border-top: 3px solid var(--db-colour);
 }
-.db-board__column--tinted {
-  background-image: linear-gradient(var(--db-tint), var(--db-tint));
+.db-board__column--tinted .db-board__cards {
+  background: linear-gradient(var(--db-tint), var(--db-tint)), linear-gradient(rgba(148, 163, 184, 0.08), rgba(148, 163, 184, 0.08)), var(--content-bg);
 }
-/* Drawn over the column, its sticky header too */
+/* Drawn over the whole column, its sticky header too: all of it takes the card, though only its
+   header and cards are drawn otherwise */
 .db-board__column--drop::after {
   content: '';
   position: absolute;
   inset: 0;
   z-index: 2;
   border: 2px dashed var(--caret-color);
-  border-radius: inherit;
+  border-radius: 10px;
   pointer-events: none;
 }
 .db-board__card-wrap {
