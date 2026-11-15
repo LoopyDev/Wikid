@@ -36,6 +36,7 @@ import { usePageSwitchHold } from './composables/usePageSwitchHold';
 import { useTextHistory } from './composables/useTextHistory';
 import { isInIconBrowser } from './utils/iconSearch';
 import { api, AUTH_EXPIRED_EVENT, PASSWORD_CHANGE_REQUIRED_EVENT } from './api/client';
+import { hasTypedContent } from './utils/docContent';
 import { editorDocToMarkdown, editorDocToMarkdownAsync } from './utils/editorDoc';
 import { exportPagesMarkdownZip } from './utils/markdownExport';
 import { SYSTEM_ADMIN_ID } from './constants/system-admin';
@@ -340,6 +341,7 @@ const setupError = ref('');
 const setupSaving = ref(false);
 const setupAutoCompleteTriggered = ref(false);
 const setupSeedDoc = ref(null);
+const setupSeedSelection = ref(null);
 const setupDebugEnabled = () =>
   typeof window !== 'undefined' && window.localStorage?.getItem('wikid:debug-setup') === '1';
 const logSetup = (...args) => {
@@ -1126,15 +1128,9 @@ const handleFormOpenPage = (pageId) => {
   if (!pageId) return;
   openRowPageFull(pageId);
 };
-const hasSetupContent = (node) => {
-  if (!node) return false;
-  if (node.type === 'text') return typeof node.text === 'string' && node.text.trim().length > 0;
-  const content = Array.isArray(node.content) ? node.content : [];
-  if (content.length > 0) return content.some(hasSetupContent);
-  return node.type && node.type !== 'doc' && node.type !== 'paragraph';
-};
-const handleUpdateDoc = async (updated) => {
-  const hasContent = hasSetupContent(updated);
+// meta.selection: where the cursor is, carried to the live editor taking over a new page
+const handleUpdateDoc = async (updated, meta = {}) => {
+  const hasContent = hasTypedContent(updated);
   // Kept up to date until the live editor takes over from this local one, which can be a moment
   // after setup finishes: anything typed meanwhile goes across with the rest
   const localEditor = !editorCollab.value;
@@ -1143,6 +1139,7 @@ const handleUpdateDoc = async (updated) => {
   workspace.updateDoc(updated, { save: !handingOver });
   if ((isSetupPage.value || (setupAutoCompleteTriggered.value && localEditor)) && hasContent) {
     setupSeedDoc.value = updated;
+    setupSeedSelection.value = meta.selection || null;
     logSetup('seed-doc', { captured: true });
   }
   if (!isSetupPage.value || setupAutoCompleteTriggered.value || setupSaving.value || !canEditPage.value) {
@@ -1761,6 +1758,7 @@ watch(
     setupError.value = '';
     setupAutoCompleteTriggered.value = false;
     setupSeedDoc.value = null;
+    setupSeedSelection.value = null;
   }
 );
 
@@ -2863,6 +2861,7 @@ if (typeof window !== 'undefined') {
                     :key="`${activePageId || 'no-page'}-${editorCollab?.docName || 'local'}`"
                     :doc="doc"
                     :seed-doc="setupSeedDoc"
+                    :seed-selection="setupSeedSelection"
                     :page-id="activePageId"
                     :collab="editorCollab"
                     :readonly="!canEditPage"

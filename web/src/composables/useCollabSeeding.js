@@ -4,6 +4,7 @@ import { BLOCK_ID_TYPES, isEmptyParagraphNode, withBlockIds } from '../tiptap/bl
 import { blockDebugEnabled, logBlockDebug, logSetup, summarizeBlockStats } from '../utils/editorDebug';
 import { editorDocToTiptap } from '../utils/editorDoc';
 import { findBlockById } from '../tiptap/syncedBlocks';
+import { hasTypedContent } from '../utils/docContent';
 
 // Fills a page's live-editing document the first time it's opened: from the page's saved
 // content (or the seed the page was set up with), once, and tidies block ids afterwards.
@@ -42,14 +43,8 @@ export function useCollabSeeding({ props, isCollabEnabled, collabDoc, collabFiel
   // If the collab doc is empty (fresh room), seed it with the latest page content so reloads don't start blank.
   // Text that isn't blank, a block that holds no text (a divider, an image...), or a table, even an
   // empty one
-  const hasTiptapContent = (node) => {
-    if (!node) return false;
-    if (node.type === 'text') return typeof node.text === 'string' && node.text.trim().length > 0;
-    if (node.type === 'table') return true;
-    const content = Array.isArray(node.content) ? node.content : [];
-    if (content.length > 0) return content.some(hasTiptapContent);
-    return !!node.type && node.type !== 'doc' && node.type !== 'paragraph';
-  };
+  // (An empty bullet or heading counts: see docContent.js)
+  const hasTiptapContent = hasTypedContent;
   const getCollabDocSnapshot = () => {
     if (!collabDoc.value) return null;
     try {

@@ -23,6 +23,34 @@ test.describe('typing straight away on a new page', () => {
   }
 });
 
+// A page started as a list or a heading ("- ", "# ", "1. " typed first) stays one through the handover:
+// a bullet came back as "- First" or "-First", and the next letters after a heading went onto a
+// line of their own
+test.describe('a new page started with Markdown, typed straight away', () => {
+  const cases: Array<[string, string[]]> = [
+    ['- First item', ['bulletList', '  listItem', '    paragraph: First item']],
+    ['# A heading', ['heading1: A heading']],
+    ['1. Numbered', ['orderedList', '  listItem', '    paragraph: Numbered']],
+    // (The cursor carried across: put at the end of what was typed, it went back up a line)
+    ['Hello\nWorld', ['paragraph: Hello', 'paragraph: World']],
+  ];
+  for (const [typed, expected] of cases) {
+    for (const delay of [25, 40]) {
+      test(`"${typed.replace('\n', '⏎')}" at ${delay}ms a key`, async ({ alice, workspaceId }) => {
+        const id = await createPage(alice, workspaceId, { setupStatus: 'PENDING' });
+        await alice.goto(`/doc/${id}`);
+        await alice.waitForFunction(() => {
+          const el = document.querySelector('.ProseMirror') as any;
+          return !!el?.editor && el.getAttribute('contenteditable') === 'true';
+        });
+        await editor(alice).click();
+        await alice.keyboard.type(typed, { delay });
+        await expect.poll(() => outline(alice)).toEqual(expected);
+      });
+    }
+  }
+});
+
 // "/" typed first on a new page opens the slash menu, though the editor it was typed in hands over to
 // the live one while it's open (that rebuilds the menu's plugin view, which used to lose the menu)
 test('the slash menu opens on a new page, and stays open as the live editor takes over', async ({ alice, workspaceId }) => {

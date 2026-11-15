@@ -70,6 +70,11 @@ const props = defineProps({
     type: [Object, String],
     default: null,
   },
+  // Where the cursor was in the editor a new page was started in: { from, to }
+  seedSelection: {
+    type: Object,
+    default: null,
+  },
   seedCollabOnMount: {
     type: Boolean,
     default: false,
@@ -617,6 +622,7 @@ const bindUndoOriginObserver = () => {
 };
 
 const lastTextInputAt = ref(0);
+
 const lastTextInputInfo = ref(null);
 const lastPointerDownAt = ref(0);
 
@@ -961,7 +967,17 @@ editor = useEditor({
     captureInitialAutoBlock(ed.state.doc);
     seedCollabDocFromProps(ed, { force: true });
     if (props.readonly) return;
-    ed.commands.focus('end');
+    // Where the cursor was in the editor it takes over from (the end of the page is the empty line
+    // kept after the last block: the next key went there, "# Headin" then "g" on a line of its own)
+    const carried = props.seedSelection;
+    const size = ed.state.doc.content.size;
+    const inPage = carried && Number.isInteger(carried.from) && Number.isInteger(carried.to) && carried.to <= size;
+    if (inPage) {
+      ed.commands.setTextSelection({ from: carried.from, to: carried.to });
+      ed.commands.focus();
+    } else {
+      ed.commands.focus('end');
+    }
     // focus() waits a frame, and a keystroke can come in that frame. The editor's put on the page
     // a few ticks after it's made (by EditorContent), all before the next keystroke can, so it
     // takes focus as soon as it's there
@@ -1052,12 +1068,17 @@ editor = useEditor({
     if (transaction?.getMeta?.(ySyncPluginKey)) {
       pruneInitialAutoBlock();
     }
-    emit('update:doc', {
-      time: Date.now(),
-      version: props.doc?.version || '2.31.0',
-      type: json.type || 'doc',
-      content: json.content || [],
-    });
+    emit(
+      'update:doc',
+      {
+        time: Date.now(),
+        version: props.doc?.version || '2.31.0',
+        type: json.type || 'doc',
+        content: json.content || [],
+      },
+      // Where the cursor is, for a new page's live editor to carry on from
+      { selection: { from: ed.state.selection.from, to: ed.state.selection.to } }
+    );
   },
 });
 
