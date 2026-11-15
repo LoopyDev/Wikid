@@ -197,6 +197,97 @@ test.describe('loading', () => {
     expect(await page.evaluate(() => (window as any).__faintAfter)).toEqual([]);
   });
 
+  // Another workspace of alice's, with a page, deleted after the test whatever happens in it
+  const otherWorkspace = async (page: Page, text: string) => {
+    const name = unique('Elsewhere');
+    const id = ((await (await page.request.post('/api/workspaces', { data: { name } })).json()).workspace.id) as string;
+    const there = await createPage(page, id, { title: unique('Over there') });
+    await page.request.put(`/api/pages/${there}/content`, { data: { content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text }] }] } } });
+    return { name, id, remove: () => page.request.delete(`/api/workspaces/${id}`) };
+  };
+  const switchTo = async (page: Page, name: string) => {
+    await page.locator('.user-switch').click();
+    await page.locator('.user-menu__workspace', { hasText: name }).click();
+  };
+
+  test("switching workspace holds the page, then placeholder lines, until the other one's page is in: never a blank page", async ({ alice: page, workspaceId }) => {
+    const other = await otherWorkspace(page, 'Far side');
+    try {
+      await openPage(page, await createPage(page, workspaceId, { title: unique('Here') }));
+      // The other workspace's pages are slow to come
+      await page.route(new RegExp(`/api/pages\\?.*workspaceId=${other.id}`), async (route) => {
+        await new Promise((resolve) => setTimeout(resolve, 1200));
+        await route.continue();
+      });
+      await page.evaluate(() => {
+        const stages: string[] = [];
+        let blank = 0;
+        (window as any).__stages = stages;
+        (window as any).__blank = () => blank;
+        const tick = () => {
+          const stage = (document.querySelector('.page-hold') as HTMLElement | null)?.dataset.stage || 'none';
+          if (stages[stages.length - 1] !== stage) stages.push(stage);
+          // Nothing where the page goes: no page, and nothing holding its place
+          if (stage === 'none' && !document.querySelector('.page-body-slot > .page-body')) blank += 1;
+          if (stages.length < 8) requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      });
+      await switchTo(page, other.name);
+      // Until its pages are in, this workspace is the one open (its name at the top)
+      await expect(page.locator('.page-hold')).toHaveCount(1);
+      await expect(page.locator('.user-switch .user-name')).not.toContainText(other.name);
+      await expect(editor(page)).toHaveText('Far side');
+      await expect(page.locator('.user-switch .user-name')).toContainText(other.name);
+      await expect(page.locator('.page-hold')).toHaveCount(0);
+      const stages: string[] = await page.evaluate(() => (window as any).__stages);
+      expect(stages).toContain('hold');
+      expect(stages).toContain('skeleton');
+      expect(await page.evaluate(() => (window as any).__blank())).toBe(0);
+    } finally {
+      await other.remove();
+    }
+  });
+
+  test('a slow switch can be called off by picking the workspace you are still in', async ({ alice: page, workspaceId }) => {
+    const other = await otherWorkspace(page, 'Not wanted');
+    try {
+      const hereTitle = unique('Here');
+      await openPage(page, await createPage(page, workspaceId, { title: hereTitle }));
+      const hereName = (await page.locator('.user-switch .user-name').textContent())!.trim();
+      await page.route(new RegExp(`/api/pages\\?.*workspaceId=${other.id}`), async (route) => {
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+        await route.continue();
+      });
+      await switchTo(page, other.name);
+      await expect(page.locator('.page-hold')).toHaveCount(1);
+      await switchTo(page, hereName);
+      await expect(page.locator('.page-hold')).toHaveCount(0);
+      // ...and it stays here once the other workspace's pages come
+      await page.waitForTimeout(2000);
+      await expect(page.locator('.user-switch .user-name')).toContainText(hereName);
+      await expect(page.getByRole('main').getByRole('textbox').first()).toHaveValue(hereTitle);
+    } finally {
+      await other.remove();
+    }
+  });
+
+  test("a workspace whose pages can't be loaded leaves you where you were, saying so", async ({ alice: page, workspaceId }) => {
+    const other = await otherWorkspace(page, 'Never seen');
+    try {
+      const hereTitle = unique('Here');
+      await openPage(page, await createPage(page, workspaceId, { title: hereTitle }));
+      await page.route(new RegExp(`/api/pages\\?.*workspaceId=${other.id}`), (route) => route.fulfill({ status: 500, json: { message: 'Something went wrong' } }));
+      await switchTo(page, other.name);
+      await expect(page.getByRole('alert')).toContainText('Something went wrong');
+      await expect(page.locator('.page-hold')).toHaveCount(0);
+      await expect(page.locator('.user-switch .user-name')).not.toContainText(other.name);
+      await expect(page.getByRole('main').getByRole('textbox').first()).toHaveValue(hereTitle);
+    } finally {
+      await other.remove();
+    }
+  });
+
   test("a slow page's placeholder lines line up with its text, full width or not", async ({ alice: page, workspaceId }) => {
     await page.setViewportSize({ width: 1920, height: 1000 });
     const normalTitle = unique('Normal');

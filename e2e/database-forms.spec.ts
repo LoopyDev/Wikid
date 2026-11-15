@@ -240,6 +240,23 @@ test.describe('database forms', () => {
     }).toEqual([['00000000-0000-0000-0000-000000000011'], ['00000000-0000-0000-0000-000000000012']]);
   });
 
+  test("what's typed into a form stays while it switches to its own workspace", async ({ alice: page, workspaceId }) => {
+    const id = await createPage(page, workspaceId, { title: unique('Requests'), kind: 'DATABASE' });
+    const nameField = (await (await page.request.get(`/api/pages/${id}/database`)).json()).fields.find((f: any) => f.name === 'Name').id;
+    const form = await (await page.request.post(`/api/pages/${id}/database/forms`, { data: { name: 'Request', fields: [{ fieldId: nameField }] } })).json();
+    // The app opens another workspace first (alice's last), and the form's own is slow to come
+    await page.route(new RegExp(`/api/pages\\?.*workspaceId=${workspaceId}`), async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      await route.continue();
+    });
+    await page.goto(`/form/${form.id}`);
+    const name = page.locator('.form-field').filter({ has: page.locator('.form-field__label', { hasText: /^Name$/ }) }).locator('input').first();
+    await name.fill('Typed early');
+    // Past the switch
+    await page.waitForTimeout(2500);
+    await expect(name).toHaveValue('Typed early');
+  });
+
   test('a form shows one input for each field', async ({ alice: page, workspaceId }) => {
     // The notes under relation fields used to start the inputs' v-if chain again, adding a
     // text box under most fields

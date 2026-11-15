@@ -88,6 +88,39 @@ test.describe('sidebar', () => {
     expect(pages.filter((p: any) => p.title === `${title} copy`)).toHaveLength(2);
   });
 
+  test('pages at the same level line up, however narrow the sidebar and however long their titles', async ({ alice: page, workspaceId }) => {
+    const shelf = unique('Shelf');
+    const parent = await createPage(page, workspaceId, { title: shelf });
+    const titles = ['Short', 'A much longer title that runs well past the edge of a narrow sidebar', 'Mid length title here'];
+    for (const [i, title] of titles.entries()) {
+      const id = await createPage(page, workspaceId, { title, parentId: parent });
+      if (i === 1) await page.request.patch(`/api/pages/${id}`, { data: { icon: 'icon:house' } });
+      if (i === 2) await page.request.patch(`/api/pages/${id}`, { data: { icon: '📘' } });
+    }
+    await openPage(page, parent);
+    const rows = sidebar(page).locator('.sidebar__item[data-depth="1"]');
+    // Open, with its subpages showing
+    // (Opened from its chevron, unless opening the page has done so already)
+    const chevron = sidebarItem(page, shelf).locator('.page-chevron');
+    if (!(await chevron.evaluate((el) => el.classList.contains('open')))) await chevron.click();
+    await expect(rows).toHaveCount(3);
+    // The icons' and titles' left edges, row by row
+    const edges = () => rows.evaluateAll((els) => els.map((el) => [Math.round(el.querySelector('.page-icon-slot')!.getBoundingClientRect().left), Math.round(el.querySelector('.sidebar__title')!.getBoundingClientRect().left)]));
+    for (const width of [520, 300, 220]) {
+      // The sidebar dragged to this width
+      const handle = page.locator('.sidebar-resize-handle');
+      const box = (await sidebar(page).boundingBox())!;
+      const grip = (await handle.boundingBox())!;
+      await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(box.x + width, grip.y + grip.height / 2, { steps: 4 });
+      await page.mouse.up();
+      const lines = await edges();
+      expect(new Set(lines.map(([icon]) => icon)).size, `icons at ${width}px: ${JSON.stringify(lines)}`).toBe(1);
+      expect(new Set(lines.map(([, title]) => title)).size, `titles at ${width}px: ${JSON.stringify(lines)}`).toBe(1);
+    }
+  });
+
   test('drags a page into the Private or Public section when that section is empty', async ({ alice: page, workspaceId }) => {
     const title = unique('Movable');
     const id = await createPage(page, workspaceId, { title });

@@ -34,6 +34,8 @@ test('the admin repairs and deletes a workspace from the panel; its members see 
   const switcher = bob.getByRole('complementary').locator('.user-switch');
   await switcher.click();
   await bob.locator('.popover-card').getByText(name, { exact: true }).click();
+  // (In it once its pages are in: until then the last one is open)
+  await expect(switcher).toContainText(name);
   await switcher.click();
   await bob.getByText('Settings', { exact: true }).click();
   await bob.locator('.settings-popup-nav').getByRole('button', { name: 'Members' }).click();
