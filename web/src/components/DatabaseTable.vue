@@ -193,6 +193,10 @@ const isAuditView = computed(() => activeViewId.value === AUDIT_VIEW_ID);
 const isGalleryView = computed(() => activeViewType.value === 'GALLERY');
 const isBoardView = computed(() => activeViewType.value === 'BOARD');
 const isListView = computed(() => activeViewType.value === 'LIST');
+// A board's and a gallery's View options menu has their Card fields, so no Columns button beside it
+const columnsInViewOptions = computed(() => isBoardView.value || isGalleryView.value);
+// What a board can be grouped by (one choice each, unlike a multi-select)
+const singleSelectFields = computed(() => fields.value.filter((field) => field.type === 'SELECT'));
 // Table markup is shared by the built-in Table tab, the Audit view, and any
 // saved view of type TABLE.
 const showTableView = computed(() => isTableView.value || isAuditView.value || activeViewType.value === 'TABLE');
@@ -3710,7 +3714,7 @@ onBeforeUnmount(() => {
             Sort<span v-if="activeViewSorts.length" class="db-view-tab__count">{{ activeViewSorts.length }}</span>
           </button>
           <button
-            v-if="canConfigureView"
+            v-if="canConfigureView && !columnsInViewOptions"
             class="db-columns-button"
             type="button"
             aria-haspopup="menu"
@@ -3838,7 +3842,7 @@ onBeforeUnmount(() => {
           Sort<span v-if="activeViewSorts.length" class="db-view-tab__count">{{ activeViewSorts.length }}</span>
         </button>
         <button
-          v-if="canConfigureView"
+          v-if="canConfigureView && !columnsInViewOptions"
           class="db-columns-button"
           type="button"
           aria-haspopup="menu"
@@ -4056,7 +4060,7 @@ onBeforeUnmount(() => {
         </template>
         <div v-else-if="isGalleryView" class="db-gallery">
           <div v-if="!embedded" class="db-view-config-bar">
-            <details class="db-card-fields db-view-options">
+            <details v-if="canConfigureView" class="db-card-fields db-view-options">
               <summary class="db-card-fields__toggle">
                 <i class="bi bi-sliders" aria-hidden="true"></i>
                 View options
@@ -4258,41 +4262,59 @@ onBeforeUnmount(() => {
           <MoreRows v-if="rowsNotShown" :count="rowsNotShown" />
         </div>
         <div v-else-if="isBoardView" class="db-board">
+          <!-- Its settings behind a View options menu, as a gallery's are -->
           <div v-if="!embedded" class="db-view-config-bar">
-            <label class="db-view-config-bar__label">Group by</label>
-            <select
-              class="db-view-config__select"
-              :value="activeSavedView?.config?.groupFieldId || ''"
-              @change="setBoardGroupField($event.target.value)"
-            >
-              <option value="">None</option>
-              <option
-                v-for="field in fields.filter((f) => f.type === 'SELECT')"
-                :key="field.id"
-                :value="field.id"
-              >
-                {{ field.name || 'Field' }}
-              </option>
-            </select>
-            <label class="db-view-config-bar__label">
-              Colour cards by
-              <select
-                class="db-view-config__select"
-                :value="activeSavedView?.config?.cardColorFieldId || ''"
-                @change="setCardColorField($event.target.value)"
-              >
-                <option value="">None</option>
-                <option v-for="field in selectFields" :key="field.id" :value="field.id">{{ field.name || 'Field' }}</option>
-              </select>
-            </label>
-            <!-- The cards', and the columns' (in their own choice's colour) -->
-            <label class="db-view-config-bar__label">
-              Colour style
-              <select class="db-view-config__select" :value="cardColorTint ? 'tint' : 'stripe'" @change="setCardColorStyle($event.target.value)">
-                <option value="stripe">Stripe</option>
-                <option value="tint">Tint</option>
-              </select>
-            </label>
+            <details v-if="canConfigureView" class="db-card-fields db-view-options">
+              <summary class="db-card-fields__toggle">
+                <i class="bi bi-sliders" aria-hidden="true"></i>
+                View options
+              </summary>
+              <div class="db-card-fields__menu db-view-options__menu">
+                <label class="db-view-options__row">
+                  <span class="db-view-options__label">Group by</span>
+                  <select
+                    class="db-view-config__select"
+                    aria-label="Group by"
+                    :value="activeSavedView?.config?.groupFieldId || ''"
+                    @change="setBoardGroupField($event.target.value)"
+                  >
+                    <option value="">None</option>
+                    <option v-for="field in singleSelectFields" :key="field.id" :value="field.id">{{ field.name || 'Field' }}</option>
+                  </select>
+                </label>
+                <label class="db-view-options__row">
+                  <span class="db-view-options__label">Colour cards by</span>
+                  <select
+                    class="db-view-config__select"
+                    aria-label="Colour cards by"
+                    :value="activeSavedView?.config?.cardColorFieldId || ''"
+                    @change="setCardColorField($event.target.value)"
+                  >
+                    <option value="">None</option>
+                    <option v-for="field in selectFields" :key="field.id" :value="field.id">{{ field.name || 'Field' }}</option>
+                  </select>
+                </label>
+                <!-- The cards', and the columns' (in their own choice's colour) -->
+                <label class="db-view-options__row">
+                  <span class="db-view-options__label">Colour style</span>
+                  <select
+                    class="db-view-config__select"
+                    aria-label="Colour style"
+                    :value="cardColorTint ? 'tint' : 'stripe'"
+                    @change="setCardColorStyle($event.target.value)"
+                  >
+                    <option value="stripe">Stripe</option>
+                    <option value="tint">Tint</option>
+                  </select>
+                </label>
+                <div class="db-view-options__heading">Card fields</div>
+                <label v-for="field in cardFieldCandidates" :key="field.id" class="db-card-fields__option">
+                  <input type="checkbox" :checked="cardFieldShown(field.id)" @change="toggleCardField(field.id)" />
+                  {{ field.name || 'Field' }}
+                </label>
+                <div v-if="!cardFieldCandidates.length" class="db-card-fields__empty">No other columns</div>
+              </div>
+            </details>
           </div>
           <div v-if="boardMoveNotice" class="db-board__notice" role="status">
             “{{ boardMoveNotice.title }}” moved to {{ boardMoveNotice.label }}; this view doesn't show it.
