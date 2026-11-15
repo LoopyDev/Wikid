@@ -23,8 +23,9 @@ export default Node.create({
   parseHTML() {
     return [{ tag: 'div[data-type="toggle-heading"]' }];
   },
+  // With what's in it (0): copied without it, a toggle pasted came in empty
   renderHTML({ HTMLAttributes }) {
-    return ['div', mergeAttributes(HTMLAttributes, { 'data-type': 'toggle-heading' })];
+    return ['div', mergeAttributes(HTMLAttributes, { 'data-type': 'toggle-heading' }), 0];
   },
   addNodeView() {
     return VueNodeViewRenderer(ToggleHeadingNode);

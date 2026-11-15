@@ -69,7 +69,8 @@ export const editor = (page: Page) => page.locator('.ProseMirror:not(.page-hold 
 /** The editor content as a compact outline: one entry per block, with its text. */
 export async function outline(page: Page): Promise<string[]> {
   return page.evaluate(() => {
-    const doc = (document.querySelector('.ProseMirror') as any).editor.getJSON();
+    // (The live editor, not a still copy of the page left while another opens)
+    const doc = (document.querySelector('.ProseMirror:not(.page-hold *)') as any).editor.getJSON();
     const text = (n: any): string => (n.text ?? '') + (n.content || []).map(text).join('');
     const walk = (n: any, depth = 0): string[] => {
       const label = ['paragraph', 'heading', 'codeBlock'].includes(n.type)
@@ -85,7 +86,7 @@ export async function outline(page: Page): Promise<string[]> {
 /** The text of each top-level block. */
 export async function blockTexts(page: Page): Promise<string[]> {
   return page.evaluate(() => {
-    const doc = (document.querySelector('.ProseMirror') as any).editor.getJSON();
+    const doc = (document.querySelector('.ProseMirror:not(.page-hold *)') as any).editor.getJSON();
     const text = (n: any): string => (n.text ?? '') + (n.content || []).map(text).join('');
     return (doc.content || []).map(text);
   });
