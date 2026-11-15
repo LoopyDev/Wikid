@@ -55,8 +55,17 @@ export function createEditorProps({ lastTextInputAt, lastTextInputInfo, props, i
       const schema = slice.content.firstChild?.type.schema;
       return schema ? plainText(slice.content, getTextSerializersFromSchema(schema)) : '';
     },
-    transformPastedHTML(html) {
+    transformPastedHTML(html, view) {
       const doc = new DOMParser().parseFromString(html, 'text/html');
+      // A block keeps its id when it's moved (cut and pasted: links to it still find it), not when
+      // it's copied: a copy pasted above the original would take the id, and the links, from it
+      const inUse = new Set();
+      view?.state.doc.descendants((node) => {
+        if (node.attrs?.id) inUse.add(node.attrs.id);
+      });
+      for (const el of doc.querySelectorAll('[id]')) {
+        if (inUse.has(el.getAttribute('id'))) el.removeAttribute('id');
+      }
       for (const el of doc.querySelectorAll('[style]')) {
         el.style.removeProperty('color');
         el.style.removeProperty('background-color');

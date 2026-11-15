@@ -386,6 +386,77 @@ test.describe('editing basics', () => {
     expect(text).toBe('Intro\n\nOne\nTwo\n\nA\tB\n\nEnd');
   });
 
+  test("a callout and a toggle heading cut and pasted into another page keep what's in them", async ({ alice: page, workspaceId }) => {
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+    const p = (text: string) => ({ type: 'paragraph', content: [{ type: 'text', text }] });
+    const from = await createPage(page, workspaceId);
+    const content = [
+      p('Before'),
+      { type: 'callout', attrs: { icon: '⚠️', tone: '#fde68a' }, content: [p('Inside the callout')] },
+      { type: 'toggleHeading', attrs: { collapsed: false }, content: [{ type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: 'Plan' }] }, p('Inside the toggle')] },
+      p('After'),
+    ];
+    expect((await page.request.put(`/api/pages/${from}/content`, { data: { content: { type: 'doc', content } } })).status()).toBe(200);
+    await openPage(page, from);
+    await placeCursor(page, 0, 'end');
+    await page.keyboard.press('ControlOrMeta+a');
+    await page.keyboard.press('ControlOrMeta+x');
+    await expect.poll(() => blockTexts(page)).toEqual(['']);
+    // (On the clipboard before going on)
+    await expect
+      .poll(() => page.evaluate(async () => (await navigator.clipboard.readText()).includes('Inside the toggle')))
+      .toBe(true);
+
+    await openPage(page, await createPage(page, workspaceId));
+    await placeCursor(page, 0, 'start');
+    await page.keyboard.press('ControlOrMeta+v');
+    await expect.poll(() => outline(page)).toEqual([
+      'paragraph: Before',
+      'callout',
+      '  paragraph: Inside the callout',
+      'toggleHeading',
+      '  heading2: Plan',
+      '  paragraph: Inside the toggle',
+      'paragraph: After',
+    ]);
+    // The callout's icon and colour came too
+    const callout = await page.evaluate(() => (document.querySelector('.ProseMirror:not(.page-hold *)') as any).editor.getJSON().content[1].attrs);
+    expect(callout).toMatchObject({ icon: '⚠️', tone: '#fde68a' });
+  });
+
+  test('a block copied and pasted above itself leaves the original its id (links to it still find it)', async ({ alice: page, workspaceId }) => {
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+    const id = await createPage(page, workspaceId);
+    const content = [
+      { type: 'paragraph', attrs: { id: 'block-keepmine01' }, content: [{ type: 'text', text: 'Linked to' }] },
+      { type: 'callout', attrs: { icon: '💡' }, content: [{ type: 'paragraph', attrs: { id: 'block-keepmine02' }, content: [{ type: 'text', text: 'Also linked to' }] }] },
+    ];
+    expect((await page.request.put(`/api/pages/${id}/content`, { data: { content: { type: 'doc', content } } })).status()).toBe(200);
+    await openPage(page, id);
+    await placeCursor(page, 0, 'end');
+    await page.keyboard.press('ControlOrMeta+a');
+    await page.keyboard.press('ControlOrMeta+c');
+    await expect
+      .poll(() => page.evaluate(async () => (await navigator.clipboard.readText()).includes('Also linked to')))
+      .toBe(true);
+    await placeCursor(page, 0, 'start');
+    await page.keyboard.press('ControlOrMeta+v');
+    const ids = () =>
+      page.evaluate(() => {
+        const found: Array<[string, string]> = [];
+        (document.querySelector('.ProseMirror:not(.page-hold *)') as any).editor.state.doc.descendants((node: any) => {
+          if (node.type.name === 'paragraph' && node.textContent) found.push([node.textContent, node.attrs.id]);
+        });
+        return found;
+      });
+    await expect.poll(async () => (await ids()).length).toBe(4);
+    const [copyFirst, copyInside, original, originalInside] = await ids();
+    expect(original).toEqual(['Linked to', 'block-keepmine01']);
+    expect(originalInside).toEqual(['Also linked to', 'block-keepmine02']);
+    expect([copyFirst[1], copyInside[1]]).not.toContain('block-keepmine01');
+    expect([copyFirst[1], copyInside[1]]).not.toContain('block-keepmine02');
+  });
+
   test('after a redo, typing goes on from the end of what came back', async ({ alice: page, workspaceId }) => {
     // A line there already: undoing back to an empty page is its own bug (the test.fail above)
     const id = await createPage(page, workspaceId);

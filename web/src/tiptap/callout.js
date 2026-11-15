@@ -21,8 +21,9 @@ export default Node.create({
   parseHTML() {
     return [{ tag: 'div[data-type="callout"]' }];
   },
+  // With what's in it (0): copied without it, a callout pasted came in empty
   renderHTML({ HTMLAttributes }) {
-    return ['div', mergeAttributes(HTMLAttributes, { 'data-type': 'callout' })];
+    return ['div', mergeAttributes(HTMLAttributes, { 'data-type': 'callout' }), 0];
   },
   addNodeView() {
     return VueNodeViewRenderer(CalloutNode);
