@@ -1,4 +1,5 @@
-import { test, expect, createPage, openPage, editor, blockTexts, outline, placeCursor, focusEditorAt, pastePlainText } from './fixtures';
+import type { Page } from '@playwright/test';
+import { test, expect, createPage, openPage, editor, blockTexts, outline, placeCursor, focusEditorAt, pastePlainText, waitForSaved } from './fixtures';
 
 // Everyday editing that used to go wrong.
 
@@ -107,27 +108,81 @@ test.describe('editing basics', () => {
     expect((await outline(alice)).filter((line) => line.startsWith('paragraph: '))).toEqual([]);
   });
 
-  // Known: redo after undoing back to an empty page adds a blank line first and leaves out the last
-  // change (y-tiptap's undo; scan item 2.16). Expected to fail until that's fixed.
-  test.fail('undoing back to an empty page and redoing brings every line back, and nothing else', async ({ alice, workspaceId }) => {
-    const id = await createPage(alice, workspaceId);
-    await openPage(alice, id);
+  // Redo after undoing back to an empty page put an empty line above what came back: the empty line
+  // the editor shows on a blank page had gone into the live document. Redone at once, or after a pause
+  const undoAllThenRedo = async (alice: Page, lines: string[], pause: number) => {
     await editor(alice).click();
-    for (const [i, line] of ['One', 'Two', 'Three'].entries()) {
+    for (const [i, line] of lines.entries()) {
       if (i) await alice.keyboard.press('Enter');
       await alice.keyboard.type(line, { delay: 30 });
       await alice.waitForTimeout(700); // separate undo steps
     }
-    await expect.poll(() => blockTexts(alice)).toEqual(['One', 'Two', 'Three']);
-    for (let i = 0; i < 3; i += 1) {
+    await expect.poll(() => blockTexts(alice)).toEqual(lines);
+    for (let i = 0; i < lines.length; i += 1) {
       await alice.keyboard.press('ControlOrMeta+z');
       await alice.waitForTimeout(150);
     }
-    for (let i = 0; i < 3; i += 1) {
+    await expect.poll(() => blockTexts(alice)).toEqual(['']);
+    await alice.waitForTimeout(pause);
+    for (let i = 0; i < lines.length; i += 1) {
       await alice.keyboard.press('ControlOrMeta+Shift+z');
       await alice.waitForTimeout(150);
     }
-    await expect.poll(() => blockTexts(alice)).toEqual(['One', 'Two', 'Three']);
+  };
+  for (const [lines, pause] of [[['One', 'Two', 'Three'], 800], [['One', 'Two', 'Three'], 0], [['Only'], 800]] as const) {
+    test(`undoing back to an empty page and redoing brings every line back, and nothing else (${lines.length} lines, ${pause}ms)`, async ({ alice, workspaceId }) => {
+      await openPage(alice, await createPage(alice, workspaceId));
+      await undoAllThenRedo(alice, [...lines], pause);
+      await expect.poll(() => blockTexts(alice)).toEqual(lines);
+      // ...and it stays that way, saved
+      await waitForSaved(alice);
+      await alice.reload();
+      await expect.poll(() => blockTexts(alice).catch(() => [])).toEqual(lines);
+    });
+  }
+
+  test('an empty line typed before undoing everything comes back with the redo', async ({ alice, workspaceId }) => {
+    await openPage(alice, await createPage(alice, workspaceId));
+    await editor(alice).click();
+    await alice.keyboard.type('Top', { delay: 30 });
+    await alice.waitForTimeout(700);
+    // An empty line, kept as one step with what's typed under it
+    await alice.keyboard.press('Enter');
+    await alice.keyboard.press('Enter');
+    await alice.keyboard.type('Below', { delay: 30 });
+    await alice.waitForTimeout(700);
+    await expect.poll(() => blockTexts(alice)).toEqual(['Top', '', 'Below']);
+    for (let i = 0; i < 2; i += 1) {
+      await alice.keyboard.press('ControlOrMeta+z');
+      await alice.waitForTimeout(150);
+    }
+    await expect.poll(() => blockTexts(alice)).toEqual(['']);
+    await alice.waitForTimeout(800);
+    for (let i = 0; i < 2; i += 1) {
+      await alice.keyboard.press('ControlOrMeta+Shift+z');
+      await alice.waitForTimeout(150);
+    }
+    await expect.poll(() => blockTexts(alice)).toEqual(['Top', '', 'Below']);
+    // ...saved so, the empty line too
+    await waitForSaved(alice);
+    await alice.reload();
+    await expect.poll(() => blockTexts(alice).catch(() => [])).toEqual(['Top', '', 'Below']);
+  });
+
+  test('after undoing everything, what is typed next is what the page has, saved', async ({ alice, workspaceId }) => {
+    await openPage(alice, await createPage(alice, workspaceId));
+    await editor(alice).click();
+    await alice.keyboard.type('Old', { delay: 30 });
+    await alice.waitForTimeout(700);
+    await alice.keyboard.press('ControlOrMeta+z');
+    await expect.poll(() => blockTexts(alice)).toEqual(['']);
+    await alice.keyboard.type('New', { delay: 30 });
+    await alice.keyboard.press('Enter');
+    await alice.keyboard.type('Second', { delay: 30 });
+    await expect.poll(() => blockTexts(alice)).toEqual(['New', 'Second']);
+    await waitForSaved(alice);
+    await alice.reload();
+    await expect.poll(() => blockTexts(alice).catch(() => [])).toEqual(['New', 'Second']);
   });
 
   // Pauses the live-editing server for everyone: run with the other tests that change shared state
