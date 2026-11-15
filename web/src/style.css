@@ -1012,6 +1012,9 @@ button {
 
 .page-icon-slot {
   position: relative;
+  /* Never squeezed: a long title shrank it, so pages at the same level drifted out of line, more
+     the narrower the sidebar */
+  flex: 0 0 28px;
   width: 28px;
   height: 28px;
   display: inline-flex;

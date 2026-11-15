@@ -16,6 +16,8 @@ async function membersOf(alice: Page) {
   await alice.goto('/');
   await switcher(alice).click();
   await menu(alice).getByText(name, { exact: true }).click();
+  // (In it once its pages are in: until then the last one is open)
+  await expect(switcher(alice)).toContainText(name);
   await switcher(alice).click();
   await menu(alice).getByRole('button', { name: 'Settings' }).click();
   const settings = alice.locator('.settings-popup-card');

@@ -93,6 +93,8 @@ export const useWorkspaceStore = defineStore('workspace', {
     userPreferences: {},
     loadingPages: false,
     loadingDoc: false,
+    // The workspace being switched to, while its pages (and the page it opens on) are loading
+    switchingWorkspace: null,
     saving: false,
     privateOpen: true,
     publicOpen: true,
@@ -378,19 +380,8 @@ export const useWorkspaceStore = defineStore('workspace', {
       }
       return created;
     },
-    async loadWorkspacePages(workspaceId) {
-      if (!workspaceId || !this.activeUser || !this.hasApi) {
-        this.pages = [];
-        return;
-      }
-      const pages = await api.listPages({
-        workspaceId,
-        userId: this.activeUser.id,
-        userName: this.activeUser.name,
-        includeTemplates: true,
-      });
-      // Another workspace was opened meanwhile: its pages, not these
-      if (this.activeWorkspaceId && this.activeWorkspaceId !== workspaceId) return;
+    // A workspace's pages in the sidebar, and its page open (the one last open there, or its first)
+    async openWorkspacePages(workspaceId, pages) {
       this.pages = Array.isArray(pages) ? pages : [];
       this.binPages = [];
       this.templates = null;
@@ -695,22 +686,62 @@ export const useWorkspaceStore = defineStore('workspace', {
     },
     async selectWorkspaceById(workspaceId) {
       const entry = this.workspaces.find((item) => item.workspace?.id === workspaceId) || null;
-      if (!entry?.workspace?.id) return;
+      if (!entry?.workspace?.id) return false;
+      // Already on its way there
+      if (this.switchingWorkspace === entry.workspace.id) return false;
       this.flushPendingTitleSave();
-      this.activeWorkspaceId = entry.workspace.id;
-      this.activeWorkspaceRole = entry.role || null;
-      this.activePageWorkspaceId = entry.workspace.id;
-      this.saveLastWorkspaceId(entry.workspace.id);
-      this.activePageId = null;
-      this.pageProblem = null;
-      this.error = null;
-      this.titleDraft = 'Untitled page';
-      this.doc = fallbackDoc;
-      await this.loadWorkspacePages(entry.workspace.id);
+      // All at once, when the other workspace's pages are in: until then this one, its page and its
+      // role stay as they are (the page under the page switch's hold, then its placeholder lines).
+      // The page used to be cleared first, which left nothing to hold, and the page went blank
+      // while the other workspace's pages loaded. Says whether it switched (false: overtaken, or
+      // called off); throws when its pages can't be loaded, staying where it was.
+      const switchingTo = entry.workspace.id;
+      const open = async (pages) => {
+        this.activeWorkspaceId = switchingTo;
+        this.activeWorkspaceRole = entry.role || null;
+        this.saveLastWorkspaceId(switchingTo);
+        this.pageProblem = null;
+        this.error = null;
+        await this.openWorkspacePages(switchingTo, pages);
+      };
+      // (Not signed in, or no server: nothing to load)
+      if (!this.activeUser || !this.hasApi) {
+        await open([]);
+        return true;
+      }
+      this.switchingWorkspace = switchingTo;
+      try {
+        let pages;
+        try {
+          pages = await api.listPages({
+            workspaceId: switchingTo,
+            userId: this.activeUser.id,
+            userName: this.activeUser.name,
+            includeTemplates: true,
+          });
+        } catch (err) {
+          // (Called off, or overtaken, meanwhile: nothing to say)
+          if (this.switchingWorkspace !== switchingTo) return false;
+          this.error = err?.message || 'Could not open that workspace';
+          throw err;
+        }
+        // Another switch started meanwhile, or this one was called off (a page chosen here): not this
+        if (this.switchingWorkspace !== switchingTo) return false;
+        await open(pages);
+        return true;
+      } finally {
+        if (this.switchingWorkspace === switchingTo) this.switchingWorkspace = null;
+      }
+    },
+    /** Calls off a workspace switch still loading: the workspace on screen stays. */
+    cancelWorkspaceSwitch() {
+      this.switchingWorkspace = null;
     },
     selectPage(page, options = {}) {
       if (!page || this.deletingCascade) return;
       if (page.isHidden && !options.allowHidden) return;
+      // A page chosen while another workspace is loading: this one, not that
+      if (this.switchingWorkspace) this.switchingWorkspace = null;
       this.flushPendingTitleSave();
       // Another page: what went wrong on the last one is done with
       this.pageProblem = null;

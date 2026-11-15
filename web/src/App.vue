@@ -233,7 +233,8 @@ watch(
   { flush: 'pre' }
 );
 const checkPageReady = async () => {
-  if (!pageHoldStage.value || loadingDoc.value) return;
+  // (Nor while switching workspace: until its page is in, the page on screen is the last one's)
+  if (!pageHoldStage.value || loadingDoc.value || workspace.switchingWorkspace) return;
   await nextTick();
   if (!pageHoldStage.value) return;
   const body = currentPageBody();
@@ -246,7 +247,7 @@ const checkPageReady = async () => {
   else if (editorContentReadyFor.value === workspace.collabDocName) releasePageHold('editor content synced');
   else debugPageSwitch('waiting for the editor content');
 };
-watch([pageHoldStage, loadingDoc, error, editorContentReadyFor, () => workspace.collabDocName], checkPageReady, { flush: 'post' });
+watch([pageHoldStage, loadingDoc, error, editorContentReadyFor, () => workspace.collabDocName, () => workspace.switchingWorkspace], checkPageReady, { flush: 'post' });
 const rowPageOverlayId = ref(null);
 const rowPageOverlayBaseId = ref(null);
 const openRowPageOverlay = (pageOrId) => {
@@ -1469,10 +1470,45 @@ const toggleThemeMode = () => {
     localStorage.setItem('wikid:theme', isDarkTheme.value ? 'dark' : 'light');
   }
 };
+// The view a workspace switch started from (to go back to, if it's called off or fails)
+let viewBeforeSwitch = null;
 const selectWorkspace = async (workspaceId) => {
   if (!workspaceId) return;
+  if (workspaceId === workspace.activeWorkspaceId) {
+    // Back to the one still open, while another is loading: that switch is called off
+    if (workspace.switchingWorkspace) {
+      workspace.cancelWorkspaceSwitch();
+      releasePageHold('workspace switch called off');
+      if (viewBeforeSwitch) activeView.value = viewBeforeSwitch;
+    }
+    return;
+  }
+  // Already on its way there
+  if (workspace.switchingWorkspace === workspaceId) return;
+  // (The view the first of several switches started from, if another is still loading)
+  if (!workspace.switchingWorkspace) viewBeforeSwitch = activeView.value;
+  const viewBefore = viewBeforeSwitch;
+  const fromPage = !isSysadminView.value && activeView.value !== 'form';
   activeView.value = 'page';
-  await workspace.selectWorkspaceById(workspaceId);
+  // The page on screen held (then placeholder lines) from now until the other workspace's page is
+  // in; nothing typed meanwhile goes into it
+  if (fromPage && pageSurfaceRef.value && activePageId.value) {
+    document.activeElement?.blur?.();
+    editorContentReadyFor.value = null;
+    startPageHold(currentPageBody());
+  }
+  try {
+    const switched = await workspace.selectWorkspaceById(workspaceId);
+    if (!switched && !workspace.switchingWorkspace) releasePageHold('workspace not switched');
+  } catch (err) {
+    // Its pages couldn't be loaded: still where it was (the reason above the page), on the view it
+    // was on
+    console.warn('Switching workspace failed', err);
+    if (!workspace.switchingWorkspace) {
+      releasePageHold('workspace switch failed');
+      activeView.value = viewBefore;
+    }
+  }
 };
 const selectWorkspaceFromMenu = async (workspaceId) => {
   showUserMenu.value = false;
@@ -2657,7 +2693,9 @@ if (typeof window !== 'undefined') {
         </template>
         <template v-else-if="isFormView">
           <Transition name="page-slide" mode="out-in">
-            <div :key="pageTransitionKey" class="page-surface page-surface--form">
+            <!-- Made again for another form, not for the workspace changing under it (the form
+                 switches to its own workspace once it's open, and that cleared what was typed) -->
+            <div :key="`form:${activeFormId}`" class="page-surface page-surface--form">
               <DatabaseFormPage
                 v-if="activeFormId"
                 :form-id="activeFormId"
