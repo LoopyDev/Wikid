@@ -1,10 +1,18 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { api } from '../api/client';
+import { useWorkspaceStore } from '../stores/workspace';
 import PageIcon from './PageIcon.vue';
 
-// Search across pages and database rows (Cmd/Ctrl+K). Emits `open` with the page to open.
+// Search across pages and database rows (Cmd/Ctrl+K). Emits `open` with the page to open. This
+// workspace's first, with a switch for all of them.
 const emit = defineEmits(['open', 'close']);
+const workspace = useWorkspaceStore();
+const workspaceId = computed(() => workspace.activeWorkspaceId || null);
+const workspaceName = computed(() => workspace.currentWorkspace?.workspace?.name || 'This workspace');
+// 'workspace' or 'all'; all of them when there's no workspace open
+const scope = ref('workspace');
+const searchingAll = computed(() => scope.value === 'all' || !workspaceId.value);
 
 const query = ref('');
 const results = ref([]);
@@ -26,7 +34,7 @@ const runSearch = async (text) => {
   }
   loading.value = true;
   try {
-    const res = await api.search(text);
+    const res = await api.search(text, { workspaceId: searchingAll.value ? undefined : workspaceId.value });
     if (ticket !== latest) return; // a newer search is on its way
     results.value = Array.isArray(res?.results) ? res.results : [];
     selected.value = 0;
@@ -41,8 +49,19 @@ const runSearch = async (text) => {
 
 watch(query, (text) => {
   clearTimeout(timer);
+  // Searching from the first key (the results it replaces stay until the new ones come)
+  if (text.trim()) loading.value = true;
   timer = setTimeout(() => runSearch(text), 150);
 });
+const setScope = (next) => {
+  if (scope.value === next) return;
+  scope.value = next;
+  clearTimeout(timer);
+  // The other scope's results go at once (shown under this one's, they'd say the wrong workspace)
+  results.value = [];
+  runSearch(query.value);
+  nextTick(() => inputRef.value?.focus());
+};
 
 // The snippet with its matched words (marked [[[like this]]] by the API) as separate parts.
 const snippetParts = (snippet) =>
@@ -78,7 +97,7 @@ const status = computed(() => {
   if (error.value) return error.value;
   if (!query.value.trim()) return 'Search page titles, text and database rows.';
   if (loading.value && !results.value.length) return 'Searching…';
-  if (!results.value.length) return 'No results.';
+  if (!results.value.length) return searchingAll.value ? 'No results.' : `No results in ${workspaceName.value}.`;
   return '';
 });
 
@@ -90,7 +109,9 @@ onBeforeUnmount(() => clearTimeout(timer));
   <div class="search-backdrop" @mousedown.self="emit('close')">
     <div v-dialog class="search-dialog" role="dialog" aria-modal="true" aria-label="Search">
       <div class="search-dialog__field">
-        <i class="bi bi-search" aria-hidden="true"></i>
+        <!-- A spinner while a search is on its way -->
+        <span v-if="loading" class="search-dialog__spinner" aria-hidden="true"></span>
+        <i v-else class="bi bi-search" aria-hidden="true"></i>
         <input
           ref="inputRef"
           v-model="query"
@@ -99,6 +120,7 @@ onBeforeUnmount(() => clearTimeout(timer));
           placeholder="Search pages and databases"
           aria-label="Search"
           aria-controls="search-results"
+          :aria-busy="loading ? 'true' : 'false'"
           :aria-activedescendant="results.length ? `search-result-${selected}` : undefined"
           autocomplete="off"
           spellcheck="false"
@@ -106,7 +128,30 @@ onBeforeUnmount(() => clearTimeout(timer));
         />
         <kbd class="search-dialog__kbd">Esc</kbd>
       </div>
-      <p v-if="status" class="search-dialog__status" role="status">{{ status }}</p>
+      <div v-if="workspaceId" class="search-dialog__scope" role="group" aria-label="Search in">
+        <button
+          type="button"
+          class="search-dialog__scope-btn"
+          :aria-pressed="!searchingAll ? 'true' : 'false'"
+          @click="setScope('workspace')"
+        >
+          {{ workspaceName }}
+        </button>
+        <button type="button" class="search-dialog__scope-btn" :aria-pressed="searchingAll ? 'true' : 'false'" @click="setScope('all')">
+          All workspaces
+        </button>
+      </div>
+      <p v-if="status" class="search-dialog__status" role="status">
+        {{ status }}
+        <button
+          v-if="!searchingAll && !loading && query.trim() && !results.length && !error"
+          type="button"
+          class="search-dialog__all-link"
+          @click="setScope('all')"
+        >
+          Search all workspaces
+        </button>
+      </p>
       <ul v-if="results.length" id="search-results" ref="listRef" class="search-dialog__results" role="listbox">
         <li
           v-for="(result, index) in results"
@@ -126,8 +171,9 @@ onBeforeUnmount(() => clearTimeout(timer));
                 <mark v-if="part.match">{{ part.text }}</mark><template v-else>{{ part.text }}</template>
               </template>
             </div>
-            <div class="search-result__meta">
-              <template v-if="result.type === 'row'">{{ result.databaseTitle }} · </template>{{ result.workspaceName }}
+            <div v-if="result.type === 'row' || searchingAll" class="search-result__meta">
+              <!-- (Its workspace only when searching them all) -->
+              <template v-if="result.type === 'row'">{{ result.databaseTitle }}<template v-if="searchingAll"> · </template></template><template v-if="searchingAll">{{ result.workspaceName }}</template>
             </div>
             <div v-if="result.snippet" class="search-result__snippet">
               <template v-for="(part, i) in snippetParts(result.snippet)" :key="i">

@@ -12075,6 +12075,60 @@ select.db-cell-input option,
   display: none;
 }
 
+.search-dialog__spinner {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: search-spin 0.7s linear infinite;
+}
+@keyframes search-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .search-dialog__spinner {
+    animation-duration: 2s;
+  }
+}
+.search-dialog__scope {
+  display: flex;
+  gap: 6px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--surface-border);
+}
+.search-dialog__scope-btn {
+  font: inherit;
+  font-size: 0.8rem;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--surface-border);
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  max-width: 50%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.search-dialog__scope-btn[aria-pressed='true'] {
+  color: var(--text-primary);
+  border-color: var(--caret-color);
+  background: var(--hover-bg);
+}
+.search-dialog__all-link {
+  font: inherit;
+  margin-left: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--caret-color);
+  text-decoration: underline;
+  cursor: pointer;
+}
 .search-dialog__kbd {
   font: inherit;
   font-size: 0.75rem;
@@ -12149,7 +12203,8 @@ select.db-cell-input option,
   background: var(--accent-subtle);
   color: var(--text-primary);
   border-radius: 3px;
-  padding: 0 2px;
+  /* No padding: a match can be part of a word, which padding would split */
+  padding: 0;
 }
 
 .sidebar-search-btn {
