@@ -72,7 +72,7 @@ What Wikid does today, and how much to rely on each part. Wikid is in early deve
 
 | Feature | Status | Notes |
 |---|---|---|
-| Compliance databases: append-only records in a separate database, versioned schemas, workflows (Draft → Submitted → In Review → Closed/Sealed) with role and approval guards, audit trail, hash-checked attachments | Experimental | Only switching a database to compliance mode has automated tests so far. |
+| Compliance databases: append-only records in a separate database, versioned schemas, workflows (Draft → Submitted → In Review → Closed/Sealed) with role and approval guards, audit trail, hash-checked attachments | Experimental | Off unless the system admin turns it on (Admin → Settings); turned off, no database can be put into compliance mode, and ones already in it keep working. Only switching a database to compliance mode has automated tests so far. |
 
 ## Export
 

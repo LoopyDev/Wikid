@@ -10,6 +10,7 @@ import { DatabaseSetupService } from './database-setup.service';
 import { CollabSyncService } from './collab-sync.service';
 import { WikiService } from './wiki.service';
 import { PageContentService } from './page-content.service';
+import { SettingsService } from '../settings/settings.service';
 import { MAX_LISTED_IDS, POSITION_INCREMENT, canEdit, normalizePageTitle, canReadOthersPrivatePages } from './pages.shared';
 
 // Pages: listing, reading, editing, edit locks, visibility, moving, reordering, setup,
@@ -23,6 +24,7 @@ export class PagesService {
     private readonly collabSync: CollabSyncService,
     private readonly wiki: WikiService,
     private readonly pageContent: PageContentService,
+    private readonly settings: SettingsService,
   ) {}
 
   private locks = new Map<string, { userId: string; userName: string; expires: number }>();
@@ -408,6 +410,11 @@ export class PagesService {
     if (!canEdit(membership.role)) {
       throw new ForbiddenException('Forbidden: editor access required');
     }
+    // (Before anything's made: an alpha feature, the admin's to turn on. Only when a compliance
+    // database is being made, not a page that ignores the flag)
+    if (body.complianceMode === true && body.kind === PageKind.DATABASE && (body.setupStatus ?? PageSetupStatus.COMPLETE) === PageSetupStatus.COMPLETE) {
+      await this.settings.assertComplianceAvailable();
+    }
     const parentId = body.parentId ?? null;
     const position = await this.nextPosition(workspace.id, parentId);
     const kind: PageKind = body.kind && Object.values(PageKind).includes(body.kind) ? body.kind : PageKind.DOC;
@@ -512,6 +519,12 @@ export class PagesService {
 
     if (!nextKind && !nextStatus && nextComplianceMode === undefined) {
       throw new BadRequestException('kind, setupStatus, or complianceMode is required');
+    }
+    // Into compliance mode only while the admin has it on (a database already in it stays so), when
+    // it leaves a database
+    if (nextComplianceMode === true && (nextKind ?? page.kind) === PageKind.DATABASE) {
+      const existing = await this.prisma.database.findUnique({ where: { pageId: page.id }, select: { complianceMode: true } });
+      if (!existing?.complianceMode) await this.settings.assertComplianceAvailable();
     }
 
     if (page.setupStatus === PageSetupStatus.COMPLETE) {

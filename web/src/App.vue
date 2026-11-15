@@ -69,9 +69,12 @@ const {
   publicOpen,
   invitations,
 } = storeToRefs(workspace);
-// Invitations sent while the tab was in the background show once it's back
+// Invitations sent while the tab was in the background show once it's back, and what the server
+// offers now (the admin may have turned compliance or AI on or off)
 const loadInvitationsOnReturn = () => {
-  if (document.visibilityState === 'visible') workspace.loadInvitations();
+  if (document.visibilityState !== 'visible') return;
+  workspace.loadInvitations();
+  if (workspace.activeUser) workspace.loadServerConfig();
 };
 onMounted(() => document.addEventListener('visibilitychange', loadInvitationsOnReturn));
 onBeforeUnmount(() => document.removeEventListener('visibilitychange', loadInvitationsOnReturn));
@@ -1552,6 +1555,8 @@ const chooseSetupKind = async (kind, options = {}) => {
   } finally {
     setupSaving.value = false;
   }
+  // (Compliance turned off since the page was loaded: no longer offered)
+  if (!success && options.complianceMode) workspace.loadServerConfig();
   logSetup('setup-kind-finish', { kind, success });
   return success;
 };
@@ -2892,6 +2897,7 @@ if (typeof window !== 'undefined') {
                         <div class="create-page__card-desc">Structured tables with fields, rows, and filters.</div>
                       </button>
                       <button
+                        v-if="workspace.complianceAvailable"
                         class="create-page__card"
                         type="button"
                         :disabled="setupSaving || !canEditPage"

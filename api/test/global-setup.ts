@@ -1,6 +1,7 @@
-import { API_URL } from './helpers';
+import { API_URL, USERS, loginAs } from './helpers';
 
-// Fail fast with a clear message when no stack is running.
+// Fail fast with a clear message when no stack is running. Then compliance databases (an alpha
+// feature, off unless the admin turns it on) are turned on, as the tests use them.
 export default async function setup() {
   try {
     const res = await fetch(`${API_URL}/auth/me`);
@@ -13,4 +14,7 @@ export default async function setup() {
         'or point WIKID_API_URL at a running API.',
     );
   }
+  const admin = await loginAs(USERS.admin.email);
+  const res = await admin.patch('/admin/settings', { complianceEnabled: true });
+  if (res.status !== 200) throw new Error(`Turning on compliance databases failed: ${res.status} ${JSON.stringify(res.body)}`);
 }

@@ -23,8 +23,9 @@ import { HtmlExportService } from '../export/html-export.service';
 import { UploadsService } from '../uploads/uploads.service';
 
 import { LoginRateLimiter } from '../auth/login-rate-limiter';
+import { SettingsModule } from '../settings/settings.module';
 @Module({
-  imports: [ComplianceModule, CollabModule],
+  imports: [ComplianceModule, CollabModule, SettingsModule],
   controllers: [PagesController, TemplatesController],
   providers: [
     LoginRateLimiter,
