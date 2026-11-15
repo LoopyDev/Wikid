@@ -2,6 +2,7 @@ import { Extension, InputRule, textInputRule } from '@tiptap/core';
 import Collaboration from '@tiptap/extension-collaboration';
 import CollaborationCaret from '@tiptap/extension-collaboration-caret';
 import { RedoSelection } from './redoSelection';
+import { SelectionMarks } from './selectionMarks';
 import StarterKit from '@tiptap/starter-kit';
 import TaskList from '@tiptap/extension-task-list';
 import TaskItem from '@tiptap/extension-task-item';
@@ -216,6 +217,7 @@ export function createEditorExtensions({
         dragBlock,
       }),
       ImageUploads,
+      SelectionMarks,
       Placeholder.configure({
         showOnlyCurrent: true,
         showOnlyWhenEditable: true,

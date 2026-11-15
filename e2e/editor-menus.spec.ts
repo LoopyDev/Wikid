@@ -25,6 +25,59 @@ async function handleFor(page: Page, index: number) {
 }
 
 test.describe('editor menus', () => {
+  test("what's selected is outlined: a block whose menu is open (text too), an image; an image inside a larger selection is washed over", async ({ alice: page, workspaceId }) => {
+    const p = (text: string) => ({ type: 'paragraph', content: [{ type: 'text', text }] });
+    const pageId = await createPage(page, workspaceId);
+    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+    const src = (await (await page.request.post('/api/uploads', { multipart: { pageId, image: { name: 'dot.png', mimeType: 'image/png', buffer: png } } })).json()).file.url as string;
+    const content = [p('Above'), { type: 'image', attrs: { src, width: 200 } }, p('Below')];
+    expect((await page.request.put(`/api/pages/${pageId}/content`, { data: { content: { type: 'doc', content } } })).status()).toBe(200);
+    await openPage(page, pageId);
+    const outlined = (locator: ReturnType<typeof editor>) => locator.evaluate((el) => getComputedStyle(el).outlineStyle);
+    const handle = page.locator('.drag-handle--floating:not(.drag-handle--list) .drag-handle__btn--drag');
+
+    // A paragraph's menu open: the paragraph outlined (the editor's redraw took the mark off text before)
+    const above = editor(page).locator('p', { hasText: 'Above' });
+    await above.hover();
+    await handle.click();
+    await expect(above).toHaveClass(/tiptap-block-selected/);
+    // ...and stays so through the editor's redraws (a few frames on)
+    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 100)))));
+    await expect(above).toHaveClass(/tiptap-block-selected/);
+    expect(await outlined(above)).toBe('solid');
+    await page.keyboard.press('Escape');
+    await expect(above).not.toHaveClass(/tiptap-block-selected/);
+
+    // The image's: the picture outlined, not its row
+    const picture = editor(page).locator('.tiptap-image-resizable');
+    await expect.poll(() => picture.locator('img').evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0)).toBe(true);
+    await picture.hover({ position: { x: 5, y: 5 }, force: true });
+    await handle.click();
+    await expect.poll(() => outlined(picture)).toBe('solid');
+    expect(await picture.locator('xpath=..').evaluate((el) => getComputedStyle(el).outlineStyle)).toBe('none');
+    await page.keyboard.press('Escape');
+
+    // Selected on its own (as the keyboard or a click on its edge selects it): the picture outlined,
+    // not its row
+    await page.evaluate(() => {
+      const ed = (document.querySelector('.ProseMirror:not(.page-hold *)') as any).editor;
+      let at = -1;
+      ed.state.doc.forEach((node: any, offset: number) => { if (node.type.name === 'image') at = offset; });
+      ed.commands.setNodeSelection(at);
+    });
+    await expect(picture.locator('xpath=..')).toHaveAttribute('data-selected', 'true');
+    expect(await outlined(picture)).toBe('solid');
+    expect(await picture.locator('xpath=..').evaluate((el) => getComputedStyle(el).outlineStyle)).toBe('none');
+
+    // Everything selected: the image washed over, as the text round it is
+    await editor(page).locator('p', { hasText: 'Below' }).click();
+    await page.keyboard.press('ControlOrMeta+a');
+    await expect(picture.locator('xpath=..')).toHaveClass(/tiptap-in-selection/);
+    expect(await picture.evaluate((el) => getComputedStyle(el, '::after').content)).not.toBe('none');
+    await editor(page).locator('p', { hasText: 'Below' }).click();
+    await expect(picture.locator('xpath=..')).not.toHaveClass(/tiptap-in-selection/);
+  });
+
   test('the slash menu: every block type, searches with spaces, a Quote, and on screen near the bottom of the window', async ({ alice: page, workspaceId }) => {
     await openPage(page, await createPage(page, workspaceId));
     const menu = page.locator('.slash-menu');

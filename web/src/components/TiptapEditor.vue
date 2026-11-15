@@ -22,6 +22,7 @@ import { colorFromId } from '../utils/presenceColor';
 
 import { usePageLinkAttributes } from '../composables/usePageLinkAttributes';
 import { createEditorExtensions } from '../tiptap/editorExtensions';
+import { setMenuBlock } from '../tiptap/selectionMarks';
 import { createDragScrollRestore } from '../utils/dragScrollRestore';
 import { createEditorProps } from '../tiptap/editorInputHandlers';
 import BlockMenu from './BlockMenu.vue';
@@ -670,7 +671,6 @@ const slashMenuOpen = ref(false);
 const tuneMenuPos = ref({ top: 0, left: 0 });
 const tuneMenuFlipped = ref(false);
 const tuneMenuRef = ref(null);
-const tuneMenuBlockEl = ref(null);
 const collabField = 'default';
 const collabMetaKey = 'wikidMeta';
 const createCollabDoc = () => {
@@ -1647,28 +1647,15 @@ const setMainframeScrollLocked = (locked) => {
   frame.classList.toggle('wikid-mainframe--lock-scroll', !!locked);
 };
 
+// The block whose menu is open, marked (as a decoration: see selectionMarks)
 const clearTuneMenuBlockHighlight = () => {
-  if (tuneMenuBlockEl.value) {
-    tuneMenuBlockEl.value.classList.remove('tiptap-block-selected');
-    tuneMenuBlockEl.value = null;
-  }
+  if (editor.value?.view) setMenuBlock(editor.value.view, null);
 };
 
 const updateTuneMenuBlockHighlight = () => {
-  clearTuneMenuBlockHighlight();
-  if (!showTuneMenu.value || !editor.value) return;
+  if (!showTuneMenu.value || !editor.value) return clearTuneMenuBlockHighlight();
   const pos = handleState.value?.pos;
-  if (pos == null || pos < 0) return;
-  let target = null;
-  try {
-    target = editor.value.view.nodeDOM(pos);
-  } catch {
-    target = null;
-  }
-  if (target instanceof HTMLElement) {
-    target.classList.add('tiptap-block-selected');
-    tuneMenuBlockEl.value = target;
-  }
+  setMenuBlock(editor.value.view, pos == null || pos < 0 ? null : pos);
 };
 
 watch(
@@ -1677,16 +1664,7 @@ watch(
   { immediate: true }
 );
 
-watch(
-  () => [showTuneMenu.value, handleState.value?.pos],
-  () => {
-    if (!showTuneMenu.value) {
-      clearTuneMenuBlockHighlight();
-      return;
-    }
-    updateTuneMenuBlockHighlight();
-  }
-);
+watch(() => [showTuneMenu.value, handleState.value?.pos], () => updateTuneMenuBlockHighlight());
 
 watch(
   () => props.collab,
