@@ -36,7 +36,7 @@ test.describe('a new page started with Markdown, typed straight away', () => {
   ];
   for (const [typed, expected] of cases) {
     for (const delay of [25, 40]) {
-      test(`"${typed.replace('\n', '⏎')}" at ${delay}ms a key`, async ({ alice, workspaceId }) => {
+      test(`"${typed.replace(/\n/g, '⏎')}" at ${delay}ms a key`, async ({ alice, workspaceId }) => {
         const id = await createPage(alice, workspaceId, { setupStatus: 'PENDING' });
         await alice.goto(`/doc/${id}`);
         await alice.waitForFunction(() => {
