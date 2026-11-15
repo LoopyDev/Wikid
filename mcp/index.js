@@ -755,8 +755,19 @@ tool(
   async ({ pageId, view, ...given }) => {
     const { db, fields } = await getDatabase(pageId);
     const found = findView(db, view);
-    const body = viewBody(fields, found, given);
-    if (!Object.keys(body).length) throw new Error('Give something to change: name, type, filters, match, sorts, groupBy or hide');
+    const { config, ...body } = viewBody(fields, found, given);
+    // Only the settings that change, put onto the view's as they are when saved: a change someone
+    // makes meanwhile to another one stays (a setting taken away goes as null)
+    if (config) {
+      const before = found.config ?? {};
+      // (Settings it builds; one it doesn't is left as it is, never taken away)
+      const changed = Object.keys(config).filter((key) => JSON.stringify(before[key] ?? null) !== JSON.stringify(config[key] ?? null));
+      if (changed.length) body.configPatch = Object.fromEntries(changed.map((key) => [key, config[key] ?? null]));
+    }
+    if (!Object.keys(body).length) {
+      if (config) return `View "${found.name}" was already like that.`;
+      throw new Error('Give something to change: name, type, filters, match, sorts, groupBy or hide');
+    }
     await api(`/database-views/${id(found.id)}`, { method: 'PATCH', body });
     return `Updated view "${body.name ?? found.name}".`;
   },

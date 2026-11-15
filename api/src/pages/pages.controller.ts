@@ -464,7 +464,8 @@ export class PagesController {
     @CurrentUserId() userId?: string,
     @CurrentUserName() userName?: string,
   ) {
-    const data: any = pickDefined(body, ['config', 'position']);
+    // config: all of a view's settings; configPatch: only those that change (null takes one away)
+    const data: any = pickDefined(body, ['config', 'configPatch', 'position']);
     if (typeof body.name === 'string') data.name = body.name;
     if (typeof body.type === 'string') data.type = body.type;
     if (typeof body.icon === 'string') data.icon = body.icon;

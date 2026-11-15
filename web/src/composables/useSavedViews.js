@@ -1,4 +1,4 @@
-import { computed, nextTick, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, ref } from 'vue';
 import { api } from '../api/client';
 import { normalizeFieldOptions } from '../utils/database/fieldOptions';
 import { normalizeViewConfig, normalizeViewType, operatorsForFieldType, VIEW_TYPE_LABELS } from '../utils/database/views';
@@ -30,44 +30,74 @@ export function useSavedViews({ props, workspace, fields, fieldById, activeViewI
   const activeViewSorts = computed(() => activeSavedView.value?.config?.sorts || []);
   const activeFilterCount = computed(() => activeViewFilters.value.rules.length);
   // --- Persistence (debounced) ---
-  const viewSaveTimers = new Map();
+  // Changes to a view are saved shortly after the last one, together: a rename and then a sort in
+  // the same moment both go. Only the settings changed are sent (configPatch), so a change someone
+  // else made meanwhile to another setting stays. Anything waiting goes as the page closes.
+  const viewSaveTimers = new Map(); // view id -> { timer, started, payload }
   // Each view's latest save: a reply to an older one is out of date (two saves can overlap, and
   // their replies come back in either order), so it doesn't replace what's shown
   const latestViewSave = new Map();
-  const scheduleViewPersist = (viewId, payload) => {
+  const mergeViewChanges = (waiting, change) => ({
+    ...waiting,
+    ...change,
+    ...(waiting?.configPatch || change.configPatch ? { configPatch: { ...waiting?.configPatch, ...change.configPatch } } : {}),
+  });
+  const sendViewSave = async (viewId, payload, started, { keepalive = false } = {}) => {
+    const save = (latestViewSave.get(viewId) || 0) + 1;
+    latestViewSave.set(viewId, save);
+    try {
+      const res = await api.updateDatabaseView(viewId, payload, {
+        userId: activeUser.value?.id,
+        userName: activeUser.value?.name,
+        keepalive,
+      });
+      const normalized = normalizeSavedView(res);
+      // Only the reply to the latest save, with no newer change waiting to go, is shown
+      if (normalized && latestViewSave.get(viewId) === save && !viewSaveTimers.has(viewId)) {
+        savedViews.value = savedViews.value.map((view) => (view.id === viewId ? normalized : view));
+      }
+    } catch (err) {
+      console.warn('Update view failed', err);
+      error.value = err?.message || 'Failed to update view';
+    } finally {
+      workspace.finishSaving(started);
+    }
+  };
+  const scheduleViewPersist = (viewId, change) => {
     if (!hasApi.value || !activeUser.value) return;
     const existing = viewSaveTimers.get(viewId);
     const started = existing?.started || workspace.beginSaving();
     if (existing?.timer) clearTimeout(existing.timer);
-    const timer = setTimeout(async () => {
+    const payload = mergeViewChanges(existing?.payload, change);
+    const timer = setTimeout(() => {
       viewSaveTimers.delete(viewId);
-      const save = (latestViewSave.get(viewId) || 0) + 1;
-      latestViewSave.set(viewId, save);
-      try {
-        const res = await api.updateDatabaseView(viewId, payload, {
-          userId: activeUser.value.id,
-          userName: activeUser.value.name,
-        });
-        const normalized = normalizeSavedView(res);
-        // Only the reply to the latest save, with no newer change waiting to go, is shown
-        if (normalized && latestViewSave.get(viewId) === save && !viewSaveTimers.has(viewId)) {
-          savedViews.value = savedViews.value.map((view) => (view.id === viewId ? normalized : view));
-        }
-      } catch (err) {
-        console.warn('Update view failed', err);
-        error.value = err?.message || 'Failed to update view';
-      } finally {
-        workspace.finishSaving(started);
-      }
+      sendViewSave(viewId, payload, started);
     }, 400);
-    viewSaveTimers.set(viewId, { timer, started });
+    viewSaveTimers.set(viewId, { timer, started, payload });
   };
+  // What's waiting goes now: the page closing (keepalive: the request outlives it), or the database
+  // leaving the screen
+  const flushViewSaves = ({ keepalive = false } = {}) => {
+    for (const [viewId, { timer, started, payload }] of [...viewSaveTimers]) {
+      clearTimeout(timer);
+      viewSaveTimers.delete(viewId);
+      sendViewSave(viewId, payload, started, { keepalive });
+    }
+  };
+  const flushOnPageHide = () => flushViewSaves({ keepalive: true });
+  if (typeof window !== 'undefined') window.addEventListener('pagehide', flushOnPageHide);
+  onBeforeUnmount(() => {
+    if (typeof window !== 'undefined') window.removeEventListener('pagehide', flushOnPageHide);
+    flushViewSaves();
+  });
   const patchViewConfig = (viewId, partial) => {
     const view = savedViews.value.find((entry) => entry.id === viewId);
     if (!view) return;
     const nextConfig = { ...view.config, ...partial };
     savedViews.value = savedViews.value.map((entry) => (entry.id === viewId ? { ...entry, config: nextConfig } : entry));
-    scheduleViewPersist(viewId, { config: nextConfig });
+    // undefined (a setting taken away) is sent as null, which the server takes away too
+    const changed = Object.fromEntries(Object.entries(partial).map(([key, value]) => [key, value === undefined ? null : value]));
+    scheduleViewPersist(viewId, { configPatch: changed });
   };
   const patchActiveViewConfig = (partial) => {
     if (activeSavedView.value) patchViewConfig(activeSavedView.value.id, partial);
@@ -105,6 +135,13 @@ export function useSavedViews({ props, workspace, fields, fieldById, activeViewI
     if (!view || !canCreateForms.value) return;
     if (!window.confirm(`Delete view "${view.name}"?`)) return;
     if (!hasApi.value || !activeUser.value) return;
+    // A change to it still waiting to save has nothing to save to
+    const waiting = viewSaveTimers.get(view.id);
+    if (waiting) {
+      clearTimeout(waiting.timer);
+      viewSaveTimers.delete(view.id);
+      workspace.finishSaving(waiting.started);
+    }
     try {
       await runWithSavingIndicator(() =>
         api.deleteDatabaseView(view.id, { userId: activeUser.value.id, userName: activeUser.value.name })

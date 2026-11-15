@@ -306,10 +306,12 @@ export const api = {
       body: JSON.stringify(payload),
     });
   },
-  async updateDatabaseView(viewId, payload, { userId, userName } = {}) {
+  // keepalive: sent as the page closes, and finished though it's gone
+  async updateDatabaseView(viewId, payload, { userId, userName, keepalive = false } = {}) {
     return request(`/database-views/${viewId}${buildQs({ userId, userName })}`, {
       method: 'PATCH',
       body: JSON.stringify(payload),
+      ...(keepalive ? { keepalive: true } : {}),
     });
   },
   async deleteDatabaseView(viewId, { userId, userName } = {}) {
