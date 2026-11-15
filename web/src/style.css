@@ -5510,6 +5510,23 @@ button {
   margin: 0 0 12px;
   padding-left: 22px;
 }
+/* A list's items closer together than paragraphs are. Whatever is in an item (its text, a nested
+   list, a quote, a code block; a to-do item's are in a div beside its checkbox) has no space of
+   its own round it: --list-item-gap goes between items, and between the blocks inside one */
+:is(.tiptap-editor .ProseMirror, .tiptap-editor.ProseMirror) {
+  --list-item-gap: 6px;
+}
+:is(.tiptap-editor .ProseMirror, .tiptap-editor.ProseMirror) :is(li > *, li:is([data-type='taskItem'], .tiptap-task-item) > div > *) {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+:is(.tiptap-editor .ProseMirror, .tiptap-editor.ProseMirror) :is(li + li, li:not([data-type='taskItem'], .tiptap-task-item) > * + *, li:is([data-type='taskItem'], .tiptap-task-item) > div > * + *) {
+  margin-top: var(--list-item-gap);
+}
+/* (A quote's last paragraph's space would show through under it, before the next item) */
+:is(.tiptap-editor .ProseMirror, .tiptap-editor.ProseMirror) li blockquote > :last-child {
+  margin-bottom: 0;
+}
 /* Cycle bullet markers: disc → circle → square → disc → … (infinite via JS-tagged depth) */
 :is(.tiptap-editor .ProseMirror, .tiptap-editor.ProseMirror) ul[data-bullet-depth="0"] > li { list-style-type: disc; }
 :is(.tiptap-editor .ProseMirror, .tiptap-editor.ProseMirror) ul[data-bullet-depth="1"] > li { list-style-type: circle; }
@@ -5878,8 +5895,9 @@ button {
   gap: 10px;
   align-items: flex-start;
   flex-wrap: nowrap;
-  margin: 6px 0;
+  margin: 0;
 }
+
 
 .tiptap-editor [data-type='taskItem'] > label,
 .tiptap-editor .tiptap-task-item > label {
