@@ -15,7 +15,9 @@ const queuePageListLoad = (load) => {
 // A live change to more pages than this fetches the whole list rather than each page (the API takes
 // up to this many ids, its MAX_LISTED_IDS)
 const CHANGED_PAGES_FETCH_LIMIT = 100;
-const liveEvents = { workspaceId: null, disconnect: null, refreshTimer: null, changedIds: new Set(), settingUp: new Set() };
+const liveEvents = { workspaceId: null, disconnect: null, refreshTimer: null, changedIds: new Set(), settingUp: new Set(), madeHere: new Set() };
+// How long a page made here is taken to be the one announced as made (its own news, not another's)
+const MADE_HERE_MS = 10000;
 
 // The live-editing pass covers a whole workspace, so moving between its pages reuses it instead of
 // asking the server again (which also mounted each page's editor twice: offline, then connected).
@@ -531,7 +533,9 @@ export const useWorkspaceStore = defineStore('workspace', {
       // Someone else set up the page that is showing the type picker here: open it as set up.
       // (Not while this browser is setting it up itself; updatePageSetup handles that.)
       const pageId = this.activePageId;
-      if (pageId && changedIds.has(pageId) && this.currentPage?.setupStatus === 'PENDING' && !liveEvents.settingUp.has(pageId)) {
+      // (Nor for the news of a page made here, just now: that's only that it was made, and reloading
+      // put "Loading page" over it as it opened)
+      if (pageId && changedIds.has(pageId) && this.currentPage?.setupStatus === 'PENDING' && !liveEvents.settingUp.has(pageId) && !liveEvents.madeHere.has(pageId)) {
         await this.loadPageDoc(this.activePageId);
       }
       const openTitle = this.currentPage?.title || '';
@@ -727,11 +731,24 @@ export const useWorkspaceStore = defineStore('workspace', {
         if (page.workspaceId && page.kind) {
           this.updateCollabContext(...(page.setupStatus === 'PENDING' ? [null, null, null] : [page.workspaceId, page.id, page.kind]));
         }
-        this.loadPageDoc(page.id);
+        if (options.justMade) this.showJustMadePage(page);
+        else this.loadPageDoc(page.id);
       } else {
         this.doc = fallbackDoc;
         this.titleDraft = this.currentPage?.title || 'Untitled page';
       }
+    },
+    /**
+     * Shows a page just made here as it came back from being made: it holds nothing yet, so
+     * there's nothing to load (loading it put "Loading page" over its editor for a moment, and a
+     * load still out when typing set it up brought back the page from before).
+     */
+    showJustMadePage(page) {
+      // Any load still out (the page before) doesn't open over it
+      loadSeq += 1;
+      this.loadingDoc = false;
+      this.pageProblem = null;
+      this.doc = normalizeEditorDoc(page.content);
     },
     logout() {
       api.logout().catch(() => {});
@@ -1157,7 +1174,9 @@ export const useWorkspaceStore = defineStore('workspace', {
           userName: this.activeUser.name,
         });
         this.pages = [newPage, ...this.pages];
-        this.selectPage(newPage);
+        liveEvents.madeHere.add(newPage.id);
+        setTimeout(() => liveEvents.madeHere.delete(newPage.id), MADE_HERE_MS);
+        this.selectPage(newPage, { justMade: true });
         return newPage;
       } catch (err) {
         console.warn('Create page failed', err);
