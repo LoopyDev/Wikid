@@ -31,7 +31,7 @@ The server acts as whoever it logs in as. To limit what it can reach, and see it
 
 1. As the admin, create a user (Admin → Users), named "Claude", say, with a username or email to log in with.
 2. Log in as it once, in a private window, and choose its password: until then, Wikid won't let it use the API.
-3. Add it to the workspaces it should work in (each workspace's Settings → Members): Editor to write, Viewer to only read. It never sees anyone's private pages.
+3. Invite it to the workspaces it should work in (each workspace's Settings → Members): Editor to write, Viewer to only read. It never sees anyone's private pages. A workspace can't be reached until its invitation is accepted: ask Claude to accept it ("accept the invitation to Team"; it uses `list_invitations` and `answer_invitation`), or log in as the user and accept it under the workspace name.
 4. Use its login in `claude mcp add`. To cut it off later, change its password or delete the user.
 
 Then ask Claude about your wiki ("what's on the onboarding page?", "add a page of meeting notes under Team"). `claude mcp list` shows whether it's connected.
@@ -41,6 +41,8 @@ Then ask Claude about your wiki ("what's on the onboarding page?", "add a page o
 | Tool | What it does |
 |---|---|
 | `list_workspaces` | The workspaces you can see, with their ids |
+| `list_invitations` | Invitations to workspaces waiting for an answer: which workspace, as what, from whom |
+| `answer_invitation` | Accepts or declines one (accepting makes you a member). Claude is told to accept only when you've asked |
 | `list_pages` | A workspace's pages as a tree |
 | `search` | Page titles, page text and database rows, across workspaces |
 | `get_page` | A page as Markdown, each block marked with its id |
