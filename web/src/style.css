@@ -12000,6 +12000,36 @@ select.db-cell-input option,
   text-align: center;
   font-size: 0.8rem;
 }
+/* "+ New" at a column's foot, and the name box it opens (a card's size and shape) */
+.db-board__add {
+  align-self: stretch;
+  text-align: left;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.db-board__add:hover,
+.db-board__add:focus-visible {
+  background: rgba(148, 163, 184, 0.16);
+  color: var(--text-primary);
+}
+.db-board__add-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: var(--modal-card-bg);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
 
 /* Shown when someone else moves the open page to the Bin */
 .page-deleted-notice {
