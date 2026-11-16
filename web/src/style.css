@@ -12304,3 +12304,10 @@ select.db-cell-input option,
   text-underline-offset: 0.15em;
   overflow-wrap: anywhere;
 }
+
+/* What's typed after Enter in the title, before the page's content has come: shown faintly at the
+   top until it goes in (pendingTopLine.js) */
+.pending-top-line {
+  opacity: 0.55;
+  pointer-events: none;
+}

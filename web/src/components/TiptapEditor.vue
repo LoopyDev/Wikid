@@ -1,8 +1,9 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
 import { EditorContent, useEditor } from '@tiptap/vue-3';
-import { getMarkRange } from '@tiptap/core';
+import { Extension, getMarkRange } from '@tiptap/core';
 import { TextSelection, NodeSelection } from 'prosemirror-state';
+import { createPendingTopLine } from '../tiptap/pendingTopLine';
 import * as Y from 'yjs';
 import { createCollabProvider, providerStatus } from '../services/collabSocket';
 import { absolutePositionToRelativePosition, relativePositionToAbsolutePosition, ySyncPluginKey, yUndoPluginKey } from '@tiptap/y-tiptap';
@@ -744,6 +745,8 @@ const setupCollabProvider = () => {
   initialContentSeeded.value = false;
   setupSeededAfterSync.value = false;
   contentSynced.value = false;
+  // (Held for the page that was open)
+  pendingTopLine.clear();
   logSetup('provider', { docName: currentDocName.value });
   try {
     collabProvider.value = createCollabProvider({
@@ -786,6 +789,8 @@ const restoreAwarenessCursor = () => {
 // The page's content is still on its way from the server, so it isn't really empty yet
 const contentSynced = ref(false);
 const waitingForContent = computed(() => isCollabEnabled.value && !contentSynced.value);
+// Enter in the title before the content's in: what's typed then, held for a new first line
+const pendingTopLine = createPendingTopLine();
 
 const handleCollabSynced = (synced) => {
   if (!synced) return;
@@ -840,6 +845,8 @@ const handleCollabSynced = (synced) => {
   scheduleSyncedWorkspaceRefresh();
   scheduleSyncedWorkspaceSourceUpdate();
   stopUnsyncedWatcher();
+  // What was typed after Enter in the title meanwhile: in a new first line, now the content's in
+  nextTick(() => pendingTopLine.flush(editor.value));
 };
 
 const toStatelessString = (raw) => {
@@ -893,8 +900,9 @@ const dragScroll = createDragScrollRestore();
 editor = useEditor({
   content: isCollabEnabled.value ? undefined : editorDocToTiptap(props.doc),
   editable: !props.readonly,
-  editorProps: createEditorProps({ lastTextInputAt, lastTextInputInfo, props, isCollabEnabled, isSyncedLocked, notifySyncedBlockLocked, insertSyncedBlockFromUrl, insertImageFiles, uploadPastedImages, canUploadPastedImages, shouldInsertClickPlaceholder, insertClickPlaceholder, dragScroll, getEditor: () => editor?.value }),
-  extensions: createEditorExtensions({
+  editorProps: pendingTopLine.editorProps(createEditorProps({ lastTextInputAt, lastTextInputInfo, props, isCollabEnabled, isSyncedLocked, notifySyncedBlockLocked, insertSyncedBlockFromUrl, insertImageFiles, uploadPastedImages, canUploadPastedImages, shouldInsertClickPlaceholder, insertClickPlaceholder, dragScroll, getEditor: () => editor?.value })),
+  extensions: [
+    ...createEditorExtensions({
     collab: isCollabEnabled.value
       ? { document: collabDoc.value, provider: collabReady.value ? collabProvider.value : null, user: cursorUser.value }
       : null,
@@ -957,6 +965,10 @@ editor = useEditor({
     lastPointerDownAt,
     dragBlock: (event, options) => handleBlockDragStart(event, options),
   }),
+    // Enter in the title before the content's in (part of the editor from the start: added later,
+    // it rebuilt the editor's state as a new page's editor took over, and a key typed then was lost)
+    Extension.create({ name: 'pendingTopLine', addProseMirrorPlugins: () => [pendingTopLine.plugin] }),
+  ],
   onMount({ editor: ed }) {
     // An image placeholder's Upload button uploads through the editor, as a pasted image does
     if (ed.storage.imagePlaceholder && !props.readonly) ed.storage.imagePlaceholder.upload = (files, pos) => insertImageFiles(files, pos);
@@ -1110,6 +1122,11 @@ const insertParagraphAtTop = () => {
   if (!paragraph) return false;
   const { view } = editor.value;
   view.focus();
+  // The page's content isn't in yet: what's typed is held until it is, then goes first
+  if (waitingForContent.value) {
+    pendingTopLine.start();
+    return true;
+  }
   // Read after focusing, which can itself change the state
   const state = editor.value.state;
   const first = state.doc.firstChild;

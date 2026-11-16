@@ -316,6 +316,52 @@ test.describe('editing basics', () => {
     await expect.poll(() => blockTexts(page)).toEqual(['', 'hello', 'Existing']);
   });
 
+  test("Enter in the title before the page's content has come: the new line still goes first, with what's typed", async ({ alice: page, workspaceId }) => {
+    const id = await createPage(page, workspaceId, { title: 'Untitled page' });
+    const p = (text: string) => ({ type: 'paragraph', content: [{ type: 'text', text }] });
+    expect((await page.request.put(`/api/pages/${id}/content`, { data: { content: { type: 'doc', content: [p('Existing'), p('Second')] } } })).status()).toBe(200);
+    // The live connection's messages from the server held back: the page's content comes late
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => (release = resolve));
+    await page.routeWebSocket(/\/collab/, (ws) => {
+      const server = ws.connectToServer();
+      ws.onMessage((message) => server.send(message));
+      server.onMessage((message) => {
+        released.then(() => ws.send(message));
+      });
+    });
+    await page.goto(`/doc/${id}`);
+    const title = page.getByRole('main').getByRole('textbox', { name: 'Untitled page' });
+    await expect(title).toBeVisible();
+    // The editor's there, waiting for the page's content
+    await expect(page.locator('.tiptap-wrapper--waiting .ProseMirror')).toBeVisible();
+    const titleBefore = await title.inputValue();
+    await title.click();
+    await title.press('End');
+    await page.keyboard.press('Enter');
+    // Typing, a mistake put right, another line, and "# " (no heading made of it meanwhile)
+    await page.keyboard.type('helo');
+    await page.keyboard.press('Backspace');
+    await page.keyboard.type('lo');
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('# world');
+    // Shown meanwhile, faintly, at the top
+    await expect(page.locator('.pending-top-line')).toHaveText(/hello\s*# world/);
+    await page.waitForTimeout(300);
+    release();
+    await expect.poll(() => blockTexts(page)).toEqual(['hello', '# world', 'Existing', 'Second']);
+    await expect(page.locator('.pending-top-line')).toHaveCount(0);
+    await expect(title).toHaveValue(titleBefore);
+    // The cursor at the end of it: typing goes on there
+    await page.keyboard.type('!');
+    await expect.poll(() => blockTexts(page)).toEqual(['hello', '# world!', 'Existing', 'Second']);
+    // ...and saved so: as another tab opens it (one that's not held back)
+    const other = await page.context().newPage();
+    await other.goto(`/doc/${id}`);
+    await expect.poll(() => blockTexts(other).catch(() => null)).toEqual(['hello', '# world!', 'Existing', 'Second']);
+    await other.close();
+  });
+
   test('Backspace and Enter around a toggle heading, and one from the / menu takes the empty line it was on', async ({ alice: page, workspaceId }) => {
     const p = (text?: string) => (text ? { type: 'paragraph', content: [{ type: 'text', text }] } : { type: 'paragraph' });
     const toggle = (collapsed: boolean, title: string, ...content: unknown[]) => ({ type: 'toggleHeading', attrs: { collapsed }, content: [{ type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: title }] }, ...content] });
