@@ -2203,7 +2203,12 @@ const showBoardNotice = (notice) => {
   boardNoticeTimer = notice ? setTimeout(() => (boardMoveNotice.value = null), 8000) : null;
 };
 // A notice is about the board it was shown on
-watch([activeViewId, boardGroupField], () => showBoardNotice(null));
+// (By the field's id: its object is remade as the data changes)
+watch([activeViewId, () => boardGroupField.value?.id], () => {
+  showBoardNotice(null);
+  // An open "+ New" box is about the board it was opened on too
+  closeBoardAdd();
+});
 // A value kept from before the column's type changed, put back (updateCell clears it)
 const restoreKeptValue = (row, field, kept) => {
   const key = keptValueKey(field.id);
@@ -2245,6 +2250,68 @@ const moveBoardCard = (row, key, { refocus = false } = {}) => {
     });
   });
 };
+// Board: "+ New" at a column's foot opens a name box there; Enter adds a card with that name and the
+// column's value, and the box stays for the next (Escape, or leaving it empty, puts it away)
+// The name goes in the page column, else the first text one (not one it can't be typed in)
+const boardAddTitleField = computed(() => {
+  const pageField = fieldById.value.get(pageTitleFieldId.value);
+  const field = pageField || fields.value.find((candidate) => candidate.type === 'TEXT' && candidate.id !== boardGroupField.value?.id);
+  return field && !isFieldReadOnly(field) ? field : null;
+});
+const canAddBoardCards = computed(
+  () =>
+    !isReadonly.value &&
+    !isWikiDatabase.value &&
+    !!boardAddTitleField.value &&
+    (!boardGroupField.value || (boardGroupField.value.type === 'SELECT' && !isFieldReadOnly(boardGroupField.value)))
+);
+const boardAddKey = ref(null);
+const boardAddName = ref('');
+const boardAddInput = ref(null);
+// (A name typed in another column's box comes along, not lost)
+const openBoardAdd = (column) => {
+  boardAddKey.value = column.key;
+  nextTick(() => (Array.isArray(boardAddInput.value) ? boardAddInput.value[0] : boardAddInput.value)?.focus());
+};
+const closeBoardAdd = ({ refocus = false } = {}) => {
+  const key = boardAddKey.value;
+  boardAddKey.value = null;
+  boardAddName.value = '';
+  if (refocus && key) {
+    nextTick(() => databaseRootRef.value?.querySelector(`.db-board__add[data-column-key="${CSS.escape(key)}"]`)?.focus());
+  }
+};
+const addBoardCard = async (column, event) => {
+  // (Enter that finishes an input method's word isn't the end of the name)
+  if (event?.isComposing) return;
+  const typed = boardAddName.value;
+  const name = typed.trim();
+  if (!name || !canAddBoardCards.value) return;
+  const titleField = boardAddTitleField.value;
+  const groupField = boardGroupField.value;
+  const data = { [titleField.id]: normalizeCellValue(titleField, name) };
+  if (groupField && column.key !== '__none__' && column.key !== '__all__') data[groupField.id] = column.key;
+  const rowId = await addRow(data);
+  // Not added (it said why): the name stays, to try again
+  if (!rowId) return;
+  if (boardAddName.value === typed) boardAddName.value = '';
+  // Added where this view's filter doesn't show it: it says so (it'd look as if nothing happened).
+  // (Once the row's in: from the live document, that can take a moment)
+  const started = Date.now();
+  const check = () => {
+    if (!tableRows.value.some((row) => row.id === rowId)) {
+      if (Date.now() - started < 1000) requestAnimationFrame(check);
+      return;
+    }
+    if (!boardColumnOf(rowId)) showBoardNotice({ title: name, label: column.label, added: true });
+  };
+  nextTick(check);
+};
+// Clicked away from with nothing typed: put away (with a name typed, it stays, not to lose it)
+const onBoardAddBlur = () => {
+  if (!boardAddName.value.trim()) closeBoardAdd();
+};
+
 const undoBoardMove = () => {
   boardMoveNotice.value?.undo();
   showBoardNotice(null);
@@ -3400,7 +3467,8 @@ const deleteSelectedRows = async () => {
   }
 };
 
-const addRow = async () => {
+// `data`: the new row's first values, by field id (a board's "+ New" gives its name and its column's)
+const addRow = async (data = {}) => {
   if (isReadonly.value) return;
   if (isWikiDatabase.value) {
     const homeId = wikiHomeId.value;
@@ -3417,7 +3485,7 @@ const addRow = async () => {
       const row = await runWithSavingIndicator(() =>
         api.createDatabaseRow(
           props.pageId,
-          { data: {} },
+          { data },
           { userId: activeUser.value.id, userName: activeUser.value.name }
         )
       );
@@ -3467,7 +3535,9 @@ const addRow = async () => {
       const rowOrder = collabRowOrder.value || doc.getArray('rowOrder');
       const id = generateId();
       const rowMap = new Y.Map();
-      rowMap.set('data', new Y.Map());
+      const dataMap = new Y.Map();
+      Object.entries(data).forEach(([key, value]) => dataMap.set(key, value));
+      rowMap.set('data', dataMap);
       // Who added it, for "Created by" columns (the server keeps it when it first saves the row)
       if (activeUser.value?.id) rowMap.set('createdBy', activeUser.value.id);
       doc.transact(() => {
@@ -3482,7 +3552,7 @@ const addRow = async () => {
     const row = await runWithSavingIndicator(() =>
       api.createDatabaseRow(
         props.pageId,
-        { data: {} },
+        { data },
         { userId: activeUser.value.id, userName: activeUser.value.name }
       )
     );
@@ -4336,8 +4406,8 @@ onBeforeUnmount(() => {
             </details>
           </Teleport>
           <div v-if="boardMoveNotice" class="db-board__notice" role="status">
-            “{{ boardMoveNotice.title }}” moved to {{ boardMoveNotice.label }}; this view doesn't show it.
-            <button type="button" class="db-board__notice-undo" @click="undoBoardMove">Undo</button>
+            “{{ boardMoveNotice.title }}” {{ boardMoveNotice.added ? 'added to' : 'moved to' }} {{ boardMoveNotice.label }}; this view doesn't show it.
+            <button v-if="boardMoveNotice.undo" type="button" class="db-board__notice-undo" @click="undoBoardMove">Undo</button>
           </div>
           <div
             ref="boardColumnsRef"
@@ -4394,7 +4464,31 @@ onBeforeUnmount(() => {
                     <option v-for="target in boardColumns" :key="target.key" :value="target.key">{{ target.label }}</option>
                   </select>
                 </div>
-                <div v-if="!column.rows.length" class="db-board__empty muted">—</div>
+                <div v-if="!column.rows.length && boardAddKey !== column.key" class="db-board__empty muted">—</div>
+                <template v-if="canAddBoardCards">
+                  <input
+                    v-if="boardAddKey === column.key"
+                    ref="boardAddInput"
+                    v-model="boardAddName"
+                    class="db-board__add-input"
+                    type="text"
+                    placeholder="Name, then Enter"
+                    aria-label="New card’s name"
+                    @keydown.enter.prevent="addBoardCard(column, $event)"
+                    @keydown.esc.prevent.stop="closeBoardAdd({ refocus: true })"
+                    @blur="onBoardAddBlur"
+                  />
+                  <button
+                    v-else
+                    class="db-board__add"
+                    type="button"
+                    :data-column-key="column.key"
+                    :aria-label="`New card in ${column.label}`"
+                    @click="openBoardAdd(column)"
+                  >
+                    + New
+                  </button>
+                </template>
               </div>
             </div>
           </div>

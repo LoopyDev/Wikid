@@ -90,17 +90,28 @@ test.describe('board view', () => {
     // a card dropped anywhere down it)
     const painted = column(page, 'Doing');
     expect(await painted.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe('rgba(0, 0, 0, 0)');
+    // (Its last card, then its "+ New")
     const belowLastCard = async () => {
       const cardsBox = (await painted.locator('.db-board__cards').boundingBox())!;
-      const lastCard = (await card(page, 'Doing 2').boundingBox())!;
-      return cardsBox.y + cardsBox.height - (lastCard.y + lastCard.height);
+      const addNew = (await painted.getByRole('button', { name: 'New card in Doing' }).boundingBox())!;
+      expect(addNew.y).toBeGreaterThan((await card(page, 'Doing 2').boundingBox())!.y);
+      return cardsBox.y + cardsBox.height - (addNew.y + addNew.height);
     };
     await expect.poll(belowLastCard).toBeLessThanOrEqual(16);
     expect(await painted.locator('.db-board__cards').evaluate((el) => getComputedStyle(el).backgroundColor)).not.toBe('rgba(0, 0, 0, 0)');
-    // A column longer than the box, though shorter than the longest: its last card, whole, at the bottom
-    await expect.poll(async () => Math.round((await below('Done 14')).bottom)).toBeGreaterThanOrEqual(0);
-    expect((await below('Done 14')).bottom).toBeLessThan(40);
+    // A column longer than the box, though shorter than the longest: its last card, whole, at the
+    // bottom (above its "+ New", whole too)
+    const doneAdd = column(page, 'Done').getByRole('button', { name: 'New card in Done' });
+    const belowAdd = async () => {
+      const b = (await box.boundingBox())!;
+      const a = (await doneAdd.boundingBox())!;
+      return b.y + b.height - (a.y + a.height);
+    };
+    await expect.poll(async () => Math.round(await belowAdd())).toBeGreaterThanOrEqual(0);
+    expect(await belowAdd()).toBeLessThan(40);
+    expect((await below('Done 14')).bottom).toBeLessThan(90);
     await expect(card(page, 'Done 14')).toBeInViewport({ ratio: 1 });
+    await expect(doneAdd).toBeInViewport({ ratio: 1 });
     // ...over the cards, not see-through
     expect(await header.evaluate((el) => getComputedStyle(el).backgroundColor)).not.toBe('rgba(0, 0, 0, 0)');
   });
@@ -144,5 +155,61 @@ test.describe('board view', () => {
     await expect(column(page, 'To do').locator('.db-board__card-title')).toHaveText(['Write']);
     await expect.poll(() => statusOf('Write')).toBe('To do');
     await expect(notice).toHaveCount(0);
+  });
+
+  test('"+ New" at the foot of a column adds a card there, with its value filled in', async ({ alice: page, workspaceId }) => {
+    const { id, statusOf } = await boardWith(page, workspaceId, [['Write', 'To do']]);
+    await column(page, 'Doing').getByRole('button', { name: 'New card in Doing' }).click();
+    const name = column(page, 'Doing').getByRole('textbox', { name: 'New card’s name' });
+    await expect(name).toBeFocused();
+    await name.fill('Plan');
+    await name.press('Enter');
+    await expect(column(page, 'Doing').locator('.db-board__card-title')).toHaveText(['Plan']);
+    await expect.poll(() => statusOf('Plan')).toBe('Doing');
+    // Ready for the next one; nothing added without a name
+    await expect(name).toBeFocused();
+    await expect(name).toHaveValue('');
+    await name.press('Enter');
+    await name.fill('Review');
+    await name.press('Enter');
+    await expect(column(page, 'Doing').locator('.db-board__card-title')).toHaveText(['Plan', 'Review']);
+    await expect.poll(() => statusOf('Review')).toBe('Doing');
+    // Escape puts it away
+    await name.press('Escape');
+    await expect(name).toHaveCount(0);
+    await expect(column(page, 'Doing').getByRole('button', { name: 'New card in Doing' })).toBeFocused();
+
+    // In "No value": no value
+    await column(page, 'No value').getByRole('button', { name: 'New card in No value' }).click();
+    const noValueName = column(page, 'No value').getByRole('textbox', { name: 'New card’s name' });
+    await noValueName.fill('Someday');
+    await noValueName.press('Enter');
+    await expect(column(page, 'No value').locator('.db-board__card-title')).toHaveText(['Someday']);
+    await expect.poll(async () => (await statusOf('Someday')) === null && (await statusOf('Write')) === 'To do').toBe(true);
+    const { rows } = await (await page.request.get(`/api/pages/${id}/database`)).json();
+    expect(rows.some((row: any) => Object.values(row.data).includes('Someday'))).toBe(true);
+  });
+
+  test("added in a column the view's filter hides, it says so", async ({ alice: page, workspaceId }) => {
+    const { statusOf } = await boardWith(page, workspaceId, [['Write', 'To do']], { hide: 'Done' });
+    await column(page, 'Done').getByRole('button', { name: 'New card in Done' }).click();
+    const name = column(page, 'Done').getByRole('textbox', { name: 'New card’s name' });
+    await name.fill('Shipped');
+    await name.press('Enter');
+    const notice = main(page).getByRole('status').filter({ hasText: '“Shipped” added to Done' });
+    await expect(notice).toContainText("this view doesn't show it");
+    await expect(notice.getByRole('button', { name: 'Undo' })).toHaveCount(0);
+    await expect.poll(() => statusOf('Shipped')).toBe('Done');
+  });
+
+  test('a name typed in one column\'s box comes along to another\'s', async ({ alice: page, workspaceId }) => {
+    const { statusOf } = await boardWith(page, workspaceId, [['Write', 'To do']]);
+    await column(page, 'To do').getByRole('button', { name: 'New card in To do' }).click();
+    await column(page, 'To do').getByRole('textbox', { name: 'New card’s name' }).fill('Deploy');
+    await column(page, 'Doing').getByRole('button', { name: 'New card in Doing' }).click();
+    const name = column(page, 'Doing').getByRole('textbox', { name: 'New card’s name' });
+    await expect(name).toHaveValue('Deploy');
+    await name.press('Enter');
+    await expect.poll(() => statusOf('Deploy')).toBe('Doing');
   });
 });
