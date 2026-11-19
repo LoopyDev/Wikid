@@ -391,6 +391,8 @@ const openFullPage = () => emit('openfull', props.pageId);
 
 const handleKeydown = (event) => {
   if (event.key === 'Escape') {
+    // Already used, to close something in the page (its block menu, say): that's all it does
+    if (event.defaultPrevented) return;
     if (showIconPicker.value) {
       closeIconPicker();
       return;
@@ -428,7 +430,7 @@ onBeforeUnmount(() => {
               aria-label="Change icon"
               @click="toggleIconPicker"
             >
-              <PageIcon class="page-overlay__icon" :icon="displayPage?.icon" fallback="DOC" aria-hidden="true" />
+              <PageIcon class="page-overlay__icon" :icon="displayPage?.icon" aria-hidden="true" />
             </button>
             <div
               v-if="showIconPicker"

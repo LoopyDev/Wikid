@@ -164,6 +164,55 @@ test.describe('database view blocks', () => {
     await expect(page.locator('.block-menu')).toHaveCount(0);
   });
 
+  test("a row's page at the side has room round its text, and the drag handle beside a line, in the panel", async ({ alice: page, workspaceId }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const db = await createPage(page, workspaceId, { title: unique('Fruit'), kind: 'DATABASE' });
+    const nameField = (await (await page.request.get(`/api/pages/${db}/database`)).json()).fields.find((f: any) => f.name === 'Name').id;
+    await page.request.post(`/api/pages/${db}/database/rows`, { data: { data: { [nameField]: 'Apple' } } });
+    await page.goto(`/doc/${db}`);
+    await page.locator('.db-page-input__open').first().click();
+    const overlay = page.locator('.page-overlay');
+    const panel = overlay.locator('.page-overlay__panel');
+    await expect(overlay.locator('.ProseMirror')).toBeVisible();
+    // No icon of its own: the same page icon a full page shows, not the word "DOC"
+    await expect(overlay.locator('.page-overlay__icon')).toHaveText('📄');
+    // The page behind stays still while it's open (the row page's editor took that off as it opened)
+    await expect(page.locator('.wikid-mainframe')).toHaveClass(/wikid-mainframe--lock-scroll/);
+    await overlay.locator('.ProseMirror').click();
+    await page.keyboard.type('First line');
+    const line = overlay.locator('.ProseMirror p').first();
+    await expect(line).toHaveText('First line');
+
+    // Room between the panel's edge and the text, as on a full page (it was none)
+    const panelBox = (await panel.boundingBox())!;
+    const lineBox = (await line.boundingBox())!;
+    expect(lineBox.x - panelBox.x).toBeGreaterThanOrEqual(48);
+    // ...and the icon and title above it, in line with it (as on a full page)
+    expect(Math.abs((await overlay.locator('.page-overlay__icon').boundingBox())!.x - lineBox.x)).toBeLessThanOrEqual(4);
+    // The drag handle beside the line, inside the panel (it was out past its edge, under the page behind)
+    await line.hover();
+    const handle = overlay.locator('.drag-handle--floating .drag-handle__btn--drag');
+    await expect(handle).toBeVisible();
+    const handleBox = (await handle.boundingBox())!;
+    expect(handleBox.x).toBeGreaterThanOrEqual(panelBox.x);
+    expect(handleBox.x + handleBox.width).toBeLessThanOrEqual(lineBox.x + 1);
+    // ...and it works: its menu opens, the panel held still meanwhile (the menu stays by its line)
+    await handle.click();
+    await expect(page.locator('.block-menu')).toBeVisible();
+    await expect(overlay.locator('.page-overlay__body')).toHaveClass(/editor-scroll-locked/);
+    await expect(page.locator('.wikid-mainframe')).toHaveClass(/wikid-mainframe--lock-scroll/);
+    // Escape closes the menu, and only that: the row's page stays open (it closed too), still over a
+    // page held still; Escape again closes it
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.block-menu')).toHaveCount(0);
+    await expect(overlay.locator('.page-overlay__body')).not.toHaveClass(/editor-scroll-locked/);
+    await page.waitForTimeout(400);
+    await expect(overlay).toHaveCount(1);
+    await expect(page.locator('.wikid-mainframe')).toHaveClass(/wikid-mainframe--lock-scroll/);
+    await page.keyboard.press('Escape');
+    await expect(overlay).toHaveCount(0);
+  });
+
   test("Escape in the image viewer closes only the viewer, not the row page it's over", async ({ alice: page, workspaceId }) => {
     const db = await createPage(page, workspaceId, { title: unique('Fruit'), kind: 'DATABASE' });
     const nameField = (await (await page.request.get(`/api/pages/${db}/database`)).json()).fields.find((f: any) => f.name === 'Name').id;
