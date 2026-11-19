@@ -16,9 +16,9 @@ docker compose -p wikid-dockertest -f docker-compose.yml down -v   # when finish
 
 The tests use `http://localhost:8088` by default. Set `WIKID_BASE_URL` to test another instance. Never point them at a production server: they log in as the demo users and create workspaces and pages.
 
-The tests run side by side: four at a time locally, three in CI. `E2E_WORKERS=1 npm run test:e2e` runs them one at a time, to rule out tests getting in each other's way.
+The tests run side by side: four at a time locally. In CI they're split across three machines, three at a time on each (the `@shared-state` ones on the first, after its share of the rest). `E2E_WORKERS=1 npm run test:e2e` runs them one at a time, to rule out tests getting in each other's way.
 
-When a test fails, Playwright keeps a screenshot and a trace in `e2e/test-results/`. Open a trace with `npx playwright show-trace <path to trace.zip>` to step through what the browser saw. In CI, these are uploaded as the `playwright-report` artifact.
+When a test fails, Playwright keeps a screenshot and a trace in `e2e/test-results/`. Open a trace with `npx playwright show-trace <path to trace.zip>` to step through what the browser saw. In CI, each machine's are uploaded as `test-results-1` to `-3`, and a failed run's results from all three are merged into one HTML report, the `playwright-report` artifact.
 
 ## How they're written
 
