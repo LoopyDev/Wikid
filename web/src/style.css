@@ -11418,6 +11418,26 @@ button {
   align-items: center;
   gap: 6px;
 }
+/* ("is any of": its choices go on a line of their own) */
+.db-view-config__rule:has(.db-view-config__choices) {
+  flex-wrap: wrap;
+}
+.db-view-config__choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  flex: 1 1 100%;
+  padding: 2px 0;
+  /* (After the remove button, which stays on the rule's first line) */
+  order: 1;
+}
+.db-view-config__choice {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
 .db-view-config__select,
 .db-view-config__value {
   flex: 1 1 0;

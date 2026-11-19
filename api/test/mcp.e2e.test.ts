@@ -411,6 +411,32 @@ describe('MCP server', () => {
     expect(await views()).not.toContain('- Board (board)');
   });
 
+  it('filters a select by "is any of" or "is none of" several choices, and refuses a choice that isn\'t', async () => {
+    const pageId = (await call('create_database', {
+      workspaceId,
+      title: 'Any of',
+      columns: [{ name: 'Status', type: 'select', choices: ['To do', 'Doing', 'Done'] }],
+    })).text.match(/Database ([0-9a-f-]{36})/)?.[1] as string;
+    const made = await call('create_database_view', { pageId, name: 'Open', filters: [{ column: 'Status', operator: 'is_any_of', value: ['to do', 'Doing'] }] });
+    expect(made.isError, made.text).toBe(false);
+    const statusId = (await alice.get(`/pages/${pageId}/database`)).body.fields.find((f: any) => f.name === 'Status').id;
+    const rule = async () => (await alice.get(`/pages/${pageId}/database`)).body.views.find((v: any) => v.name === 'Open').config.filters.rules[0];
+    // The choices as they're named in the column
+    expect(await rule()).toEqual({ fieldId: statusId, operator: 'is_any_of', value: ['To do', 'Doing'] });
+    expect((await call('get_database', { pageId })).text).toContain('Status is any of "To do", "Doing"');
+    // One choice on its own is a list of one
+    expect((await call('update_database_view', { pageId, view: 'Open', filters: [{ column: 'Status', operator: 'is_none_of', value: 'Done' }] })).isError).toBe(false);
+    expect(await rule()).toEqual({ fieldId: statusId, operator: 'is_none_of', value: ['Done'] });
+    for (const [value, says] of [
+      [['To do', 'Later'], /No choice "Later"/],
+      [[], /value/],
+    ] as const) {
+      const refused = await call('update_database_view', { pageId, view: 'Open', filters: [{ column: 'Status', operator: 'is_any_of', value }] });
+      expect(refused.isError, JSON.stringify(value)).toBe(true);
+      expect(refused.text).toMatch(says);
+    }
+  });
+
   it("refuses a view it couldn't show: an operator its column hasn't, a value missing, a choice that isn't, grouping by text", async () => {
     const pageId = (await call('create_database', {
       workspaceId,

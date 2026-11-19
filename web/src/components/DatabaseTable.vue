@@ -23,7 +23,7 @@ import { ADD_COLUMN_ID, ADD_COLUMN_LABEL, ADD_COLUMN_SIZE, ASSET_TAG_COLUMN_SIZE
 import { AUDIT_VIEW_ID, DEFAULT_INITIAL_STATUS, GOVERNANCE_FILTER_ID, auditStatusOptions, getAuditStatusClass, getComplianceRecordId } from '../utils/database/compliance';
 import { fieldTypeIcons, fieldTypes, getFieldSource, getLinkedFromConfig, getRelationConfig, isAssetTagField, isLinkedFromField, isFieldDeleteLocked, isFieldOptionsLocked, isFieldReadOnly, isFieldTypeLocked, isLastEditedField, isMembersField, isPageField, isPeopleField, isPersonField, isCreatedByField, CREATED_BY_OPTIONS, isRelationField, isSelectField, normalizeFieldOptions } from '../utils/database/fieldOptions';
 import { DEFAULT_FORM_ICON, buildFormField, conditionValues, normalizeFormIcon } from '../utils/database/forms';
-import { OPERATOR_LABELS, choicePlaces, compareChoices, operatorNeedsValue, operatorsForFieldType, sortByType } from '../utils/database/views';
+import { LIST_OPERATORS, OPERATOR_LABELS, choicePlaces, compareChoices, operatorNeedsValue, operatorsForFieldType, sortByType, valueForOperator } from '../utils/database/views';
 import { colorFromId } from '../utils/presenceColor';
 import { useFitToWindow } from '../composables/useFitToWindow';
 import { useBoardStickyCards } from '../composables/useBoardStickyCards';
@@ -1391,7 +1391,7 @@ watch(
 onBeforeUnmount(() => clearTimeout(connectionNoticeTimer));
 const { attachAwarenessListener, caretLeftForCell, cellEditor, releaseCell, clearLocalCellCursor, focusCellInput, getCellPresence, handleCaretMouse, handleCaretNavigate, markCellBlur, markCellFocus, markCellTyping, onTableFocusOut, presenceUser, setCellInputRef, updateAwarenessUser } = useCellPresence({ emit, activeUser, collabProvider, isCollabEnabled, tableWrapRef, flushPendingEnsureRowPages, scheduleSortRefresh });
 
-const { savedViews, normalizeSavedView, createSavedView, deleteSavedView, renameSavedView, patchActiveViewConfig, activeViewFilters, activeViewSorts, activeFilterCount, setFilterMatch, addFilterRule, updateFilterRule, changeFilterRuleField, removeFilterRule, addSortRule, updateSortRule, removeSortRule, setBoardGroupField, setGalleryCardField, setGalleryCardFields, setGalleryCoverMax, setGalleryShowColors, setCardColorField, setCardColorStyle, setListOpenField, fieldChoices, filterMenu, filterMenuRef, filterMenuStyle, openFilterMenu, closeFilterMenu, sortMenu, sortMenuRef, sortMenuStyle, openSortMenu, closeSortMenu } = useSavedViews({ props, workspace, fields, fieldById, activeViewId, activeSavedView, hasApi, activeUser, error, canCreateForms, runWithSavingIndicator, closeFormMenu, closeColumnsMenu, getChoiceLabel, databaseRootRef });
+const { savedViews, normalizeSavedView, createSavedView, deleteSavedView, renameSavedView, patchActiveViewConfig, activeViewFilters, activeViewSorts, activeFilterCount, setFilterMatch, addFilterRule, updateFilterRule, filterRuleChoices, toggleFilterChoice, changeFilterRuleField, removeFilterRule, addSortRule, updateSortRule, removeSortRule, setBoardGroupField, setGalleryCardField, setGalleryCardFields, setGalleryCoverMax, setGalleryShowColors, setCardColorField, setCardColorStyle, setListOpenField, fieldChoices, filterMenu, filterMenuRef, filterMenuStyle, openFilterMenu, closeFilterMenu, sortMenu, sortMenuRef, sortMenuStyle, openSortMenu, closeSortMenu } = useSavedViews({ props, workspace, fields, fieldById, activeViewId, activeSavedView, hasApi, activeUser, error, canCreateForms, runWithSavingIndicator, closeFormMenu, closeColumnsMenu, getChoiceLabel, databaseRootRef });
 
 watch(
   () => [fieldMenu.value.open, fieldMenu.value.fieldId],
@@ -5018,7 +5018,7 @@ onBeforeUnmount(() => {
           <select
             class="db-view-config__select"
             :value="rule.operator"
-            @change="updateFilterRule(index, { operator: $event.target.value })"
+            @change="updateFilterRule(index, { operator: $event.target.value, value: valueForOperator(rule.value, $event.target.value) })"
           >
             <option
               v-for="op in operatorsForFieldType(fieldById.get(rule.fieldId)?.type)"
@@ -5029,8 +5029,21 @@ onBeforeUnmount(() => {
             </option>
           </select>
           <template v-if="operatorNeedsValue(rule.operator)">
+            <!-- "is any of" / "is none of": the choices, any number of them ticked -->
+            <div
+              v-if="LIST_OPERATORS.includes(rule.operator)"
+              class="db-view-config__choices"
+              role="group"
+              :aria-label="`${fieldById.get(rule.fieldId)?.name || 'Field'} ${OPERATOR_LABELS[rule.operator]}`"
+            >
+              <label v-for="choice in filterRuleChoices(rule)" :key="choice.label" class="db-view-config__choice">
+                <input type="checkbox" :checked="choice.picked" @change="toggleFilterChoice(index, choice.label, $event.target.checked)" />
+                {{ choice.label }}<span v-if="choice.gone" class="muted"> (no longer a choice)</span>
+              </label>
+              <span v-if="!filterRuleChoices(rule).length" class="muted">No choices yet</span>
+            </div>
             <select
-              v-if="['SELECT', 'MULTI_SELECT'].includes(fieldById.get(rule.fieldId)?.type)"
+              v-else-if="['SELECT', 'MULTI_SELECT'].includes(fieldById.get(rule.fieldId)?.type)"
               class="db-view-config__value"
               :value="rule.value ?? ''"
               @change="updateFilterRule(index, { value: $event.target.value })"

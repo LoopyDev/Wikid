@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { choicePlaces, compareChoices, normalizeViewConfig, normalizeViewType, operatorNeedsValue, operatorsForFieldType, sortByType, toComparableDate } from './views';
+import { OPERATOR_LABELS, choicePlaces, compareChoices, normalizeViewConfig, normalizeViewType, operatorNeedsValue, operatorsForFieldType, ruleHasValue, sortByType, toComparableDate, valueForOperator } from './views';
 
 const sorted = (type, values) => [...values].sort((a, b) => sortByType(type, a, b));
 
@@ -117,5 +117,33 @@ describe('view settings', () => {
       showColors: false,
       openFieldId: null,
     });
+  });
+});
+
+describe('"is any of" and "is none of" for a select', () => {
+  it('are offered for a select, after "is" and "is not"', () => {
+    expect(operatorsForFieldType('SELECT')).toEqual(['is', 'is_not', 'is_any_of', 'is_none_of', 'is_empty', 'is_not_empty']);
+    expect(OPERATOR_LABELS.is_any_of).toBe('is any of');
+    expect(OPERATOR_LABELS.is_none_of).toBe('is none of');
+  });
+
+  it('keep the choice when the operator changes: one becomes a list of one, a list its first', () => {
+    expect(valueForOperator('Doing', 'is_any_of')).toEqual(['Doing']);
+    expect(valueForOperator(null, 'is_any_of')).toEqual([]);
+    expect(valueForOperator(['Doing', 'Done'], 'is_none_of')).toEqual(['Doing', 'Done']);
+    expect(valueForOperator(['Doing', 'Done'], 'is')).toBe('Doing');
+    expect(valueForOperator([], 'is')).toBe(null);
+    expect(valueForOperator('Doing', 'is_not')).toBe('Doing');
+    // Nothing missing comes through as the word "null"
+    expect(valueForOperator([null, 'Doing', undefined, ' '], 'is_any_of')).toEqual(['Doing']);
+  });
+
+  it('count as having a value once a choice is picked', () => {
+    expect(ruleHasValue({ operator: 'is_any_of', value: ['Doing'] })).toBe(true);
+    expect(ruleHasValue({ operator: 'is_any_of', value: [] })).toBe(false);
+    expect(ruleHasValue({ operator: 'is_any_of', value: ['', ' '] })).toBe(false);
+    expect(ruleHasValue({ operator: 'is', value: 'x' })).toBe(true);
+    expect(ruleHasValue({ operator: 'is', value: '' })).toBe(false);
+    expect(ruleHasValue({ operator: 'is_empty', value: null })).toBe(true);
   });
 });

@@ -37,6 +37,61 @@ test.describe('database views', () => {
     await expect.poll(async () => (await views())[0]?.config?.sorts?.[0]?.direction).toBe('desc');
   });
 
+  test('a select filtered by "is any of" several choices, or "is none of" them', async ({ alice: page, workspaceId }) => {
+    const id = await createPage(page, workspaceId, { kind: 'DATABASE', title: unique('Tasks') });
+    const db = await (await page.request.get(`/api/pages/${id}/database`)).json();
+    const name = db.fields.find((f: any) => f.name === 'Name').id;
+    const status = (await (await page.request.post(`/api/pages/${id}/database/fields`, { data: { name: 'Status', type: 'SELECT', options: { choices: ['To do', 'Doing', 'Done'] } } })).json()).id as string;
+    for (const [title, value] of [['Write', 'To do'], ['Test', 'Doing'], ['Ship', 'Done'], ['Someday', null]] as const) {
+      await page.request.post(`/api/pages/${id}/database/rows`, { data: { data: { [name]: title, ...(value ? { [status]: value } : {}) } } });
+    }
+    expect((await page.request.post(`/api/pages/${id}/database/views`, { data: { name: 'Mine', type: 'TABLE', config: {} } })).status()).toBe(201);
+    const views = async () => (await (await page.request.get(`/api/pages/${id}/database`)).json()).views;
+    await page.goto(`/doc/${id}`);
+    await main(page).getByRole('button', { name: 'Mine' }).click();
+    // (The names: each row's first cell)
+    const shown = async () =>
+      (await Promise.all((await main(page).locator('tbody tr').all()).map((row) => row.locator('.db-cell-input').first().inputValue()))).sort();
+    await expect.poll(shown).toEqual(['Ship', 'Someday', 'Test', 'Write']);
+
+    await main(page).getByRole('button', { name: 'Filter', exact: true }).click();
+    const config = page.locator('.db-view-config-menu');
+    await config.getByRole('button', { name: '+ Add filter' }).click();
+    const rule = config.locator('.db-view-config__rule');
+    await rule.locator('select').nth(0).selectOption({ label: 'Status' });
+    // "is Doing", then "is any of": Doing stays picked
+    await rule.locator('select').nth(1).selectOption('is');
+    await rule.locator('select').nth(2).selectOption('Doing');
+    await expect.poll(shown).toEqual(['Test']);
+    await rule.locator('select').nth(1).selectOption({ label: 'is any of' });
+    const choices = rule.getByRole('group', { name: 'Status is any of' });
+    await expect(choices.getByRole('checkbox', { name: 'Doing' })).toBeChecked();
+    await choices.getByRole('checkbox', { name: 'Done' }).check();
+    await expect.poll(shown).toEqual(['Ship', 'Test']);
+    await choices.getByRole('checkbox', { name: 'Doing' }).uncheck();
+    await expect.poll(shown).toEqual(['Ship']);
+    // "is none of" the same: the others, and the row with none
+    await rule.locator('select').nth(1).selectOption({ label: 'is none of' });
+    await expect(rule.getByRole('group', { name: 'Status is none of' }).getByRole('checkbox', { name: 'Done' })).toBeChecked();
+    await expect.poll(shown).toEqual(['Someday', 'Test', 'Write']);
+    // Saved with the view, the choices as a list
+    await expect.poll(async () => (await views())[0]?.config?.filters?.rules?.[0]).toEqual({ fieldId: status, operator: 'is_none_of', value: ['Done'] });
+    // A choice renamed since it was picked: still shown, ticked, so it can be unticked
+    const statusField = (await (await page.request.get(`/api/pages/${id}/database`)).json()).fields.find((f: any) => f.id === status);
+    await page.request.patch(`/api/database-fields/${status}`, { data: { options: { ...statusField.options, choices: ['To do', 'Doing', 'Shipped'] } } });
+    await page.reload();
+    await main(page).getByRole('button', { name: 'Mine' }).click();
+    await main(page).getByRole('button', { name: 'Filter 1' }).click();
+    const gone = config.locator('.db-view-config__choice', { hasText: 'no longer a choice' });
+    await expect(gone).toContainText('Done');
+    await expect(gone.getByRole('checkbox')).toBeChecked();
+    // Every choice unticked: no filter (and the one that's gone goes from the list: clicked, not
+    // "unchecked", which would wait to see it unticked)
+    await gone.getByRole('checkbox').click();
+    await expect.poll(async () => (await views())[0]?.config?.filters?.rules?.[0]?.value).toEqual([]);
+    await expect(gone).toHaveCount(0);
+  });
+
   test("a gallery's cover lists linked rows that open, up to a set number, and its cards show the columns chosen", async ({ alice: page, workspaceId }) => {
     const projects = await createPage(page, workspaceId, { title: unique('Projects'), kind: 'DATABASE' });
     const tasksTitle = unique('Tasks');
