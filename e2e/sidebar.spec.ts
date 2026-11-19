@@ -121,6 +121,52 @@ test.describe('sidebar', () => {
     }
   });
 
+  test('a page dragged from the sidebar into the open page is linked there, where it was dropped', async ({ alice: page, workspaceId }) => {
+    const guide = unique('Guide');
+    const guideId = await createPage(page, workspaceId, { title: guide });
+    const host = unique('Host');
+    const hostId = await createPage(page, workspaceId, { title: host });
+    const p = (text: string) => ({ type: 'paragraph', content: [{ type: 'text', text }] });
+    const code = { type: 'codeBlock', attrs: { language: null }, content: [{ type: 'text', text: 'run it' }] };
+    expect((await page.request.put(`/api/pages/${hostId}/content`, { data: { content: { type: 'doc', content: [p('Read this: '), code, p('After')] } } })).status()).toBe(200);
+    await openPage(page, hostId);
+    await expect(editor(page)).toContainText('After');
+    const parentBefore = (await (await page.request.get(`/api/pages/${guideId}`)).json()).parentId ?? null;
+
+    // Dropped at the end of a line's text (the browser's drag events, sent ourselves)
+    const dropOn = (selector: string, title = guide) =>
+      sidebarItem(page, title).evaluate((row, selector) => {
+        const data = new DataTransfer();
+        const target = document.querySelector(selector)!;
+        const box = target.getBoundingClientRect();
+        const at = { clientX: box.right - 2, clientY: box.top + box.height / 2, bubbles: true, cancelable: true, dataTransfer: data };
+        row.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: data }));
+        target.dispatchEvent(new DragEvent('dragenter', at));
+        target.dispatchEvent(new DragEvent('dragover', at));
+        target.dispatchEvent(new DragEvent('drop', at));
+        row.dispatchEvent(new DragEvent('dragend', { bubbles: true, dataTransfer: data }));
+      }, selector);
+    const content = () => page.evaluate(() => (document.querySelector('.ProseMirror') as any).editor.getJSON().content);
+
+    await dropOn('.ProseMirror > p:first-child');
+    await expect.poll(async () => (await content())[0].content.map((n: any) => n.type === 'pageMention' ? `@${n.attrs.pageId}` : n.text)).toEqual(['Read this: ', `@${guideId}`, ' ']);
+    await expect(editor(page).locator('p').first()).toContainText(guide);
+
+    // In code, its title as text (code holds no links)
+    await dropOn('.ProseMirror .tiptap-codeblock__code');
+    await expect.poll(async () => (await content())[1].content.map((n: any) => n.text).join('')).toBe(`run it${guide}`);
+
+    // The open page itself: nothing (a page linking to itself is a slip)
+    const before = JSON.stringify(await content());
+    await dropOn('.ProseMirror > p:last-child', host);
+    await page.waitForTimeout(300);
+    expect(JSON.stringify(await content())).toBe(before);
+
+    // Only linked: not moved in the sidebar
+    expect((await (await page.request.get(`/api/pages/${guideId}`)).json()).parentId ?? null).toBe(parentBefore);
+    await expect(sidebarItem(page, guide)).toBeVisible();
+  });
+
   test('drags a page into the Private or Public section when that section is empty', async ({ alice: page, workspaceId }) => {
     const title = unique('Movable');
     const id = await createPage(page, workspaceId, { title });
