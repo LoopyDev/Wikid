@@ -33,6 +33,18 @@ export async function openLiveDocument(session: Session, workspaceId: string, pa
             : '',
         ),
     title: () => doc.getText('title').toString(),
+    /**
+     * Until the server has every change made here so far. A change made through the API meanwhile
+     * finds the server's copy as it was: one to a database whose columns or row it hasn't got yet
+     * goes to the database only, and what's sent from here after brings the old values back.
+     */
+    sent: async (timeout = 10_000) => {
+      const started = Date.now();
+      while (provider.hasUnsyncedChanges) {
+        if (Date.now() - started > timeout) throw new Error(`The server hadn't confirmed this live document's changes after ${timeout}ms (not got, or refused)`);
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+    },
     close: () => {
       provider.destroy();
       socket.destroy();
@@ -46,3 +58,22 @@ export const appendParagraph = (doc: Y.Doc, text: string) => {
   paragraph.insert(0, [new Y.XmlText(text)]);
   doc.getXmlFragment('default').push([paragraph]);
 };
+
+/**
+ * Fills a database's live document from the database (`GET /pages/:id/database`), as the app does
+ * when it first opens it, and waits until the server has it: an API change made before then goes
+ * to the database only, and the fill arriving after brings the old values back.
+ */
+export async function fillFromDatabase(live: { doc: Y.Doc; sent: () => Promise<void> }, db: { fields: any[]; rows: any[] }) {
+  live.doc.transact(() => {
+    for (const field of db.fields) {
+      live.doc.getMap('fields').set(field.id, new Y.Map(Object.entries({ name: field.name, type: field.type, options: field.options })));
+      live.doc.getArray('fieldOrder').push([field.id]);
+    }
+    for (const row of db.rows) {
+      live.doc.getMap('rows').set(row.id, new Y.Map<any>([['data', new Y.Map(Object.entries(row.data))]]));
+      live.doc.getArray('rowOrder').push([row.id]);
+    }
+  });
+  await live.sent();
+}

@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import * as Y from 'yjs';
 import { Session, USERS, addMember, createPage, createWorkspace, loginAs, unique } from './helpers';
-import { openLiveDocument } from './live';
+import { openLiveDocument, fillFromDatabase } from './live';
 
 const MISSING_ID = '00000000-0000-4000-8000-000000000000';
 
@@ -124,16 +124,7 @@ describe('rows', () => {
     // Saved from the live document as it is there: kept too
     const live = await openLiveDocument(alice, workspaceId, pageId, { database: true });
     const db = (await alice.get(`/pages/${pageId}/database`)).body;
-    live.doc.transact(() => {
-      for (const field of db.fields) {
-        live.doc.getMap('fields').set(field.id, new Y.Map(Object.entries({ name: field.name, type: field.type, options: field.options })));
-        live.doc.getArray('fieldOrder').push([field.id]);
-      }
-      for (const r of db.rows) {
-        live.doc.getMap('rows').set(r.id, new Y.Map<any>([['data', new Y.Map(Object.entries(r.data))]]));
-        live.doc.getArray('rowOrder').push([r.id]);
-      }
-    });
+    await fillFromDatabase(live, db);
     try {
       (live.doc.getMap('rows').get(row.id) as Y.Map<any>).get('data').set(titleFieldId, 'Paint it');
       await expect.poll(async () => (await dataOf())[titleFieldId], { timeout: 15_000 }).toBe('Paint it');
@@ -301,22 +292,13 @@ describe('rows', () => {
     const live = await openLiveDocument(alice, workspaceId, pageId, { database: true });
     // Filled from the database, as the app does when it first opens it
     const db = (await alice.get(`/pages/${pageId}/database`)).body;
-    live.doc.transact(() => {
-      for (const field of db.fields) {
-        live.doc.getMap('fields').set(field.id, new Y.Map(Object.entries({ name: field.name, type: field.type, options: field.options })));
-        live.doc.getArray('fieldOrder').push([field.id]);
-      }
-      for (const r of db.rows) {
-        live.doc.getMap('rows').set(r.id, new Y.Map<any>([['data', new Y.Map(Object.entries(r.data))]]));
-        live.doc.getArray('rowOrder').push([r.id]);
-      }
-    });
+    await fillFromDatabase(live, db);
     try {
       // Ticked in the table; MCP changes Notes before that has reached the database
       const cells = () => ((live.doc.getMap('rows').get(row.id) as Y.Map<any>).get('data') as Y.Map<any>).toJSON();
       (live.doc.getMap('rows').get(row.id) as Y.Map<any>).get('data').set(done, true);
       expect((await alice.patch(`/database-rows/${row.id}`, { cells: { [notes]: 'Draft first' } })).status).toBe(200);
-      await expect.poll(() => cells()[notes]).toBe('Draft first');
+      await expect.poll(() => cells()[notes], { timeout: 10_000 }).toBe('Draft first');
       expect(cells()[done]).toBe(true);
       // And once saved, the database has both
       await expect
@@ -325,7 +307,8 @@ describe('rows', () => {
     } finally {
       live.close();
     }
-  });
+    // (Its waits for the live document and the save add up to more than the usual 30s)
+  }, 60_000);
 
   it("doesn't let viewers change rows", async () => {
     const { pageId } = await createDatabase();
@@ -938,21 +921,12 @@ describe('changing a column, and its cells with it', () => {
     const live = await openLiveDocument(alice, workspaceId, pageId, { database: true });
     // Filled from the database, as the app does when it first opens it
     const db = (await alice.get(`/pages/${pageId}/database`)).body;
-    live.doc.transact(() => {
-      for (const field of db.fields) {
-        live.doc.getMap('fields').set(field.id, new Y.Map(Object.entries({ name: field.name, type: field.type, options: field.options })));
-        live.doc.getArray('fieldOrder').push([field.id]);
-      }
-      for (const row of db.rows) {
-        live.doc.getMap('rows').set(row.id, new Y.Map<any>([['data', new Y.Map(Object.entries(row.data))]]));
-        live.doc.getArray('rowOrder').push([row.id]);
-      }
-    });
+    await fillFromDatabase(live, db);
     try {
       await alice.post(`/database-fields/${amount.id}/change`, { type: 'NUMBER' });
       const data = () => ((live.doc.getMap('rows').get(rowId) as Y.Map<any>)?.get('data') as Y.Map<any>)?.toJSON();
-      await expect.poll(() => (live.doc.getMap('fields').get(amount.id) as Y.Map<any>)?.get('type')).toBe('NUMBER');
-      await expect.poll(data).toEqual({ [`__kept:${amount.id}`]: 'about ten' });
+      await expect.poll(() => (live.doc.getMap('fields').get(amount.id) as Y.Map<any>)?.get('type'), { timeout: 10_000 }).toBe('NUMBER');
+      await expect.poll(data, { timeout: 10_000 }).toEqual({ [`__kept:${amount.id}`]: 'about ten' });
       // An edit from the live document, as the app makes it (the value kept aside goes), then saved:
       // the change stays
       live.doc.transact(() => {
@@ -965,7 +939,8 @@ describe('changing a column, and its cells with it', () => {
     } finally {
       live.close();
     }
-  });
+    // (Its waits for the live document and the save add up to more than the usual 30s)
+  }, 60_000);
 
   it('is refused to a viewer, and in a compliance database (each record changed needs a reason there)', async () => {
     const { pageId } = await createDatabase();

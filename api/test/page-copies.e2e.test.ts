@@ -33,6 +33,8 @@ describe('duplicating a page', () => {
     const live = await openLiveDocument(alice, workspaceId, original.id);
     open.push(live);
     appendParagraph(live.doc, 'Typed just now');
+    // (On the server before the copy's made: it copies what the server has)
+    await live.sent();
 
     const res = await alice.post(`/pages/${original.id}/duplicate`, {});
     expect(res.status).toBe(201);
