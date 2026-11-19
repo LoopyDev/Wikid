@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test';
-import { test, expect, createPage, openPage, unique, waitForSaved, editor } from './fixtures';
+import { test, expect, createPage, openPage, unique, waitForSaved, editor, testImage } from './fixtures';
 import { main } from './database-helpers';
 
 // Database view blocks: a database shown on a page, with its title, controls and views.
@@ -178,9 +178,9 @@ test.describe('database view blocks', () => {
 
     // An image on the row's page, opened in the viewer
     await expect(overlay.locator('.ProseMirror')).toBeVisible();
-    await overlay.locator('.ProseMirror').evaluate((el) => {
-      (el as any).editor.chain().focus('end').setImage({ src: '/vite.svg', naturalWidth: 240, naturalHeight: 120 }).run();
-    });
+    await overlay.locator('.ProseMirror').evaluate((el, src) => {
+      (el as any).editor.chain().focus('end').setImage({ src, naturalWidth: 240, naturalHeight: 120 }).run();
+    }, testImage());
     await overlay.locator('.tiptap-image-resizable img').click();
     await expect(page.locator('.pswp')).toBeVisible();
 

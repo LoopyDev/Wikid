@@ -33,6 +33,7 @@ import TemplatesModal from './components/TemplatesModal.vue';
 import SaveTemplateModal from './components/SaveTemplateModal.vue';
 import TemplateBanner from './components/TemplateBanner.vue';
 import PageTree from './components/PageTree';
+import logoUrl from './assets/wikid-logo.svg';
 import { usePageSwitchHold } from './composables/usePageSwitchHold';
 import { useTextHistory } from './composables/useTextHistory';
 import { isInIconBrowser } from './utils/iconSearch';
@@ -2359,6 +2360,7 @@ if (typeof window !== 'undefined') {
     >
       <header class="sidebar__header">
         <button class="user-switch" type="button" @click="toggleUserMenu($event)">
+          <img class="user-switch__logo" :src="logoUrl" alt="" draggable="false" />
           <span class="user-switch__label">
             <span class="user-name">{{ activeUser ? activeWorkspaceName : 'Log in' }}</span>
             <span

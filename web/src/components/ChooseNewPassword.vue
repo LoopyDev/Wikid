@@ -1,4 +1,5 @@
 <script setup>
+import logoUrl from '../assets/wikid-logo.svg';
 import { ref } from 'vue';
 import { useWorkspaceStore } from '../stores/workspace';
 
@@ -38,7 +39,7 @@ const submit = async () => {
     <main class="login-card">
       <header class="login-header">
         <div class="login-brand">
-          <span class="login-brand__mark" aria-hidden="true"><i class="bi bi-journal-text"></i></span>
+          <img class="login-brand__mark" :src="logoUrl" alt="" draggable="false" />
           Wikid
         </div>
         <h1 class="login-title">Choose a new password</h1>
