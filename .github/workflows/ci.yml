@@ -73,13 +73,13 @@ jobs:
       - run: npm run test:update
       - run: npm run build
 
-  docker:
-    name: Docker images, API and browser tests
+  # The API tests
+  api:
+    name: Docker images and API tests
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
-    # Usually about 15 minutes; a hung run would otherwise block its PR for up to 6 hours
-    timeout-minutes: 30
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       - run: docker compose -f docker-compose.yml build
@@ -95,6 +95,38 @@ jobs:
       - run: npm ci
       - name: API tests
         run: npm run test:api
+      - name: API logs on failure
+        if: failure()
+        run: docker compose -f docker-compose.yml logs api collab
+
+  # The browser tests, a third on each of three machines at once (they took ten minutes on one),
+  # each against a stack of its own. The few that change something every session sees (tagged
+  # @shared-state) run on the first, after its share of the rest: split up with the rest, every
+  # machine ran nearly all the tests, as those wait for the whole of the main set.
+  browser:
+    name: Browser tests (${{ matrix.shard }}/3)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    env:
+      PLAYWRIGHT_BLOB_OUTPUT_DIR: blob-report
+    steps:
+      - uses: actions/checkout@v7
+      - run: docker compose -f docker-compose.yml build
+      - name: Start the stack
+        run: docker compose -f docker-compose.yml up -d --wait
+        env:
+          ANTHROPIC_API_KEY: not-a-real-key
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          cache: npm
+      - run: npm ci
       # Installing the browser's system libraries with apt took anywhere from 20 seconds to 12 minutes,
       # depending on Ubuntu's mirrors. The browser itself is cached per Playwright version, and the
       # libraries (which GitHub's Ubuntu runners mostly have already) are only installed if it can't start.
@@ -114,19 +146,83 @@ jobs:
             npx playwright install-deps chromium
           fi
       - name: Browser tests
-        run: npm run test:e2e
-      # Last, as restoring replaces the whole stack's data
+        run: npx playwright test -c e2e --project=chromium --shard=${{ matrix.shard }}/3 --reporter=list,blob
+      # (Its own folder for traces: a second run clears the first's)
+      - name: Browser tests that change shared state
+        if: ${{ matrix.shard == 1 && !cancelled() }}
+        run: npx playwright test -c e2e --project=shared-state --no-deps --reporter=list,blob --output=e2e/test-results-shared
+        env:
+          PLAYWRIGHT_BLOB_OUTPUT_DIR: blob-report-shared
+      # Last, on a stack the browser tests have filled (restoring replaces its data)
       - name: Backup and restore
+        if: ${{ matrix.shard == 1 }}
         run: npm run test:restore
-      - name: Browser test report on failure
+      # For one report of every machine's results (below)
+      - name: Keep this machine's results
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: blob-report-${{ matrix.shard }}
+          path: |
+            blob-report
+            blob-report-shared
+          retention-days: 1
+      - name: Browser test traces on failure
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: playwright-report
+          name: test-results-${{ matrix.shard }}
           path: |
-            e2e/playwright-report
             e2e/test-results
+            e2e/test-results-shared
           retention-days: 7
       - name: API logs on failure
         if: failure()
         run: docker compose -f docker-compose.yml logs api collab
+
+  # The check main requires (by this name): passed when the API tests and every browser machine did.
+  # A pull request that only changes docs skips it, which counts as passed.
+  docker:
+    name: Docker images, API and browser tests
+    needs: [changes, api, browser]
+    # (Not when the run's cancelled, by a newer push: that's no failure)
+    if: ${{ !cancelled() && needs.changes.outputs.code == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: All passed
+        env:
+          API: ${{ needs.api.result }}
+          BROWSER: ${{ needs.browser.result }}
+        run: |
+          echo "API tests: $API; browser tests: $BROWSER"
+          [ "$API" = success ] && [ "$BROWSER" = success ]
+      # One report of the browser tests, from all three machines (whatever they got to)
+      - uses: actions/checkout@v7
+        if: ${{ failure() && needs.browser.result != 'success' }}
+      - uses: actions/download-artifact@v7
+        if: ${{ failure() && needs.browser.result != 'success' }}
+        with:
+          pattern: blob-report-*
+          path: downloaded
+      - name: Merge the browser test reports
+        id: merge
+        if: ${{ failure() && needs.browser.result != 'success' }}
+        run: |
+          mkdir -p all-blob-reports
+          find downloaded -name '*.zip' -exec cp {} all-blob-reports/ \; 2>/dev/null || true
+          if [ -z "$(ls -A all-blob-reports)" ]; then
+            echo "No browser test results to merge: none of the machines got as far as the tests"
+            exit 0
+          fi
+          # Only Playwright, at the repository's version (not every package)
+          version=$(node -p "require('./package-lock.json').packages['node_modules/@playwright/test'].version")
+          npx -y "playwright@$version" merge-reports --reporter html ./all-blob-reports
+          echo "merged=true" >> "$GITHUB_OUTPUT"
+      - name: Browser test report
+        if: ${{ failure() && steps.merge.outputs.merged == 'true' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report
+          path: playwright-report
+          retention-days: 7
