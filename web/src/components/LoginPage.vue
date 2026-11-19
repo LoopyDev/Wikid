@@ -1,5 +1,6 @@
 <script setup>
-import logoUrl from '../assets/wikid-logo.svg';
+// (A picture, not the SVG: Safari draws an SVG with blur effects at low resolution)
+import logoUrl from '../assets/wikid-logo.png';
 import { ref } from 'vue';
 import { useWorkspaceStore } from '../stores/workspace';
 
