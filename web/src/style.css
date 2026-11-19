@@ -1412,7 +1412,8 @@ button {
   padding-left: 24px;
   scrollbar-gutter: stable;
 }
-.wikid-mainframe--lock-scroll {
+.wikid-mainframe--lock-scroll,
+.editor-scroll-locked {
   overflow-y: hidden;
 }
 .page-surface {
@@ -9627,6 +9628,9 @@ button {
 }
 
 .page-overlay__panel {
+  /* Where the title, the properties and the text all start, in line (as on a full page), past room
+     for the drag handle */
+  --overlay-gutter: 64px;
   width: min(720px, 94vw);
   height: 100%;
   background: var(--content-bg);
@@ -9642,7 +9646,7 @@ button {
   z-index: 1;
   background: var(--content-bg);
   border-bottom: 1px solid var(--surface-border);
-  padding: 14px 20px;
+  padding: 14px 20px 14px var(--overlay-gutter);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -9744,7 +9748,7 @@ button {
 .page-overlay__divider {
   height: 1px;
   background: var(--surface-border);
-  margin: 12px 20px 16px;
+  margin: 12px 20px 16px var(--overlay-gutter);
 }
 
 .page-properties {
@@ -9916,13 +9920,19 @@ button {
 }
 
 .page-overlay .page-properties {
-  padding-left: 20px;
+  padding-left: var(--overlay-gutter);
   padding-right: 20px;
 }
 
 .page-overlay__body .tiptap-editor {
-  --editor-gutter: 36px;
+  /* Room for the drag handle beside the text. Set as it is (the main page's works it out against
+     its frame's width, centring the text on a wide one; the panel's never that wide): without it
+     the text had no room, and the handle went out past the panel's edge, under the page behind */
+  --editor-gutter: var(--overlay-gutter);
   min-height: 100%;
+}
+.page-overlay__body :is(.tiptap-editor .ProseMirror, .tiptap-editor.ProseMirror) {
+  --actual-gutter: var(--editor-gutter);
 }
 
 @media (max-width: 900px) {
@@ -11196,6 +11206,9 @@ button {
   .tiptap-editor,
   .page-overlay__body .tiptap-editor {
     --editor-gutter: 20px;
+  }
+  .page-overlay__panel {
+    --overlay-gutter: 20px;
   }
   .wikid-mainframe {
     padding-left: 0;

@@ -1656,10 +1656,17 @@ const handleCodeLangOutsideClick = (event) => {
 
 const { setHandleLocked, LIST_CONTAINER_TYPES, isListItem, setListHandleTriggerHover, setListHandleSelfHover, resolveListItemFromPos, resolveListItemFromTarget, resolveListHandleTarget, applyListHandleSelection, updateBlockHandleFromEvent } = useBlockHandles({ handleState, handleVisible, handleLocked, handlePos, wrapperRef, listHandleState, listHandlePos, listHandleTriggerHover, listHandleSelfHover, LIST_HANDLE_OFFSET, LIST_HANDLE_WIDTH, LIST_HANDLE_HOVER_PADDING, handleDragHandleChange, getEditor: () => editor?.value });
 
+// What this editor scrolls in: a row page's side panel, a split pane, or else the page's main frame
+const scrollHost = () => wrapperRef.value?.closest?.('.page-overlay__body, .split-pane__scroll') || document.querySelector('.wikid-mainframe');
+let scrollListenedTo = null;
+// Held still while a block menu or the "/" menu is open (it stays by its block). Only once this editor
+// is on the page: before, it would be the main frame, and an editor in the side panel took off the
+// lock the main frame has while the panel's over it.
 const setMainframeScrollLocked = (locked) => {
-  const frame = document.querySelector('.wikid-mainframe');
-  if (!frame) return;
-  frame.classList.toggle('wikid-mainframe--lock-scroll', !!locked);
+  if (!wrapperRef.value) return;
+  const host = scrollHost();
+  if (!host) return;
+  host.classList.toggle(host.classList.contains('wikid-mainframe') ? 'wikid-mainframe--lock-scroll' : 'editor-scroll-locked', !!locked);
 };
 
 // The block whose menu is open, marked (as a decoration: see selectionMarks)
@@ -1831,6 +1838,8 @@ const closeMenusOnEscape = () => {
 const handleDocumentEscape = (event) => {
   if (event.key !== 'Escape' || event.defaultPrevented || !showTuneMenu.value) return;
   if (tuneMenuRef.value?.contains(event.target) || editor.value?.view.dom.contains(event.target)) return;
+  // Used: nothing else closes on it too (a row page at the side did)
+  event.preventDefault();
   closeTuneMenu();
 };
 // Ctrl/Cmd+/ in the page: the block menu for the block the cursor is in
@@ -2087,7 +2096,9 @@ onMounted(() => {
   document.addEventListener('mousemove', handleHoverMove);
   document.addEventListener('mouseleave', clearAllHoveredBlocks);
   document.addEventListener('mousedown', handleCodeLangOutsideClick);
-  document.querySelector('.wikid-mainframe')?.addEventListener('scroll', handleMainframeScroll, { passive: true });
+  // (Where this editor scrolls: table tools follow it)
+  scrollListenedTo = scrollHost();
+  scrollListenedTo?.addEventListener('scroll', handleMainframeScroll, { passive: true });
   document.addEventListener('mousemove', handleSuggestionMousemove);
 });
 
@@ -2125,7 +2136,8 @@ onBeforeUnmount(() => {
   document.removeEventListener('mouseleave', clearAllHoveredBlocks);
   document.removeEventListener('mousedown', handleCodeLangOutsideClick);
   document.removeEventListener('mousemove', handleSuggestionMousemove);
-  document.querySelector('.wikid-mainframe')?.removeEventListener('scroll', handleMainframeScroll);
+  scrollListenedTo?.removeEventListener('scroll', handleMainframeScroll);
+  scrollListenedTo = null;
   setHandleLocked(false);
   setMainframeScrollLocked(false);
 });
