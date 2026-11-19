@@ -1,7 +1,9 @@
 import { Selection, TextSelection } from 'prosemirror-state';
+import { sidebarPageIn } from '../utils/sidebarDrag';
+import { mentionContent, mentionLabel } from './pageMentionLabel';
 import { getTextSerializersFromSchema } from '@tiptap/core';
 import { plainText } from './plainText';
-import { findBlockById, selectionSyncedReferenceId } from './syncedBlocks';
+import { findBlockById, selectionSyncedReferenceId, syncedReferenceIdAt } from './syncedBlocks';
 import { parseBlockUrl } from '../utils/editorLinks';
 import { liftImagesForPaste, shouldHandleMarkdownPaste } from '../utils/markdownPaste';
 import { describeUndoStacks, logUndoDebug, undoDebugEnabled } from '../utils/editorDebug';
@@ -29,7 +31,7 @@ async function blobImageFiles(srcs) {
 // The page editor's input handling (Tiptap's editorProps): pasting (markdown, block links as
 // synced blocks), typing, dropping, keys (Tab indent, undo in live editing, synced-block locks)
 // and clicks below the last block.
-export function createEditorProps({ lastTextInputAt, lastTextInputInfo, props, isCollabEnabled, isSyncedLocked, notifySyncedBlockLocked, insertSyncedBlockFromUrl, insertImageFiles, uploadPastedImages, canUploadPastedImages, shouldInsertClickPlaceholder, insertClickPlaceholder, dragScroll, getEditor }) {
+export function createEditorProps({ lastTextInputAt, lastTextInputInfo, props, isCollabEnabled, isSyncedLocked, notifySyncedBlockLocked, insertSyncedBlockFromUrl, insertImageFiles, uploadPastedImages, canUploadPastedImages, shouldInsertClickPlaceholder, insertClickPlaceholder, dragScroll, getEditor, getPageWorkspaceId }) {
   // A pasted picture's placeholder, found by its block id, becomes the picture (unless it's gone),
   // keeping the id and the size Word showed it at; anything typed in it meanwhile is its
   // description. Not an undo step of its own: Ctrl+Z after it shouldn't turn it back into a box.
@@ -157,6 +159,32 @@ export function createEditorProps({ lastTextInputAt, lastTextInputInfo, props, i
     },
     handleDrop(view, event, _slice, moved) {
       dragScroll.restoreAfterDrop();
+      // A page dragged from the sidebar: linked where it's dropped (a mention, as "@" makes), or in
+      // code, which holds no links, its title as text. Not the open page itself, nor one from another
+      // workspace (the sidebar can be a step ahead while a workspace switch loads)
+      const sidebarPage = moved ? null : sidebarPageIn(event?.dataTransfer);
+      if (sidebarPage) {
+        event.preventDefault();
+        const editor = getEditor();
+        if (props.readonly || !editor || editor.isDestroyed) return true;
+        if (sidebarPage.id === props.pageId) return true;
+        const hostWorkspace = getPageWorkspaceId?.();
+        if (hostWorkspace && sidebarPage.workspaceId && sidebarPage.workspaceId !== hostWorkspace) return true;
+        const pos = view.posAtCoords({ left: event.clientX, top: event.clientY })?.pos ?? view.state.selection.from;
+        const $pos = view.state.doc.resolve(pos);
+        const syncedId = syncedReferenceIdAt($pos);
+        if (syncedId && isSyncedLocked(syncedId)) {
+          notifySyncedBlockLocked();
+          return true;
+        }
+        const codeMark = $pos.marks().find((mark) => mark.type.name === 'code');
+        const content =
+          $pos.parent.type.spec.code || codeMark
+            ? [{ type: 'text', text: mentionLabel({ title: sidebarPage.title }), ...(codeMark ? { marks: [{ type: 'code' }] } : {}) }]
+            : mentionContent(view.state.doc, pos, sidebarPage.id);
+        editor.chain().focus().insertContentAt(pos, content).run();
+        return true;
+      }
       // Image files dropped in from outside the page are uploaded, and put in where they're dropped
       const files = moved || props.readonly ? [] : imageFiles(event?.dataTransfer);
       if (!files.length) return false;

@@ -1,6 +1,7 @@
 import { computed, defineComponent, Fragment, h, onBeforeUnmount, ref, Teleport } from 'vue';
 import PageIcon from './PageIcon.vue';
 import { CHEVRON_RIGHT } from '../constants/icons';
+import { SIDEBAR_PAGE_TYPE } from '../utils/sidebarDrag';
 
 // The sidebar's page tree: one row per page, with drag-and-drop reordering and the page menu.
 export default defineComponent({
@@ -144,8 +145,12 @@ export default defineComponent({
 
       const handleDragStart = (event) => {
         if (!props.canEdit || !props.onReorder) return;
-        event.dataTransfer.effectAllowed = 'move';
+        // (A copy too: dropped into the open page it's linked, not moved; Option-drag on a Mac is a copy)
+        event.dataTransfer.effectAllowed = 'copyMove';
         event.dataTransfer.setData('application/json', JSON.stringify({ id: page.id, parentId: page.parentId ?? null }));
+        // Dropped into the open page, it's linked there (editorInputHandlers.js). Only under Wikid's own
+        // type: as text, the browser would drop it into any text box (the search, a table cell)
+        event.dataTransfer.setData(SIDEBAR_PAGE_TYPE, JSON.stringify({ id: page.id, title: page.title || '', workspaceId: page.workspaceId ?? null }));
         isDragging.value = true;
     };
 

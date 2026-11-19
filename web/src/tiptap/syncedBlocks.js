@@ -141,6 +141,15 @@ export const createSyncedNodeFromSource = (sourceNode, sourceId) => {
   return sourceNode.type.create(nextAttrs, sourceNode.content, sourceNode.marks);
 };
 
+/** The synced block a position is in (its source's id), or null. */
+export const syncedReferenceIdAt = ($pos) => {
+  for (let depth = $pos.depth; depth >= 0; depth -= 1) {
+    const node = $pos.node(depth);
+    if (node?.isBlock && node.attrs?.[SYNCED_FROM_ATTR]) return node.attrs[SYNCED_FROM_ATTR];
+  }
+  return null;
+};
+
 export const selectionSyncedReferenceId = (state) => {
   const { $from, $to } = state.selection;
   const findSyncedId = ($pos) => {

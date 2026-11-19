@@ -32,7 +32,7 @@ import { useEditorAi } from '../composables/useEditorAi';
 import { createSlashItems } from '../tiptap/slashItems';
 import { pageLinkTarget } from '../utils/editorLinks';
 import { privateLinksKey } from '../tiptap/linkEditor';
-import { mentionLabel } from '../tiptap/pageMentionLabel';
+import { mentionLabel, mentionContent } from '../tiptap/pageMentionLabel';
 import LinkEditor from './LinkEditor.vue';
 import { useBlockHandles } from '../composables/useBlockHandles';
 import { useSyncedBlocks } from '../composables/useSyncedBlocks';
@@ -264,9 +264,7 @@ const saveLink = ({ text, href, mention, pageId }) => {
   if (mention) {
     // The page as a mention, in place of the words (or where the cursor was), a space after it
     // unless one follows already
-    const after = ed.state.doc.textBetween(to, Math.min(to + 1, ed.state.doc.content.size), ' ');
-    const content = [{ type: 'pageMention', attrs: { pageId } }, ...(after === ' ' ? [] : [{ type: 'text', text: ' ' }])];
-    ed.chain().focus().insertContentAt({ from, to }, content).run();
+    ed.chain().focus().insertContentAt({ from, to }, mentionContent(ed.state.doc, to, pageId)).run();
     return;
   }
   if (target.mention) {
@@ -900,7 +898,7 @@ const dragScroll = createDragScrollRestore();
 editor = useEditor({
   content: isCollabEnabled.value ? undefined : editorDocToTiptap(props.doc),
   editable: !props.readonly,
-  editorProps: pendingTopLine.editorProps(createEditorProps({ lastTextInputAt, lastTextInputInfo, props, isCollabEnabled, isSyncedLocked, notifySyncedBlockLocked, insertSyncedBlockFromUrl, insertImageFiles, uploadPastedImages, canUploadPastedImages, shouldInsertClickPlaceholder, insertClickPlaceholder, dragScroll, getEditor: () => editor?.value })),
+  editorProps: pendingTopLine.editorProps(createEditorProps({ lastTextInputAt, lastTextInputInfo, props, isCollabEnabled, isSyncedLocked, notifySyncedBlockLocked, insertSyncedBlockFromUrl, insertImageFiles, uploadPastedImages, canUploadPastedImages, shouldInsertClickPlaceholder, insertClickPlaceholder, dragScroll, getEditor: () => editor?.value, getPageWorkspaceId: () => getResolvedPage(props.pageId)?.workspaceId ?? null })),
   extensions: [
     ...createEditorExtensions({
     collab: isCollabEnabled.value
