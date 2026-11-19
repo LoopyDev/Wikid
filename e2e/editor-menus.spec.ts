@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test';
-import { test, expect, createPage, openPage, editor, outline, blockTexts, placeCursor, waitForSaved } from './fixtures';
+import { test, expect, createPage, openPage, editor, outline, blockTexts, placeCursor, waitForSaved, testImage } from './fixtures';
 
 // The editor's menus: the slash menu, the block menu behind the drag handle, and dragging blocks.
 
@@ -500,10 +500,10 @@ test.describe('editor menus', () => {
     await openPage(page, await createPage(page, workspaceId));
     await typeParagraphs(page, ['One', 'Two']);
     // An image after the paragraphs
-    await page.evaluate(() => {
+    await page.evaluate((src) => {
       const ed = (document.querySelector('.ProseMirror') as any).editor;
-      ed.chain().focus('end').setImage({ src: '/vite.svg', naturalWidth: 240, naturalHeight: 120 } as any).run();
-    });
+      ed.chain().focus('end').setImage({ src, naturalWidth: 240, naturalHeight: 120 } as any).run();
+    }, testImage());
     const image = editor(page).locator('.tiptap-image-resizable');
     await expect(image).toBeVisible();
     await expect.poll(() => outline(page)).toEqual(['paragraph: One', 'paragraph: Two', 'image']);
@@ -524,8 +524,8 @@ test.describe('editor menus', () => {
     // Clicking it opens it in the viewer, over the page
     const viewer = page.locator('.pswp');
     await image.locator('img').click();
-    await expect(viewer.locator('.pswp__item:not([aria-hidden="true"]) img.pswp__img')).toHaveAttribute('src', '/vite.svg');
-    await expect(viewer.getByRole('link', { name: 'Open in a new tab' })).toHaveAttribute('href', '/vite.svg');
+    await expect(viewer.locator('.pswp__item:not([aria-hidden="true"]) img.pswp__img')).toHaveAttribute('src', testImage());
+    await expect(viewer.getByRole('link', { name: 'Open in a new tab' })).toHaveAttribute('href', testImage());
     await page.keyboard.press('Escape');
     await expect(viewer).toHaveCount(0);
 
@@ -542,33 +542,33 @@ test.describe('editor menus', () => {
 
   test("the image viewer moves through the page's images, including ones saved without their size", async ({ alice: page, workspaceId }) => {
     await openPage(page, await createPage(page, workspaceId));
-    await page.evaluate(() => {
+    await page.evaluate(([first, second]) => {
       const ed = (document.querySelector('.ProseMirror') as any).editor;
       ed.chain().focus('end').insertContent([
-        { type: 'image', attrs: { src: '/vite.svg?first', naturalWidth: 240, naturalHeight: 120 } },
+        { type: 'image', attrs: { src: first, naturalWidth: 240, naturalHeight: 120 } },
         { type: 'paragraph' },
-        { type: 'image', attrs: { src: '/vite.svg?second', width: '200px' } },
+        { type: 'image', attrs: { src: second, width: '200px' } },
       ]).run();
-    });
+    }, [testImage('first'), testImage('second')]);
     const images = editor(page).locator('.tiptap-image-resizable img');
     await expect(images).toHaveCount(2);
     const shown = page.locator('.pswp__item:not([aria-hidden="true"]) img.pswp__img');
 
     // Opened at the image clicked, then the arrow keys move between them
     await images.nth(1).click();
-    await expect(shown).toHaveAttribute('src', '/vite.svg?second');
+    await expect(shown).toHaveAttribute('src', testImage('second'));
     await page.keyboard.press('ArrowLeft');
-    await expect(shown).toHaveAttribute('src', '/vite.svg?first');
-    await expect(page.getByRole('link', { name: 'Open in a new tab' })).toHaveAttribute('href', '/vite.svg?first');
+    await expect(shown).toHaveAttribute('src', testImage('first'));
+    await expect(page.getByRole('link', { name: 'Open in a new tab' })).toHaveAttribute('href', testImage('first'));
     await page.getByRole('button', { name: 'Close' }).click();
     await expect(page.locator('.pswp')).toHaveCount(0);
 
     // Opened at the other, the one without a size is measured, and shown at its own size (32px)
     await page.reload();
     await images.nth(0).click();
-    await expect(shown).toHaveAttribute('src', '/vite.svg?first');
+    await expect(shown).toHaveAttribute('src', testImage('first'));
     await page.keyboard.press('ArrowRight');
-    await expect(shown).toHaveAttribute('src', '/vite.svg?second');
+    await expect(shown).toHaveAttribute('src', testImage('second'));
     await expect.poll(() => shown.evaluate((img) => img.getBoundingClientRect().width)).toBeGreaterThan(20);
     await page.getByRole('button', { name: 'Close' }).click();
     await expect(page.locator('.pswp')).toHaveCount(0);

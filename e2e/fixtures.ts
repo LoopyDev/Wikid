@@ -188,3 +188,11 @@ async function usePageAs(browser: Browser, email: string, use: (page: Page) => P
 }
 
 export { expect };
+
+/**
+ * A small picture for tests to put on a page (240×120), given as a data: address so it needs no file
+ * of the app's; `tag` makes each one's address its own.
+ */
+export const testImage = (tag = '') =>
+  'data:image/svg+xml,' +
+  encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="240" height="120"><rect width="240" height="120" fill="#4a90a4"/><!--${tag}--></svg>`);

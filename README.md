@@ -1,3 +1,5 @@
+<p align="center"><img src="web/src/assets/wikid-logo.svg" alt="Wikid logo: a glowing sphere in horizontal slices, orange to purple" width="140"></p>
+
 # Wikid
 
 A self-hosted wiki and workspace with a block-based editor, structured databases, real-time collaboration, and built-in compliance workflows for records that need an audit trail.
