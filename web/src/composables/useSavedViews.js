@@ -1,7 +1,7 @@
 import { computed, nextTick, onBeforeUnmount, ref } from 'vue';
 import { api } from '../api/client';
 import { normalizeFieldOptions } from '../utils/database/fieldOptions';
-import { normalizeViewConfig, normalizeViewType, operatorsForFieldType, VIEW_TYPE_LABELS } from '../utils/database/views';
+import { normalizeViewConfig, normalizeViewType, operatorsForFieldType, valueForOperator, VIEW_TYPE_LABELS } from '../utils/database/views';
 
 // A database's saved views (table, board, gallery): creating, renaming and deleting them, and
 // their filters, sorts and board/gallery settings, saved shortly after each change; plus the filter
@@ -178,6 +178,21 @@ export function useSavedViews({ props, workspace, fields, fieldById, activeViewI
     const rules = activeViewFilters.value.rules.map((rule, i) => (i === index ? { ...rule, ...patch } : rule));
     patchActiveViewConfig({ filters: { ...activeViewFilters.value, rules } });
   };
+  // "Is any of": the choices to tick, each ticked or not (whatever its capitals), and any picked
+  // that's no longer a choice (renamed, say), ticked, so it can be unticked
+  const filterRuleChoices = (rule) => {
+    const picked = valueForOperator(rule.value, rule.operator);
+    const isPicked = (label) => picked.some((item) => item.toLowerCase() === String(label).toLowerCase());
+    const labels = fieldChoices(fieldById.value.get(rule.fieldId)).map((choice) => choice.label);
+    const gone = picked.filter((item) => !labels.some((label) => label.toLowerCase() === item.toLowerCase()));
+    return [...labels.map((label) => ({ label, picked: isPicked(label), gone: false })), ...gone.map((label) => ({ label, picked: true, gone: true }))];
+  };
+  const toggleFilterChoice = (index, label, on) => {
+    const rule = activeViewFilters.value.rules[index];
+    if (!rule) return;
+    const others = valueForOperator(rule.value, rule.operator).filter((item) => item.toLowerCase() !== String(label).toLowerCase());
+    updateFilterRule(index, { value: on ? [...others, label] : others });
+  };
   const changeFilterRuleField = (index, fieldId) => {
     const field = fieldById.value.get(fieldId);
     if (!field) return;
@@ -297,5 +312,5 @@ export function useSavedViews({ props, workspace, fields, fieldById, activeViewI
   const filterMenuStyle = computed(() => ({ top: `${filterMenu.value.y}px`, left: `${filterMenu.value.x}px` }));
   const sortMenuStyle = computed(() => ({ top: `${sortMenu.value.y}px`, left: `${sortMenu.value.x}px` }));
 
-  return { savedViews, normalizeSavedView, createSavedView, deleteSavedView, renameSavedView, patchActiveViewConfig, activeViewFilters, activeViewSorts, activeFilterCount, setFilterMatch, addFilterRule, updateFilterRule, changeFilterRuleField, removeFilterRule, addSortRule, updateSortRule, removeSortRule, setBoardGroupField, setGalleryCardField, setGalleryCardFields, setGalleryCoverMax, setGalleryShowColors, setCardColorField, setCardColorStyle, setListOpenField, fieldChoices, filterMenu, filterMenuRef, filterMenuStyle, openFilterMenu, closeFilterMenu, sortMenu, sortMenuRef, sortMenuStyle, openSortMenu, closeSortMenu };
+  return { savedViews, normalizeSavedView, createSavedView, deleteSavedView, renameSavedView, patchActiveViewConfig, activeViewFilters, activeViewSorts, activeFilterCount, setFilterMatch, addFilterRule, updateFilterRule, filterRuleChoices, toggleFilterChoice, changeFilterRuleField, removeFilterRule, addSortRule, updateSortRule, removeSortRule, setBoardGroupField, setGalleryCardField, setGalleryCardFields, setGalleryCoverMax, setGalleryShowColors, setCardColorField, setCardColorStyle, setListOpenField, fieldChoices, filterMenu, filterMenuRef, filterMenuStyle, openFilterMenu, closeFilterMenu, sortMenu, sortMenuRef, sortMenuStyle, openSortMenu, closeSortMenu };
 }

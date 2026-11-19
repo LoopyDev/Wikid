@@ -231,13 +231,16 @@ const VIEW_TYPES = ['table', 'board', 'gallery', 'list'];
 // top), or a soft tint behind them
 const COLOUR_STYLES = ['stripe', 'tint'];
 const NO_VALUE = new Set(['is_empty', 'is_not_empty', 'is_checked', 'is_unchecked', 'is_me', 'is_not_me']);
+// Operators whose value is a list of choices
+const LIST_OPERATORS = new Set(['is_any_of', 'is_none_of']);
+const filterValues = (value) => (Array.isArray(value) ? value : [value]).filter((item) => item != null && String(item).trim() !== '');
 // The filters each type of column has, as the app offers them (operatorsForFieldType in
 // web/src/utils/database/views.js)
 const OPERATORS = {
   'text, url': ['is', 'is_not', 'contains', 'not_contains', 'is_empty', 'is_not_empty'],
   number: ['is', 'is_not', 'gt', 'gte', 'lt', 'lte', 'is_empty', 'is_not_empty'],
   date: ['is', 'is_not', 'before', 'after', 'on_or_before', 'on_or_after', 'is_empty', 'is_not_empty'],
-  select: ['is', 'is_not', 'is_empty', 'is_not_empty'],
+  select: ['is', 'is_not', 'is_any_of', 'is_none_of', 'is_empty', 'is_not_empty'],
   'multi_select, relation': ['contains', 'not_contains', 'is_empty', 'is_not_empty'],
   person: ['is_me', 'is_not_me', 'contains', 'not_contains', 'is_empty', 'is_not_empty'],
   checkbox: ['is_checked', 'is_unchecked'],
@@ -250,6 +253,8 @@ const operatorsFor = (type) => {
 const OPERATOR_WORDS = {
   is: 'is',
   is_not: 'is not',
+  is_any_of: 'is any of',
+  is_none_of: 'is none of',
   contains: 'contains',
   not_contains: "doesn't contain",
   is_empty: 'is empty',
@@ -274,10 +279,11 @@ function formatView(view, fields) {
   const nameOf = (fieldId) => fields.find((f) => f.id === fieldId)?.name ?? fieldId;
   const parts = [];
   // A rule still waiting for its value (just added in the app) filters nothing
-  const rules = (config.filters?.rules ?? []).filter((r) => NO_VALUE.has(r.operator) || String(r.value ?? '').trim() !== '');
+  const rules = (config.filters?.rules ?? []).filter((r) => NO_VALUE.has(r.operator) || filterValues(r.value).length > 0);
   if (rules.length) {
     const join = config.filters.match === 'OR' ? ' or ' : ' and ';
-    const rule = (r) => `${nameOf(r.fieldId)} ${OPERATOR_WORDS[r.operator] ?? r.operator}${NO_VALUE.has(r.operator) ? '' : ` ${JSON.stringify(r.value)}`}`;
+    const shownValue = (r) => (NO_VALUE.has(r.operator) ? '' : ` ${filterValues(r.value).map((v) => JSON.stringify(v)).join(', ')}`);
+    const rule = (r) => `${nameOf(r.fieldId)} ${OPERATOR_WORDS[r.operator] ?? r.operator}${shownValue(r)}`;
     parts.push(`rows where ${rules.map(rule).join(join)}`);
   }
   if (config.sorts?.length) parts.push(`sorted by ${config.sorts.map((sort) => `${nameOf(sort.fieldId)}${sort.direction === 'desc' ? ' (descending)' : ''}`).join(', ')}`);
@@ -303,6 +309,19 @@ function viewFilter(fields, { column, operator, value }) {
   const operators = operatorsFor(field.type);
   if (!operators.includes(operator)) throw new Error(`A ${field.type.toLowerCase()} column like "${field.name}" can be filtered by: ${operators.join(', ')}`);
   if (NO_VALUE.has(operator)) return { fieldId: field.id, operator, value: null };
+  // Any of, or none of, several choices: each one of the column's
+  if (LIST_OPERATORS.has(operator)) {
+    const given = filterValues(value).map(String);
+    if (!given.length) throw new Error(`Filtering "${field.name}" by ${operator} needs a value: one or more of its choices`);
+    const choices = (field.options?.choices ?? []).map(choiceValue).filter(Boolean);
+    const picked = given.map((item) => {
+      const choice = choices.find((c) => sameName(c, item.trim()));
+      if (!choice) throw new Error(`No choice "${item.trim()}" in "${field.name}". Choices: ${choices.join(', ') || 'none'}`);
+      return choice;
+    });
+    return { fieldId: field.id, operator, value: [...new Set(picked)] };
+  }
+  if (Array.isArray(value)) throw new Error(`Filtering "${field.name}" by ${operator} takes one value, not a list (a list of choices goes with is_any_of or is_none_of)`);
   if (value === undefined || value === null || String(value).trim() === '') throw new Error(`Filtering "${field.name}" by ${operator} needs a value`);
   let given = typeof value === 'number' ? value : String(value).trim();
   if (field.type === 'NUMBER' && !Number.isFinite(Number(given))) throw new Error(`Filtering "${field.name}" needs a number, not "${given}"`);
@@ -365,10 +384,10 @@ function viewBody(fields, view, { name, type, filters, match, sorts, groupBy, co
 const viewSchema = {
   type: z.string().optional().describe(`View type: ${VIEW_TYPES.join(', ')} (default table)`),
   filters: z
-    .array(z.object({ column: z.string(), operator: z.string(), value: z.union([z.string(), z.number()]).optional() }))
+    .array(z.object({ column: z.string(), operator: z.string(), value: z.union([z.string(), z.number(), z.array(z.string())]).optional() }))
     .optional()
     .describe(
-      `Rows shown: each a column, an operator and (for most) a value: a choice for a select, a number, a date (YYYY-MM-DD). Operators by column type: ${Object.entries(OPERATORS)
+      `Rows shown: each a column, an operator and (for most) a value: a choice for a select (a list of choices for is_any_of and is_none_of), a number, a date (YYYY-MM-DD). Operators by column type: ${Object.entries(OPERATORS)
         .map(([types, operators]) => `${types}: ${operators.join(', ')}`)
         .join('; ')}.`,
     ),

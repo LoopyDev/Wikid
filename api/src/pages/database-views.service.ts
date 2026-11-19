@@ -20,6 +20,9 @@ export class DatabaseViewsService {
   private readonly VIEW_FILTER_OPERATORS = [
     'is',
     'is_not',
+    // A select that's any of, or none of, several choices (the value a list of them)
+    'is_any_of',
+    'is_none_of',
     'contains',
     'not_contains',
     'is_empty',
@@ -37,6 +40,13 @@ export class DatabaseViewsService {
     'is_me',
     'is_not_me',
   ];
+
+  private readonly LIST_OPERATORS = ['is_any_of', 'is_none_of'];
+
+  private choiceList(value: unknown) {
+    const items = Array.isArray(value) ? value : [value];
+    return items.filter((item): item is string => typeof item === 'string' && item.trim() !== '').slice(0, 200);
+  }
 
   private normalizeViewType(value: unknown) {
     const upper = typeof value === 'string' ? value.trim().toUpperCase() : '';
@@ -98,8 +108,9 @@ export class DatabaseViewsService {
           .map((rule: any) => ({
             fieldId: rule.fieldId as string,
             operator: rule.operator as string,
-            // Value is arbitrary JSON (string/number/boolean/array); default to null.
-            value: rule.value === undefined ? null : rule.value,
+            // "Any of"/"none of": a list of choices (one on its own made a list of one; anything else
+            // dropped). Otherwise arbitrary JSON (string/number/boolean/array); default to null.
+            value: this.LIST_OPERATORS.includes(rule.operator) ? this.choiceList(rule.value) : rule.value === undefined ? null : rule.value,
           }))
           .slice(0, 50)
       : [];

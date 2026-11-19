@@ -82,6 +82,8 @@ export const VIEW_TYPE_LABELS = { TABLE: 'Table', GALLERY: 'Gallery', BOARD: 'Bo
 export const OPERATOR_LABELS = {
   is: 'is',
   is_not: 'is not',
+  is_any_of: 'is any of',
+  is_none_of: 'is none of',
   contains: 'contains',
   not_contains: 'does not contain',
   is_empty: 'is empty',
@@ -109,7 +111,7 @@ export const operatorsForFieldType = (type) => {
     case 'DATE':
       return ['is', 'is_not', 'before', 'after', 'on_or_before', 'on_or_after', 'is_empty', 'is_not_empty'];
     case 'SELECT':
-      return ['is', 'is_not', 'is_empty', 'is_not_empty'];
+      return ['is', 'is_not', 'is_any_of', 'is_none_of', 'is_empty', 'is_not_empty'];
     case 'MULTI_SELECT':
     case 'RELATION':
       return ['contains', 'not_contains', 'is_empty', 'is_not_empty'];
@@ -122,6 +124,24 @@ export const operatorsForFieldType = (type) => {
 
 export const operatorNeedsValue = (operator) =>
   !['is_empty', 'is_not_empty', 'is_checked', 'is_unchecked', 'is_me', 'is_not_me'].includes(operator);
+
+// Operators whose value is a list of choices ("is any of" Doing, Done)
+export const LIST_OPERATORS = ['is_any_of', 'is_none_of'];
+const listOf = (value) =>
+  (Array.isArray(value) ? value : [value]).filter((item) => item != null && String(item).trim() !== '').map(String);
+
+/** A rule's value as `operator` takes it: one choice becomes a list of one, a list its first. */
+export const valueForOperator = (value, operator) => {
+  if (LIST_OPERATORS.includes(operator)) return listOf(value);
+  return Array.isArray(value) ? (value[0] ?? null) : value;
+};
+
+/** Whether a rule has its value yet (one still waiting for it filters nothing). */
+export const ruleHasValue = (rule) => {
+  if (!operatorNeedsValue(rule?.operator)) return true;
+  if (Array.isArray(rule?.value)) return rule.value.some((item) => String(item ?? '').trim() !== '');
+  return String(rule?.value ?? '').trim() !== '';
+};
 
 export const normalizeViewType = (value) => {
   const upper = typeof value === 'string' ? value.trim().toUpperCase() : '';

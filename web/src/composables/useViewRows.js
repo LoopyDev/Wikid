@@ -1,7 +1,7 @@
 import { computed } from 'vue';
 import { isPageField, normalizeFieldOptions } from '../utils/database/fieldOptions';
 import { getMultiSelectValues, stringifyValue, valueForField } from '../utils/database/cellValues';
-import { operatorNeedsValue, toComparableDate } from '../utils/database/views';
+import { LIST_OPERATORS, ruleHasValue, toComparableDate, valueForOperator } from '../utils/database/views';
 
 // The rows a saved view shows: its filters and sort applied to the table's rows, and the board's
 // columns and gallery's cards built from them. sortedRows gives them after the table's sort and
@@ -21,6 +21,15 @@ export function useViewRows({ fields, fieldById, tableRows, activeSavedView, isB
       const ids = getMultiSelectValues(row, field).map(String);
       const mine = !!workspace?.activeUserId && ids.includes(workspace.activeUserId);
       return operator === 'is_me' ? mine : !mine;
+    }
+
+    // Any of, or none of, several choices (a select's, or since it became a multi-select, any of its
+    // values; an empty cell is none of them)
+    if (LIST_OPERATORS.includes(operator)) {
+      const picked = valueForOperator(rule.value, operator).map((item) => item.trim().toLowerCase());
+      const values = (Array.isArray(display) ? display : [display]).map((v) => String(v ?? '').trim().toLowerCase()).filter(Boolean);
+      const any = values.some((v) => picked.includes(v));
+      return operator === 'is_any_of' ? any : !any;
     }
 
     if (field.type === 'CHECKBOX') {
@@ -111,9 +120,7 @@ export function useViewRows({ fields, fieldById, tableRows, activeSavedView, isB
     const view = activeSavedView.value;
     // A rule still waiting for its value isn't one yet (a new filter, "Name is …", hid every row; as a
     // rule that let every row through, it would undo the others in a "match any" view)
-    const rules = (view?.config?.filters?.rules || []).filter(
-      (rule) => fieldById.value.has(rule.fieldId) && (!operatorNeedsValue(rule.operator) || String(rule.value ?? '').trim() !== '')
-    );
+    const rules = (view?.config?.filters?.rules || []).filter((rule) => fieldById.value.has(rule.fieldId) && ruleHasValue(rule));
     if (!rules.length) return base;
     const mode = view.config.filters.match === 'OR' ? 'some' : 'every';
     return base.filter((row) => rules[mode]((rule) => matchesFilterRule(row, rule)));

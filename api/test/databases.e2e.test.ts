@@ -171,6 +171,18 @@ describe('rows', () => {
     expect(html).not.toContain(USERS.alice.id);
   });
 
+  it('keeps an "is any of" or "is none of" filter\'s value as a list of choices', async () => {
+    const { pageId } = await createDatabase();
+    const status = await addField(pageId, { name: 'Status', type: 'SELECT', options: { choices: ['To do', 'Doing', 'Done'] } });
+    const rules = async (rulesGiven: unknown[]) =>
+      (await alice.post(`/pages/${pageId}/database/views`, { name: 'View', config: { filters: { match: 'AND', rules: rulesGiven } } })).body.config.filters.rules;
+    expect(await rules([{ fieldId: status.id, operator: 'is_any_of', value: ['To do', 'Done'] }])).toEqual([{ fieldId: status.id, operator: 'is_any_of', value: ['To do', 'Done'] }]);
+    // One on its own: a list of one; anything but text, and blanks, left out
+    expect((await rules([{ fieldId: status.id, operator: 'is_none_of', value: 'Doing' }]))[0].value).toEqual(['Doing']);
+    expect((await rules([{ fieldId: status.id, operator: 'is_any_of', value: ['Doing', 3, null, ' ', { a: 1 }] }]))[0].value).toEqual(['Doing']);
+    expect((await rules([{ fieldId: status.id, operator: 'is_any_of', value: { a: 1 } }]))[0].value).toEqual([]);
+  });
+
   it('records who added each row, for a "Created by" column', async () => {
     const { pageId, titleFieldId } = await createDatabase();
     const createdBy = await addField(pageId, { name: 'Created by', type: 'PERSON', options: { source: 'createdBy' } });
