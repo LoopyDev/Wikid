@@ -33,7 +33,8 @@ import TemplatesModal from './components/TemplatesModal.vue';
 import SaveTemplateModal from './components/SaveTemplateModal.vue';
 import TemplateBanner from './components/TemplateBanner.vue';
 import PageTree from './components/PageTree';
-import logoUrl from './assets/wikid-logo.svg';
+// (A picture, not the SVG: Safari draws an SVG with blur effects at low resolution)
+import logoUrl from './assets/wikid-logo.png';
 import { usePageSwitchHold } from './composables/usePageSwitchHold';
 import { useTextHistory } from './composables/useTextHistory';
 import { isInIconBrowser } from './utils/iconSearch';
