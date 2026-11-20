@@ -786,6 +786,10 @@ const restoreAwarenessCursor = () => {
 
 // The page's content is still on its way from the server, so it isn't really empty yet
 const contentSynced = ref(false);
+// The page holds content this version of the editor can't (see editorExtensions' onInvalidContent):
+// editing it here is paused until the page is reloaded
+const contentTooNew = ref(false);
+const reloadPage = () => window.location.reload();
 const waitingForContent = computed(() => isCollabEnabled.value && !contentSynced.value);
 // Enter in the title before the content's in: what's typed then, held for a new first line
 const pendingTopLine = createPendingTopLine();
@@ -902,7 +906,7 @@ editor = useEditor({
   extensions: [
     ...createEditorExtensions({
     collab: isCollabEnabled.value
-      ? { document: collabDoc.value, provider: collabReady.value ? collabProvider.value : null, user: cursorUser.value }
+      ? { document: collabDoc.value, provider: collabReady.value ? collabProvider.value : null, user: cursorUser.value, onInvalidContent: () => (contentTooNew.value = true) }
       : null,
     isCollabEnabled,
     isSyncedLocked,
@@ -1014,7 +1018,9 @@ editor = useEditor({
   // Blocks remembered by where they are (the one the handle and its menu are on, the code block or
   // image under the mouse) follow the page as it changes, here or by someone else: a menu acting on
   // a stale position changed the wrong block, and one past the end of a shrunk page took the editor down
-  onTransaction({ transaction }) {
+  onTransaction({ transaction, editor: ed }) {
+    // Editing resumed (the content it couldn't show was taken out by someone else): the notice goes
+    if (contentTooNew.value && !ySyncPluginKey.getState(ed.state)?.binding?.invalidContentError) contentTooNew.value = false;
     if (transaction.docChanged) followDocChange(transaction);
   },
   onSelectionUpdate({ editor: ed }) {
@@ -2183,6 +2189,10 @@ defineExpose({
 
 <template>
   <div ref="wrapperRef" class="tiptap-wrapper" :class="{ 'tiptap-wrapper--waiting': waitingForContent }">
+    <div v-if="contentTooNew" class="editor-too-new" role="alert">
+      This page has content this editor can't show (from a newer version of Wikid, say), so editing it here is paused.
+      <button type="button" class="editor-too-new__reload" @click="reloadPage">Reload</button>
+    </div>
     <!-- (Hidden while the link editor is open, not over it; kept, not taken out: taking out its
          plugin had live editing redraw the whole page) -->
     <TextBubbleMenu v-if="editor" :class="{ 'bubble-menu--hidden': !!linkEditorState }" :editor="editor" :ai-streaming="aiStreaming" :ai-enabled="workspace.aiEnabled" @ai-action="runAiBubbleAction" @edit-link="openLinkEditor" />

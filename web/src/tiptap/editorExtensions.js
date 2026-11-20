@@ -120,6 +120,10 @@ export function createEditorExtensions({
         ? [
             Collaboration.configure({
               document: collab.document,
+              // Content this version of the editor can't hold (a block a newer Wikid added, met in a tab
+              // opened before the update): y-tiptap keeps it in the shared page, shows what it can and
+              // stops this tab's edits until it's reloaded; without this it deleted it, for everyone
+              ySyncOptions: { onInvalidContent: (error) => collab.onInvalidContent?.(error) },
             }),
             RedoSelection,
             ...(collab.provider
