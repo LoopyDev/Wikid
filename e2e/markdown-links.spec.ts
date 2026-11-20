@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test';
-import { test, expect, createPage, openPage, editor, unique } from './fixtures';
+import { test, expect, createPage, openPage, editor, unique, placeCursor } from './fixtures';
 
 // Links typed the Markdown way: [words](address) becomes the words, linked, as the ")" is typed.
 // After "[words](" a hint says so, and after "[words](/" pages are suggested.
@@ -128,5 +128,24 @@ test.describe('Markdown links', () => {
     ]);
     // (The image is the image rule's: not made a link to it)
     await expect(editor(page).locator('img')).toHaveCount(1);
+  });
+
+  test('"![alt](address)" typed: the cursor goes after the image, and nothing is added between it and a block below', async ({ alice: page, workspaceId }) => {
+    const id = await createPage(page, workspaceId);
+    const p = (text: string) => ({ type: 'paragraph', content: [{ type: 'text', text }] });
+    const list = { type: 'bulletList', content: [{ type: 'listItem', content: [p('An item')] }] };
+    expect((await page.request.put(`/api/pages/${id}/content`, { data: { content: { type: 'doc', content: [p('Above'), list] } } })).status()).toBe(200);
+    await openPage(page, id);
+    await expect(editor(page)).toContainText('An item');
+    const types = () => page.evaluate(() => (document.querySelector('.ProseMirror') as any).editor.getJSON().content.map((n: any) => n.type));
+    // Above a list: the image, then the list (no empty line between)
+    await placeCursor(page, 0, 'end');
+    await page.keyboard.type(' ![x](https://example.com/x.png)', { delay: 10 });
+    // (The page's own empty last line after the list stays as it is)
+    await expect.poll(async () => (await types()).slice(0, 3)).toEqual(['paragraph', 'image', 'bulletList']);
+    // ...and the cursor's past it: typing goes in the list, the image stays
+    await page.keyboard.type('!');
+    await expect(editor(page).locator('img')).toHaveCount(1);
+    await expect(editor(page).locator('li').first()).toHaveText('!An item');
   });
 });

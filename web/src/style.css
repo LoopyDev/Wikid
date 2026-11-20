@@ -12348,3 +12348,21 @@ select.db-cell-input option,
   opacity: 0.55;
   pointer-events: none;
 }
+
+/* The page has content from a newer Wikid: editing it here is paused until it's reloaded */
+.editor-too-new {
+  margin: 8px var(--editor-gutter, 76px);
+  padding: 10px 12px;
+  border: 1px solid var(--surface-border);
+  border-radius: 8px;
+  background: var(--modal-card-bg);
+  font-size: 0.9rem;
+}
+.editor-too-new__reload {
+  margin-left: 8px;
+  padding: 2px 10px;
+  border: 1px solid var(--surface-border);
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+}
