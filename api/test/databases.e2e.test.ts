@@ -844,6 +844,75 @@ describe('compliance mode', () => {
   });
 });
 
+describe('switching compliance mode on and off', () => {
+  const rowData = async (pageId: string, rowId: string) =>
+    (await alice.get(`/pages/${pageId}/database`)).body.rows.find((r: any) => r.id === rowId)?.data;
+  const liveCells = (live: Awaited<ReturnType<typeof openLiveDocument>>, rowId: string) =>
+    ((live.doc.getMap('rows').get(rowId) as Y.Map<any>)?.get('data') as Y.Map<any>)?.toJSON();
+
+  it('on: an edit just made in the table is in the records it freezes', async () => {
+    const { pageId, titleFieldId } = await createDatabase();
+    const count = await addField(pageId, { name: 'Count', type: 'NUMBER' });
+    const row = (await alice.post(`/pages/${pageId}/database/rows`, { data: { [titleFieldId]: 'Gloves', [count.id]: 1 } })).body;
+    const live = await openLiveDocument(alice, workspaceId, pageId, { database: true });
+    try {
+      await fillFromDatabase(live, (await alice.get(`/pages/${pageId}/database`)).body);
+      // Edited in the table, and on the server, but not yet copied to the records
+      ((live.doc.getMap('rows').get(row.id) as Y.Map<any>).get('data') as Y.Map<any>).set(count.id, 5);
+      await live.sent();
+      expect((await alice.patch(`/pages/${pageId}/database`, { complianceMode: true })).status).toBe(200);
+      expect((await rowData(pageId, row.id))[count.id]).toBe(5);
+    } finally {
+      live.close();
+    }
+  }, 60_000);
+
+  it("off: the table's live copy is made the records again: amendments, a column and a record added meanwhile stay", async () => {
+    const { pageId, titleFieldId } = await createDatabase();
+    const count = await addField(pageId, { name: 'Count', type: 'NUMBER' });
+    const row = (await alice.post(`/pages/${pageId}/database/rows`, { data: { [titleFieldId]: 'Gloves', [count.id]: 1 } })).body;
+    const live = await openLiveDocument(alice, workspaceId, pageId, { database: true });
+    try {
+      await fillFromDatabase(live, (await alice.get(`/pages/${pageId}/database`)).body);
+      expect((await alice.patch(`/pages/${pageId}/database`, { complianceMode: true })).status).toBe(200);
+      // Meanwhile, in compliance mode: an amendment, a column, a record
+      expect((await alice.patch(`/database-rows/${row.id}`, { cells: { [count.id]: 2 }, reason: 'Recount' })).status).toBe(200);
+      const notes = await addField(pageId, { name: 'Notes', type: 'TEXT' });
+      const added = (await alice.post(`/pages/${pageId}/database/rows`, { data: { [titleFieldId]: 'Masks', [notes.id]: 'Box of 50' } })).body;
+
+      expect((await alice.patch(`/pages/${pageId}/database`, { complianceMode: false })).status).toBe(200);
+      // The table open meanwhile sees the records as they are (it had them as compliance mode found them)
+      await expect.poll(() => liveCells(live, row.id)?.[count.id], { timeout: 10_000 }).toBe(2);
+      await expect.poll(() => (live.doc.getMap('fields').get(notes.id) as Y.Map<any>)?.get('name'), { timeout: 10_000 }).toBe('Notes');
+      await expect.poll(() => liveCells(live, added.id)?.[notes.id], { timeout: 10_000 }).toBe('Box of 50');
+      expect((live.doc.getArray('rowOrder').toArray() as string[]).filter((id) => id === row.id || id === added.id)).toEqual([row.id, added.id]);
+
+      // An edit in the table after, saved as the table saves: the amendment and the rest stay
+      ((live.doc.getMap('rows').get(row.id) as Y.Map<any>).get('data') as Y.Map<any>).set(titleFieldId, 'Nitrile gloves');
+      await live.sent();
+    } finally {
+      // (Closing it has the server copy it to the records)
+      live.close();
+    }
+    await expect.poll(async () => (await rowData(pageId, row.id))?.[titleFieldId], { timeout: 20_000 }).toBe('Nitrile gloves');
+    expect((await rowData(pageId, row.id))[count.id]).toBe(2);
+    const db = (await alice.get(`/pages/${pageId}/database`)).body;
+    expect(db.fields.map((f: any) => f.name)).toContain('Notes');
+    expect(db.rows.find((r: any) => r.data[titleFieldId] === 'Masks')).toBeTruthy();
+  }, 60_000);
+
+  it('amendments to different cells of one record, by two people, both stay', async () => {
+    const { pageId, titleFieldId } = await createDatabase();
+    const count = await addField(pageId, { name: 'Count', type: 'NUMBER' });
+    const notes = await addField(pageId, { name: 'Notes', type: 'TEXT' });
+    await alice.patch(`/pages/${pageId}/database`, { complianceMode: true });
+    const row = (await alice.post(`/pages/${pageId}/database/rows`, { data: { [titleFieldId]: 'Gloves', [count.id]: 1 } })).body;
+    expect((await alice.patch(`/database-rows/${row.id}`, { cells: { [count.id]: 2 }, reason: 'Recount' })).status).toBe(200);
+    expect((await alice.patch(`/database-rows/${row.id}`, { cells: { [notes.id]: 'Checked' }, reason: 'Checked them' })).status).toBe(200);
+    expect(await rowData(pageId, row.id)).toMatchObject({ [count.id]: 2, [notes.id]: 'Checked' });
+  });
+});
+
 describe('changing a column, and its cells with it', () => {
   const addRow = async (pageId: string, data: Record<string, unknown>) => (await alice.post(`/pages/${pageId}/database/rows`, { data })).body.id as string;
   const cellsOf = async (pageId: string, fieldId: string) => {

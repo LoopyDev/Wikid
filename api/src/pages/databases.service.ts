@@ -1,5 +1,5 @@
 import { SettingsService } from '../settings/settings.service';
-import { Injectable, BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { Injectable, BadRequestException, ConflictException, ForbiddenException, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { Prisma, WorkspaceRole, DatabaseFieldType, PageKind, PageVisibility, PageSetupStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -13,6 +13,8 @@ import { DatabaseValuesService } from './database-values.service';
 import { WikiService } from './wiki.service';
 import { PagesService } from './pages.service';
 import { CollabMaterializerService } from '../collab/collab-materializer.service';
+import { databaseRecordsUpdate } from '../collab/collab-database.util';
+import * as Y from 'yjs';
 import { KEPT_VALUE_PREFIX, keptValueKey, normalizeKeptValue } from '../utils/cell-values.util';
 import { planChoiceChange, planTypeChange, type CellChange } from '../utils/column-change.util';
 import { POSITION_INCREMENT, COMPLIANCE_RECORD_KEY, DEFAULT_COMPLIANCE_WORKFLOW, ROW_COLOR_KEY, normalizePageTitle, normalizeRowColor, getFieldSource } from './pages.shared';
@@ -750,10 +752,76 @@ export class DatabasesService {
     }
     // Into compliance mode only while the admin has it on; out of it, always
     if (payload.complianceMode && !database.complianceMode) await this.settings.assertComplianceAvailable();
+    // Into it: the table's latest edits into the records first (they reach them only at the next
+    // periodic save, and in compliance mode the table's live copy is set aside: an edit made just
+    // before was lost)
+    if (payload.complianceMode && !database.complianceMode) await this.materializer.catchUpDatabase(database.pageId, database.workspaceId);
+    // Out of it: the live copy made the records again (see syncLiveCopyToRecords). First, while
+    // compliance mode still keeps the live copy from being saved over the records: if it can't be
+    // done, the database stays in compliance mode, to try again
+    if (!payload.complianceMode && database.complianceMode) await this.syncLiveCopyToRecords(database);
     return this.prisma.database.update({
       where: { id: database.id },
       data: { complianceMode: payload.complianceMode },
     });
+  }
+
+  /**
+   * A database's live copy (the table's live document) made to match its records. Compliance mode
+   * changes only the records (each change an amendment), so coming out of it the live copy held the
+   * table as compliance mode found it, and its next save put that back over every amendment since.
+   * Pushed through the collab server, so anyone with the table open sees it; with no collab server,
+   * nobody has it open, and the stored copy is changed.
+   */
+  private async syncLiveCopyToRecords(database: { id: string; pageId: string; workspaceId: string }) {
+    const documentName = `ws:${database.workspaceId}:db:${database.pageId}`;
+    await this.materializer.flushLiveDocuments([documentName]);
+    // (None, or never filled: the app fills it from the records when it's first opened)
+    if (!(await this.prisma.collabDoc.findUnique({ where: { documentName }, select: { documentName: true } }))) return;
+    const [fields, rows] = await Promise.all([
+      this.prisma.databaseField.findMany({
+        where: { databaseId: database.id },
+        orderBy: [{ position: 'asc' }, { id: 'asc' }],
+        select: { id: true, name: true, type: true, options: true },
+      }),
+      this.prisma.databaseRow.findMany({
+        where: { databaseId: database.id },
+        orderBy: [{ position: 'asc' }, { id: 'asc' }],
+        select: { id: true, data: true, pageId: true },
+      }),
+    ]);
+    const asFields = fields.map((field) => ({
+      id: field.id,
+      name: field.name,
+      type: field.type,
+      options: field.options && typeof field.options === 'object' && !Array.isArray(field.options) ? (field.options as Record<string, any>) : {},
+    }));
+    const asRows = rows.map((row) => ({
+      id: row.id,
+      data: row.data && typeof row.data === 'object' && !Array.isArray(row.data) ? (row.data as Record<string, any>) : {},
+      pageId: row.pageId,
+    }));
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const record = await this.prisma.collabDoc.findUnique({ where: { documentName }, select: { state: true, updatedAt: true } });
+      if (!record?.state) return;
+      const update = databaseRecordsUpdate(new Uint8Array(record.state), asFields, asRows);
+      if (!update) return;
+      if (this.collabSync.hasCollabServer) {
+        if (await this.collabSync.pushContentUpdate(documentName, update)) return;
+        // (It may have the table open: a copy written here would be saved over by its own)
+        throw new ServiceUnavailableException("Couldn't bring the table's live copy up to date; try again");
+      }
+      // No collab server, so nobody has it open: the stored copy, if it's still the one read
+      const doc = new Y.Doc();
+      Y.applyUpdate(doc, new Uint8Array(record.state));
+      Y.applyUpdate(doc, update);
+      const saved = await this.prisma.collabDoc.updateMany({
+        where: { documentName, updatedAt: record.updatedAt },
+        data: { state: new Uint8Array(Y.encodeStateAsUpdate(doc)) },
+      });
+      if (saved.count) return;
+    }
+    throw new ConflictException('The table changed while this was being done; try again');
   }
 
   async createDatabaseField(
