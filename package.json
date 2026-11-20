@@ -24,6 +24,7 @@
   },
   "overrides": {
     "qs": "^6.16.0",
+    "effect": "^3.22.1",
     "@tiptap/extension-blockquote": "3.32.0",
     "@tiptap/extension-bold": "3.32.0",
     "@tiptap/extension-bullet-list": "3.32.0",
