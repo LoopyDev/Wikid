@@ -275,6 +275,11 @@ export class CollabSyncService {
   }
 
   /** Applies a change to a page's live document, through the collab server; false if it couldn't. */
+  /** Whether there's a collab server (with none, nobody can have a live document open). */
+  get hasCollabServer() {
+    return !!this.collabServerUrl && !!this.collabApiSecret;
+  }
+
   async pushContentUpdate(documentName: string, update: Uint8Array, editorId?: string) {
     if (!this.collabServerUrl || !this.collabApiSecret) return false;
     try {

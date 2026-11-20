@@ -410,3 +410,72 @@ export const applyCollabColumnChange = (doc: Y.Doc, field: CollabFieldChange, ce
   }, 'db-column-server');
   return changed;
 };
+
+/**
+ * The change that makes a database's live document match its records: its columns (each, and their
+ * order), its rows (each one's cells, page and order) and nothing else. For a database coming out of
+ * compliance mode, whose changes all went to the records meanwhile and none to the live document: as
+ * it was, the table's next save would have put back what the records had when compliance mode began.
+ * Null when there's nothing to change, or when the document has never been filled (the app fills an
+ * empty one from the records when it first opens it).
+ */
+export const databaseRecordsUpdate = (
+  state: Uint8Array,
+  fields: CollabFieldChange[],
+  rows: Array<{ id: string; data: Record<string, any> | null; pageId?: string | null }>,
+) => {
+  const doc = new Y.Doc();
+  Y.applyUpdate(doc, new Uint8Array(state));
+  const fieldsMap = doc.getMap('fields');
+  if (!fieldsMap.size) return null;
+  const before = Y.encodeStateVector(doc);
+  const fieldOrder = doc.getArray('fieldOrder');
+  const rowsMap = doc.getMap('rows');
+  const rowOrder = doc.getArray('rowOrder');
+  const sameOrder = (current: unknown[], wanted: string[]) => current.length === wanted.length && current.every((id, index) => String(id) === wanted[index]);
+  // (Whether anything changed: a change that only deletes leaves the state vector as it was)
+  let changed = false;
+  doc.on('update', () => {
+    changed = true;
+  });
+  doc.transact(() => {
+    // Columns: each as the records have it; none they haven't; in their order
+    for (const field of fields) applyCollabFieldChange(doc, field);
+    const fieldIds = new Set(fields.map((field) => field.id));
+    for (const id of [...fieldsMap.keys()]) if (!fieldIds.has(id)) applyCollabFieldDelete(doc, id);
+    const wantedFields = fields.map((field) => field.id);
+    if (!sameOrder(fieldOrder.toArray(), wantedFields)) {
+      fieldOrder.delete(0, fieldOrder.length);
+      fieldOrder.push(wantedFields);
+    }
+    // Rows: each one's cells and page as the records have them (who added it stays as it was)
+    for (const row of rows) {
+      let rowMap = rowsMap.get(row.id);
+      if (!(rowMap instanceof Y.Map)) {
+        rowMap = new Y.Map<any>();
+        rowsMap.set(row.id, rowMap);
+      }
+      let dataMap = (rowMap as Y.Map<any>).get('data');
+      if (!(dataMap instanceof Y.Map)) {
+        dataMap = new Y.Map<any>();
+        (rowMap as Y.Map<any>).set('data', dataMap);
+      }
+      const next = normalizeRowData(row.data);
+      for (const key of [...(dataMap as Y.Map<any>).keys()]) if (!(key in next)) (dataMap as Y.Map<any>).delete(key);
+      for (const [key, value] of Object.entries(next)) {
+        if (!valuesEqual((dataMap as Y.Map<any>).get(key), value)) (dataMap as Y.Map<any>).set(key, value);
+      }
+      const pageId = row.pageId || null;
+      if (pageId && (rowMap as Y.Map<any>).get('pageId') !== pageId) (rowMap as Y.Map<any>).set('pageId', pageId);
+      if (!pageId && (rowMap as Y.Map<any>).has('pageId')) (rowMap as Y.Map<any>).delete('pageId');
+    }
+    const rowIds = new Set(rows.map((row) => row.id));
+    for (const id of [...rowsMap.keys()]) if (!rowIds.has(id)) rowsMap.delete(id);
+    const wantedRows = rows.map((row) => row.id);
+    if (!sameOrder(rowOrder.toArray(), wantedRows)) {
+      rowOrder.delete(0, rowOrder.length);
+      rowOrder.push(wantedRows);
+    }
+  }, 'db-records-server');
+  return changed ? Y.encodeStateAsUpdate(doc, before) : null;
+};

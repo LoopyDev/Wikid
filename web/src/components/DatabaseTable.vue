@@ -1473,10 +1473,12 @@ const hideFieldFromView = (fieldId) => {
 };
 
 // Saves a row's cells; false if it couldn't (the error is shown)
-const saveRow = async (row, data, { deferSort = false, reason } = {}) => {
+// cells: only these cells change (the rest of the row as it is now, someone else's change included);
+// otherwise data is the whole row
+const saveRow = async (row, data, { deferSort = false, reason, cells } = {}) => {
   const rowId = row?.id;
   try {
-    const res = await api.updateDatabaseRow(rowId, { data, ...(reason ? { reason } : {}) }, { userId: activeUser.value?.id, userName: activeUser.value?.name });
+    const res = await api.updateDatabaseRow(rowId, { ...(cells ? { cells } : { data }), ...(reason ? { reason } : {}) }, { userId: activeUser.value?.id, userName: activeUser.value?.name });
     const payload = res && res.row ? res : { row: res };
     const nextRow = payload?.row;
     if (nextRow && row) {
@@ -1510,8 +1512,21 @@ const saveRow = async (row, data, { deferSort = false, reason } = {}) => {
 };
 
 // A compliance database's records change only with a reason, kept in their audit trail: edits wait
-// here, by row, until they're saved together with one (or discarded)
+// here, by row, until they're saved together with one (or discarded). Each with the record as it was
+// before (`base`), so only the cells changed here are sent: the whole row as this table had it put
+// back what someone else had amended meanwhile, and the audit trail said this amendment did that.
 const pendingAmendments = ref(new Map());
+// Each record as last loaded or saved here
+const savedRecords = new Map();
+const recordAsSaved = (rowId) =>
+  savedRecords.get(rowId) ?? (lastLoadedSnapshot.value?.rows || []).find((row) => row.id === rowId)?.data ?? {};
+const changedCellsFrom = (base, data) => {
+  const cells = {};
+  for (const key of new Set([...Object.keys(base || {}), ...Object.keys(data || {})])) {
+    if (JSON.stringify(base?.[key] ?? null) !== JSON.stringify(data?.[key] ?? null)) cells[key] = data?.[key] ?? null;
+  }
+  return cells;
+};
 const amendmentReason = ref('');
 const savingAmendments = ref(false);
 
@@ -1521,8 +1536,11 @@ const saveAmendments = async () => {
   savingAmendments.value = true;
   const started = workspace.beginSaving();
   try {
-    for (const [rowId, { row, data }] of [...pendingAmendments.value]) {
-      if (!(await saveRow(row, data, { reason }))) return;
+    for (const [rowId, { row, data, base }] of [...pendingAmendments.value]) {
+      const cells = changedCellsFrom(base, data);
+      if (Object.keys(cells).length && !(await saveRow(row, data, { reason, cells }))) return;
+      // (As saved: the record now, someone else's changes included)
+      savedRecords.set(rowId, JSON.parse(JSON.stringify(row.data || {})));
       const next = new Map(pendingAmendments.value);
       next.delete(rowId);
       pendingAmendments.value = next;
@@ -1573,7 +1591,7 @@ const scheduleRowUpdate = (row, data, options = {}) => {
   if (!activeUser.value) return;
   if (isComplianceDatabase.value) {
     const next = new Map(pendingAmendments.value);
-    next.set(rowId, { row, data });
+    next.set(rowId, { row, data, base: pendingAmendments.value.get(rowId)?.base ?? recordAsSaved(rowId) });
     pendingAmendments.value = next;
     return;
   }
@@ -3041,6 +3059,8 @@ const loadDatabase = async () => {
       : keepFormView || keepSavedView || keepFormsList || keepAuditView
         ? currentViewId
         : 'table';
+    // (The records as loaded: what an amendment is worked out from)
+    savedRecords.clear();
     lastLoadedSnapshot.value = {
       fields: cloneForSeed(nextFields),
       rows: cloneForSeed(nextRows),
@@ -3498,6 +3518,8 @@ const addRow = async (data = {}) => {
         rows.value = [...rows.value, hydrated];
       }
       addedComplianceRowId = hydrated.id;
+      // (As saved: an amendment to it is worked out from this)
+      savedRecords.set(hydrated.id, JSON.parse(JSON.stringify(hydrated.data || {})));
       whenCollabSynced(() => {
         const doc = ensureCollabDoc();
         const rowMap = ensureCollabRowMap(hydrated.id);
@@ -3559,6 +3581,8 @@ const addRow = async (data = {}) => {
     const hydrated = hydrateRow(row);
     syncComplianceStatusCache([hydrated]);
     rows.value = [...rows.value, hydrated];
+    // (As saved: an amendment to a new record is worked out from this)
+    if (isComplianceDatabase.value) savedRecords.set(hydrated.id, JSON.parse(JSON.stringify(hydrated.data || {})));
     return hydrated.id;
   } catch (err) {
     console.warn('Create row failed', err);
