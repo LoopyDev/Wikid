@@ -8,6 +8,12 @@ export default Node.create({
   atom: true,
   draggable: true,
   selectable: true,
+  addOptions() {
+    return {
+      // The id of the page it's shown on (see uploadSrcOn)
+      pageId: () => null,
+    };
+  },
   addAttributes() {
     return {
       src: { default: '' },

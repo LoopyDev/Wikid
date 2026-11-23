@@ -17,6 +17,8 @@ const ResizableImageExtension = Image.extend({
       ...this.parent?.(),
       // Starts dragging the image's block, as the block handle does
       dragBlock: null,
+      // The id of the page it's shown on (see uploadSrcOn)
+      pageId: () => null,
     };
   },
 

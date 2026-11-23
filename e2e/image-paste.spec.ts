@@ -303,3 +303,24 @@ test.describe('image placeholders', () => {
   });
 });
 
+test.describe('images on a copy of a page', () => {
+  // A duplicated page's images are still the original's files: they keep showing on the copy when the
+  // original is binned, or the bin emptied
+  test("a duplicate's images still show once the original is in the bin", async ({ alice: page, workspaceId }) => {
+    const original = await createPage(page, workspaceId);
+    const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64');
+    const up = await page.request.post('/api/uploads', { multipart: { pageId: original, image: { name: 'dot.png', mimeType: 'image/png', buffer: PNG } } });
+    expect(up.status()).toBe(201);
+    const { key } = (await up.json()).file;
+    const content = { type: 'doc', content: [{ type: 'image', attrs: { src: `/api/uploads/${key}` } }, { type: 'paragraph' }] };
+    expect((await page.request.put(`/api/pages/${original}/content`, { data: { content } })).status()).toBe(200);
+    const copy = (await (await page.request.post(`/api/pages/${original}/duplicate`, { data: {} })).json()).id;
+    expect((await page.request.delete(`/api/pages/${original}`)).status()).toBe(200);
+
+    await openPage(page, copy);
+    const img = editor(page).locator('img');
+    await expect(img).toHaveCount(1);
+    await expect.poll(() => img.evaluate((el: HTMLImageElement) => el.complete && el.naturalWidth)).toBe(1);
+  });
+});
+

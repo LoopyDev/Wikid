@@ -159,7 +159,7 @@ const noOp = () => {};
               <component :is="'style'" v-if="highlightCss">{{ highlightCss }}</component>
               <h1 class="page-history__title" :class="{ 'page-history__title--changed': highlighting && titleChange }">{{ selected.title || 'Untitled' }}</h1>
               <p v-if="highlighting && titleChange" class="page-history__renamed">{{ titleChange }}</p>
-              <TiptapEditor :key="`${selected.id}:${highlighting}`" :doc="shownDoc" :readonly="true" :request-delete-confirmation="noOp" />
+              <TiptapEditor :key="`${selected.id}:${highlighting}`" :doc="shownDoc" :page-id="pageId" :readonly="true" :request-delete-confirmation="noOp" />
             </div>
           </template>
         </section>

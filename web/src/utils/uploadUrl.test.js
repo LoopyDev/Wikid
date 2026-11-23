@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { absoluteUploadSrc, uploadSrc } from './uploadUrl';
+import { absoluteUploadSrc, uploadSrc, uploadSrcOn } from './uploadUrl';
 
 const key = '869980ec-a19d-40e0-9a53-c664fa6c66ff/1793147717474-3f5bff92.png';
 
@@ -40,5 +40,24 @@ describe('absoluteUploadSrc', () => {
 
   it('leaves other images alone', () => {
     expect(absoluteUploadSrc('https://example.com/photo.png', '/api', 'https://wiki.example.com')).toBe('https://example.com/photo.png');
+  });
+});
+
+describe('uploadSrcOn', () => {
+  const own = key.split('/')[0];
+  const other = '0b6f6a52-6f0e-4c1a-9d43-2f7d1b9e8a11';
+
+  it("says which page it's shown on when that isn't the upload's own", () => {
+    expect(uploadSrcOn(`/api/uploads/${key}`, other, '/api')).toBe(`/api/uploads/${key}?page=${other}`);
+  });
+
+  it("leaves the address plain on its own page, or when the page isn't known", () => {
+    expect(uploadSrcOn(`/api/uploads/${key}`, own, '/api')).toBe(`/api/uploads/${key}`);
+    expect(uploadSrcOn(`/api/uploads/${key}`, own.toUpperCase(), '/api')).toBe(`/api/uploads/${key}`);
+    expect(uploadSrcOn(`/api/uploads/${key}`, null, '/api')).toBe(`/api/uploads/${key}`);
+  });
+
+  it('leaves anything that isn\'t an upload alone', () => {
+    expect(uploadSrcOn('https://example.com/photo.png', other, '/api')).toBe('https://example.com/photo.png');
   });
 });

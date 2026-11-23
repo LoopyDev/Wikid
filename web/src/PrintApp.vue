@@ -8,6 +8,7 @@
       </div>
       <TiptapEditor
         :doc="doc"
+        :page-id="pageId"
         :readonly="true"
         :request-delete-confirmation="noOp"
       />

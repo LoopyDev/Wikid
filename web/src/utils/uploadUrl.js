@@ -15,14 +15,32 @@ export function uploadSrc(src, apiBase = API_BASE) {
   return key ? `${apiBase}/uploads/${key}` : src;
 }
 
+/**
+ * The address to show an upload at on a page. An upload is filed under the page it was put on, and
+ * served to whoever can read that page; shown on another (a duplicated page's images, or ones pasted
+ * from elsewhere), it says which page it's on, so it still loads for anyone who can read that one,
+ * even once the first page is in the bin, deleted, or private.
+ */
+export function uploadSrcOn(src, pageId, apiBase = API_BASE) {
+  const key = uploadKey(src);
+  if (!key) return src;
+  const own = key.split('/')[0];
+  return pageId && own.toLowerCase() !== String(pageId).toLowerCase()
+    ? `${apiBase}/uploads/${key}?page=${encodeURIComponent(pageId)}`
+    : `${apiBase}/uploads/${key}`;
+}
+
 /** The upload's key (page id / file name), or null when `src` isn't an upload. */
 export function uploadKey(src) {
   if (typeof src !== 'string') return null;
   return src.trim().match(UPLOAD)?.[1] ?? null;
 }
 
-/** The same, as a full address (with this site's name), for use outside Wikid: a Markdown file. */
-export function absoluteUploadSrc(src, apiBase = API_BASE, origin = globalThis.location?.origin || '') {
-  const resolved = uploadSrc(src, apiBase);
+/**
+ * The same, as a full address (with this site's name), for use outside Wikid: a Markdown file. With
+ * the page it's on, as uploadSrcOn.
+ */
+export function absoluteUploadSrc(src, apiBase = API_BASE, origin = globalThis.location?.origin || '', pageId = null) {
+  const resolved = uploadSrcOn(src, pageId, apiBase);
   return typeof resolved === 'string' && resolved.startsWith('/') ? `${origin}${resolved}` : resolved;
 }

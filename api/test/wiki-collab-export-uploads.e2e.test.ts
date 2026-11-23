@@ -151,6 +151,74 @@ describe('uploads', () => {
   });
 });
 
+// An image shown on a page other than the one it was uploaded to: the page was duplicated, or the
+// image pasted from another page. It's served to whoever can read the page it's shown on, once that
+// page really has it, whatever has become of the page it was uploaded to.
+describe('an image shown on another page than its own', () => {
+  const imageDoc = (key: string) => ({ type: 'doc', content: [{ type: 'image', attrs: { src: `/api/uploads/${key}` } }] });
+  const uploadTo = async (pageId: string) =>
+    (await alice.upload('/uploads', { pageId }, { field: 'image', name: 'dot.png', type: 'image/png', data: PNG })).body.file.key as string;
+
+  it("a duplicated page's images still load after the original is binned, and after the bin is emptied", async () => {
+    const original = await createPage(alice, workspaceId);
+    const key = await uploadTo(original.id);
+    expect((await alice.put(`/pages/${original.id}/content`, { content: imageDoc(key) })).status).toBe(200);
+    const copy = (await alice.post(`/pages/${original.id}/duplicate`, {})).body;
+
+    expect((await alice.delete(`/pages/${original.id}`)).status).toBe(200);
+    // (By itself, the image's own page is in the bin)
+    expect((await alice.download(`/uploads/${key}`)).status).toBe(404);
+    const viaCopy = await alice.download(`/uploads/${key}?page=${copy.id}`);
+    expect(viaCopy.status).toBe(200);
+    expect(Buffer.from(viaCopy.bytes).equals(Buffer.from(PNG))).toBe(true);
+    expect((await bob.download(`/uploads/${key}?page=${copy.id}`)).status).toBe(200);
+
+    expect((await alice.request('DELETE', '/pages', { ids: [original.id] })).status).toBe(200);
+    expect((await alice.download(`/uploads/${key}?page=${copy.id}`)).status).toBe(200);
+  });
+
+  it('an image from a private page, pasted into a shared one, is seen there', async () => {
+    const mine = await createPage(alice, workspaceId, { visibility: 'PRIVATE' });
+    const key = await uploadTo(mine.id);
+    const shared = await createPage(alice, workspaceId);
+    expect((await alice.put(`/pages/${shared.id}/content`, { content: imageDoc(key) })).status).toBe(200);
+    expect((await bob.download(`/uploads/${key}`)).status).toBe(403);
+    expect((await bob.download(`/uploads/${key}?page=${shared.id}`)).status).toBe(200);
+  });
+
+  it("not through a page that doesn't have it, or one the person can't read", async () => {
+    const mine = await createPage(alice, workspaceId, { visibility: 'PRIVATE' });
+    const key = await uploadTo(mine.id);
+    // A page without the image: no way in
+    const other = await createPage(alice, workspaceId);
+    expect((await bob.download(`/uploads/${key}?page=${other.id}`)).status).toBe(403);
+    // A page with it that bob can't open: no way in either
+    const alsoPrivate = await createPage(alice, workspaceId, { visibility: 'PRIVATE' });
+    expect((await alice.put(`/pages/${alsoPrivate.id}/content`, { content: imageDoc(key) })).status).toBe(200);
+    expect((await bob.download(`/uploads/${key}?page=${alsoPrivate.id}`)).status).toBe(403);
+    // Nor a page in the bin
+    const binned = await createPage(alice, workspaceId);
+    expect((await alice.put(`/pages/${binned.id}/content`, { content: imageDoc(key) })).status).toBe(200);
+    expect((await alice.delete(`/pages/${binned.id}`)).status).toBe(200);
+    expect((await bob.download(`/uploads/${key}?page=${binned.id}`)).status).toBe(403);
+    // Nor nonsense
+    expect((await bob.download(`/uploads/${key}?page=not-a-page`)).status).toBe(403);
+  });
+
+  it("an upload's address put into a page in another workspace doesn't open it there, or export it", async () => {
+    const mine = await createPage(alice, workspaceId, { visibility: 'PRIVATE' });
+    const key = await uploadTo(mine.id);
+    // bob's own workspace, where he can write anything
+    const bobsWorkspace = await createWorkspace(bob);
+    const bobsPage = await createPage(bob, bobsWorkspace);
+    expect((await bob.put(`/pages/${bobsPage.id}/content`, { content: imageDoc(key) })).status).toBe(200);
+    expect((await bob.download(`/uploads/${key}?page=${bobsPage.id}`)).status).toBe(403);
+    const exported = await bob.download('/export/html', { method: 'POST', body: { rootPageId: bobsPage.id } });
+    expect(exported.status).toBe(201);
+    expect(Buffer.from(exported.bytes).toString('utf8')).not.toContain('data:image/png;base64');
+  });
+});
+
 describe('fetching addresses people give us', () => {
   // Link previews and "image from URL" run on the server, which can reach Wikid's own services.
   const internal = [

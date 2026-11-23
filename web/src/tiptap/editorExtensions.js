@@ -111,6 +111,7 @@ export function createEditorExtensions({
   lastTextInputInfo,
   lastPointerDownAt,
   dragBlock,
+  getPageId = () => null,
   focusTitle,
   openBlockMenu,
   closeMenus,
@@ -219,6 +220,7 @@ export function createEditorExtensions({
       ResizableImage.configure({
         inline: false,
         dragBlock,
+        pageId: getPageId,
       }),
       ImageUploads,
       SelectionMarks,
@@ -243,7 +245,7 @@ export function createEditorExtensions({
         listDatabasePages: databaseViews.listDatabasePages,
       }),
       Drawio,
-      GaussianSplat,
+      GaussianSplat.configure({ pageId: getPageId }),
       Typography.extend({
         addInputRules() {
           return [

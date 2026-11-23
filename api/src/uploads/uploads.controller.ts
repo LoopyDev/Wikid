@@ -1,10 +1,11 @@
-import { BadRequestException, Body, Controller, Get, NotFoundException, Param, Post, Query, Req, Res, StreamableFile, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, HttpException, Logger, NotFoundException, Param, Post, Query, Req, Res, StreamableFile, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Request, Response as ExpressResponse } from 'express';
 import { memoryStorage } from 'multer';
 import { Readable } from 'stream';
 import { UploadsService } from './uploads.service';
 import { PageAccessService } from '../pages/page-access.service';
+import { PageContentService } from '../pages/page-content.service';
 import { assertSystemAdmin } from '../utils/assert-admin.util';
 
 import { AdminId, CurrentUserId, CurrentUserName } from '../auth/auth.guard';
@@ -24,7 +25,13 @@ const shownImageType = (mime?: string | null) => {
 const UPLOAD_CSP = "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; sandbox";
 @Controller('uploads')
 export class UploadsController {
-  constructor(private readonly uploads: UploadsService, private readonly pageAccess: PageAccessService) {}
+  private readonly logger = new Logger(UploadsController.name);
+
+  constructor(
+    private readonly uploads: UploadsService,
+    private readonly pageAccess: PageAccessService,
+    private readonly pageContent: PageContentService,
+  ) {}
 
   // Saved in the page without the site's name (/api/uploads/...), so it still works when the same
   // pages are served from another address: restored on another machine, or moved to a new domain
@@ -110,14 +117,30 @@ export class UploadsController {
   async getUpload(
     @Param('pageId') pageId?: string,
     @Param('filename') filename?: string,
+    @Query('page') shownOn?: string,
     @CurrentUserId() userId?: string,
     @CurrentUserName() userName?: string,
     @Res({ passthrough: true }) res?: ExpressResponse
   ) {
     if (!pageId || !filename) throw new BadRequestException('Invalid upload path');
     if (!userId) throw new BadRequestException('userId is required');
-    await this.pageAccess.ensurePageReadAccess(pageId, { userId, userName });
     const key = `${pageId}/${filename}`;
+    try {
+      await this.pageAccess.ensurePageReadAccess(pageId, { userId, userName });
+    } catch (err) {
+      // Shown on another page than the one it was uploaded to (a duplicate, or pasted there): fine for
+      // whoever can read that page, once it really has this image, whatever became of the first one
+      // (in the bin, deleted, or private). Otherwise, refused as before.
+      const shown =
+        shownOn &&
+        shownOn !== pageId &&
+        (await this.pageContent.showsUpload(shownOn, { userId, userName }, key).catch((lookErr) => {
+          // (Refused, or no such page, is a plain no; anything else is worth knowing about)
+          if (!(lookErr instanceof HttpException) && (lookErr as { code?: string })?.code !== 'P2025') this.logger.warn(`Couldn't check ${key} on page ${shownOn}: ${lookErr}`);
+          return false;
+        }));
+      if (!shown) throw err;
+    }
     try {
       const result = await this.uploads.getObject(key);
       const body = result.Body as Readable;

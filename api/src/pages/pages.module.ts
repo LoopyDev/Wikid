@@ -50,6 +50,6 @@ import { DatabaseCopyService } from './database-copy.service';
     HtmlExportService,
     UploadsService,
   ],
-  exports: [PageAccessService],
+  exports: [PageAccessService, PageContentService],
 })
 export class PagesModule {}

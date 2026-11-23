@@ -4,7 +4,7 @@
 // and links to other exported pages pointing at their files.
 
 import { renderDatabaseAsMarkdownTable } from './editorDoc';
-import { absoluteUploadSrc, uploadKey, uploadSrc } from './uploadUrl';
+import { absoluteUploadSrc, uploadKey, uploadSrcOn } from './uploadUrl';
 import { createZipBlob } from './zip';
 
 const FOLDER = 'images';
@@ -77,15 +77,20 @@ const PAGE_LINK = /\[((?:\\.|[^\]\\])*)\]\(wikid-page:([0-9a-f-]+)\)/g;
 /**
  * Fetches every upload the pages link to, each to be saved at images/<file name>.
  * One that can't be fetched is left out, and the page keeps linking to its address.
- * @param {string[]} markdowns
+ * Each page's Markdown with the page's id: an upload shown on a page it wasn't put on (a duplicate's
+ * images) is fetched through that page, as it's shown there.
+ * @param {Array<string | { markdown: string, pageId?: string }>} markdowns
  * @param {(url: string) => Promise<Uint8Array>} [fetchFile]
  */
 export async function collectUploads(markdowns, fetchFile = fetchUpload) {
   const paths = new Map(); // upload key -> path in the zip
+  const shownOn = new Map(); // upload key -> the pages it's on
   const usedNames = new Set();
-  for (const markdown of markdowns) {
+  for (const item of markdowns) {
+    const { markdown, pageId: page } = typeof item === 'string' ? { markdown: item } : item;
     for (const src of uploadsIn(markdown)) {
       const key = uploadKey(src);
+      if (key && page) shownOn.set(key, [...(shownOn.get(key) ?? []), page]);
       if (!key || paths.has(key)) continue;
       const [pageId, fileName] = key.split('/');
       // File names are a time and a random part, so two pages sharing one is very unlikely
@@ -101,7 +106,17 @@ export async function collectUploads(markdowns, fetchFile = fetchUpload) {
     while (queue.length) {
       const [key, path] = queue.shift();
       try {
-        fetched.set(key, { path, data: await fetchFile(uploadSrc(`/uploads/${key}`)) });
+        // Through each page it's on in turn (one may be the upload's own, now in the bin)
+        let lastErr = null;
+        for (const page of [...new Set(shownOn.get(key) ?? [null])]) {
+          try {
+            fetched.set(key, { path, data: await fetchFile(uploadSrcOn(`/uploads/${key}`, page)) });
+            break;
+          } catch (err) {
+            lastErr = err;
+          }
+        }
+        if (!fetched.has(key)) throw lastErr;
       } catch (err) {
         console.warn(`Couldn't add ${key} to the export, keeping its link`, err);
       }
@@ -154,10 +169,10 @@ export async function pageMarkdown(page, { getMarkdown, fetchDatabase }) {
 export async function exportPageMarkdown({ page, getMarkdown, fetchDatabase, fetchFile }) {
   const name = safeName(page.title);
   const markdown = await pageMarkdown(page, { getMarkdown, fetchDatabase });
-  const uploads = await collectUploads([markdown], fetchFile);
+  const uploads = await collectUploads([{ markdown, pageId: page.id }], fetchFile);
   // A link to another page has no file to go to here: it keeps its text
   const text = outsideCode(
-    rewriteLinks(markdown, (src) => uploads.pathFor(src) || (uploadKey(src) ? absoluteUploadSrc(src) : null)),
+    rewriteLinks(markdown, (src) => uploads.pathFor(src) || (uploadKey(src) ? absoluteUploadSrc(src, undefined, undefined, page.id) : null)),
     (line) => line.replace(PAGE_LINK, '$1'),
   );
   if (!uploads.files.length) {
@@ -230,7 +245,10 @@ export async function exportPagesMarkdownZip(pages, { getMarkdown, fetchDatabase
     }
   };
   await Promise.all(Array.from({ length: FETCHES_AT_ONCE }, worker));
-  const uploads = await collectUploads(markdowns.filter(Boolean), fetchFile);
+  const uploads = await collectUploads(
+    markdowns.map((markdown, index) => (markdown ? { markdown, pageId: pages[index].id } : null)).filter(Boolean),
+    fetchFile,
+  );
   const entries = pages
     .map((page, index) => {
       const markdown = markdowns[index];
@@ -241,7 +259,7 @@ export async function exportPagesMarkdownZip(pages, { getMarkdown, fetchDatabase
       // An upload it couldn't fetch keeps its address, in full, as Markdown is read outside Wikid
       const linked = rewriteLinks(markdown, (src) => {
         const file = uploads.pathFor(src);
-        return file ? `${up}${file}` : uploadKey(src) ? absoluteUploadSrc(src) : null;
+        return file ? `${up}${file}` : uploadKey(src) ? absoluteUploadSrc(src, undefined, undefined, page.id) : null;
       });
       const withPageLinks = outsideCode(linked, (line) =>
         line.replace(PAGE_LINK, (_, text, id) =>

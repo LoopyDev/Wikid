@@ -6,7 +6,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { SparkRenderer, SplatMesh } from '@sparkjsdev/spark';
 import { GIFEncoder, quantize, applyPalette } from 'gifenc';
 import { api } from '../api/client';
-import { uploadSrc } from '../utils/uploadUrl';
+import { uploadSrcOn } from '../utils/uploadUrl';
 import { useWorkspaceStore } from '../stores/workspace';
 
 const props = defineProps({
@@ -18,7 +18,7 @@ const props = defineProps({
 
 const workspace = useWorkspaceStore();
 const isEditable = computed(() => props.editor?.isEditable ?? true);
-const src = computed(() => uploadSrc(props.node?.attrs?.src || ''));
+const src = computed(() => uploadSrcOn(props.node?.attrs?.src || '', props.extension?.options?.pageId?.()));
 const containerRef = ref(null);
 const loading = ref(false);
 const error = ref('');
