@@ -14,6 +14,7 @@ import { extname } from 'path';
 import { PrismaService } from '../prisma/prisma.service';
 import { normalizeEditorContent } from '../pages/editor-doc.util';
 import { extractPageIdFromDocName } from '../utils/collab-doc-name.util';
+import { uploadKeysIn } from './upload-keys.util';
 
 @Injectable()
 export class UploadsService {
@@ -102,46 +103,13 @@ export class UploadsService {
     return this.client.send(new GetObjectCommand({ Bucket: this.bucket, Key: key }));
   }
 
-  private extractUploadKey(value: string) {
-    const trimmed = value.trim();
-    if (!trimmed) return null;
-    const hasUploads = trimmed.includes('/uploads/') || trimmed.startsWith('uploads/');
-    if (!hasUploads) return null;
-    try {
-      const url = new URL(trimmed, 'http://localhost');
-      const marker = '/uploads/';
-      const idx = url.pathname.indexOf(marker);
-      if (idx < 0) return null;
-      const key = url.pathname.slice(idx + marker.length);
-      return key || null;
-    } catch {
-      return null;
-    }
-  }
-
-  private collectUploadKeysFromValue(value: unknown, keys: Set<string>) {
-    if (typeof value === 'string') {
-      const key = this.extractUploadKey(value);
-      if (key) keys.add(key);
-      return;
-    }
-    if (Array.isArray(value)) {
-      value.forEach((entry) => this.collectUploadKeysFromValue(entry, keys));
-      return;
-    }
-    if (!value || typeof value !== 'object') return;
-    Object.values(value as Record<string, unknown>).forEach((entry) => {
-      this.collectUploadKeysFromValue(entry, keys);
-    });
-  }
-
   private async collectReferencedUploadKeys() {
     const pages = await this.prisma.page.findMany({ select: { content: true } });
     const keys = new Set<string>();
     pages.forEach((page) => {
       if (!page?.content) return;
       const normalized = normalizeEditorContent(page.content);
-      this.collectUploadKeysFromValue(normalized, keys);
+      uploadKeysIn(normalized, keys);
     });
     return keys;
   }

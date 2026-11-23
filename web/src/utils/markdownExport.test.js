@@ -154,4 +154,11 @@ describe('collectUploads', () => {
     expect(uploads.files.map((f) => f.path)).toEqual(['images/same.png', `images/${otherPageId}-same.png`]);
     expect(uploads.pathFor(upload(otherPageId, 'same.png'))).toBe(`images/${otherPageId}-same.png`);
   });
+
+  it("fetches an upload from another page through the page it's shown on (a duplicate's images)", async () => {
+    const fetched = vi.fn(async () => new Uint8Array([1]));
+    await collectUploads([{ markdown: `![](${upload(otherPageId, 'a.png')})\n\n![](${upload(pageId, 'b.png')})`, pageId }], fetched);
+    const urls = fetched.mock.calls.map(([url]) => url).sort();
+    expect(urls).toEqual([expect.stringMatching(`/uploads/${otherPageId}/a\\.png\\?page=${pageId}$`), expect.stringMatching(`/uploads/${pageId}/b\\.png$`)]);
+  });
 });

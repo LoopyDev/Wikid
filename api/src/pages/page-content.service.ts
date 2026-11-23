@@ -10,6 +10,7 @@ import { PageAccessService } from './page-access.service';
 import { CollabSyncService } from './collab-sync.service';
 import { normalizeEditorContent } from './editor-doc.util';
 import { isUuid } from '../utils/uuid.util';
+import { uploadKeysIn } from '../uploads/upload-keys.util';
 import type { ContentNode } from './markdown/markdown-to-content.util';
 import {
   BlockOperationError,
@@ -61,6 +62,45 @@ export class PageContentService {
     if (markdown && page.kind !== 'DOC') throw new BadRequestException('Only document pages have Markdown content; a database has rows');
     const { title } = await this.prisma.page.findUniqueOrThrow({ where: { id: pageId }, select: { title: true } });
     return { id: page.id, workspaceId: page.workspaceId, title };
+  }
+
+  // Which pages have which uploads in them, as last looked (see showsUpload): found, for a minute;
+  // not found, for a few seconds. Who may read the page is checked every time; only this isn't.
+  private readonly uploadsShown = new Map<string, { at: number; found: boolean }>();
+
+  /**
+   * Whether a page the person can read (not one in the bin) has this upload in it now: an image
+   * pasted from another page, or a duplicated page's (which still point at the original's files).
+   * Only within the upload's own workspace (or once its page is deleted for good): an upload's
+   * address put into a page elsewhere doesn't make it readable there.
+   * Looked for in what's saved first; only if it isn't there, the page's live document is saved
+   * (the image may have just been put in) and looked at again.
+   */
+  async showsUpload(pageId: string, user: User, key: string) {
+    if (!isUuid(pageId)) return false;
+    const { page } = await this.access.ensurePageReadAccess(pageId, user);
+    const ownPageId = key.split('/')[0];
+    const own = isUuid(ownPageId) ? await this.prisma.page.findUnique({ where: { id: ownPageId }, select: { workspaceId: true } }) : null;
+    if (own && own.workspaceId !== page.workspaceId) return false;
+
+    const cacheKey = `${page.id} ${key}`;
+    const cached = this.uploadsShown.get(cacheKey);
+    if (cached && Date.now() - cached.at < (cached.found ? 60_000 : 5_000)) return cached.found;
+    const name = this.documentName({ id: page.id, workspaceId: page.workspaceId, title: '' });
+    const has = async () => {
+      const record = await this.prisma.collabDoc.findUnique({ where: { documentName: name }, select: { state: true } });
+      if (record?.state) return uploadKeysIn((await normalizeCollabDocState(record.state)).normalized.content).has(key);
+      const stored = await this.prisma.page.findUniqueOrThrow({ where: { id: page.id }, select: { content: true } });
+      return uploadKeysIn(normalizeEditorContent(stored.content ?? null).content).has(key);
+    };
+    let found = await has();
+    if (!found) {
+      await this.materializer.flushLiveDocuments([name]);
+      found = await has();
+    }
+    if (this.uploadsShown.size > 5_000) this.uploadsShown.clear();
+    this.uploadsShown.set(cacheKey, { at: Date.now(), found });
+    return found;
   }
 
   /** The page's content now: its live document's, saved first if it's open, or the stored copy. */

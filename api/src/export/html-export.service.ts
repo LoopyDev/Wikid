@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { UploadsService } from '../uploads/uploads.service';
+import { uploadKeyOf } from '../uploads/upload-keys.util';
 import { CollabMaterializerService } from '../collab/collab-materializer.service';
 import { editorDocFromYjsState } from '../collab/collab-doc.util';
 import { isUuid } from '../utils/uuid.util';
@@ -370,7 +371,7 @@ export class HtmlExportService {
     let html = mode === 'pages'
       ? this.renderDocumentPaged(tree, renderFlat, databases)
       : this.renderDocument(tree, renderFlat, databases);
-    html = await this.embedImages(html, imageUrls);
+    html = await this.embedImages(html, imageUrls, root.workspaceId);
     const filename = `${(root.title || 'export').replace(/[^a-zA-Z0-9_-]/g, '_')}.html`;
     return { html, filename };
   }
@@ -422,7 +423,7 @@ export class HtmlExportService {
     let html = mode === 'pages'
       ? this.renderDocumentPaged(tree, renderFlat, databases)
       : this.renderDocument(tree, renderFlat, databases);
-    html = await this.embedImages(html, imageUrls);
+    html = await this.embedImages(html, imageUrls, workspaceId);
     const filename = `${(ws.name || 'workspace').replace(/[^a-zA-Z0-9_-]/g, '_')}.html`;
     return { html, filename };
   }
@@ -623,20 +624,25 @@ export class HtmlExportService {
     return urls;
   }
 
-  private extractUploadKey(url: string): string | null {
-    const marker = '/uploads/';
-    const idx = url.indexOf(marker);
-    if (idx < 0) return null;
-    return url.slice(idx + marker.length);
+  // Uploads put on pages in this workspace, or on pages since deleted for good: one from another
+  // workspace, its address put into a page here, isn't for this export to hand out (as it isn't
+  // shown on the page either: see PageContentService.showsUpload)
+  private async uploadsOfWorkspace(keys: string[], workspaceId: string) {
+    const ids = Array.from(new Set(keys.map((key) => key.split('/')[0]).filter(isUuid)));
+    const elsewhere = new Set(
+      (await this.prisma.page.findMany({ where: { id: { in: ids }, workspaceId: { not: workspaceId } }, select: { id: true } })).map((page) => page.id),
+    );
+    return new Set(keys.filter((key) => isUuid(key.split('/')[0]) && !elsewhere.has(key.split('/')[0])));
   }
 
-  private async embedImages(html: string, imageUrls: Set<string>): Promise<string> {
+  private async embedImages(html: string, imageUrls: Set<string>, workspaceId: string): Promise<string> {
     if (!imageUrls.size) return html;
     const replacements = new Map<string, string>();
+    const allowed = await this.uploadsOfWorkspace(Array.from(imageUrls).map((url) => uploadKeyOf(url) ?? '').filter(Boolean), workspaceId);
     await Promise.all(
       Array.from(imageUrls).map(async (url) => {
-        const key = this.extractUploadKey(url);
-        if (!key) return;
+        const key = uploadKeyOf(url);
+        if (!key || !allowed.has(key)) return;
         try {
           const result = await this.uploads.getObject(key);
           const chunks: Buffer[] = [];

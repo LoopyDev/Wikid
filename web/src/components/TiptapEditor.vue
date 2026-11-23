@@ -966,6 +966,7 @@ editor = useEditor({
     lastTextInputInfo,
     lastPointerDownAt,
     dragBlock: (event, options) => handleBlockDragStart(event, options),
+    getPageId: () => props.pageId ?? null,
   }),
     // Enter in the title before the content's in (part of the editor from the start: added later,
     // it rebuilt the editor's state as a new page's editor took over, and a key typed then was lost)
