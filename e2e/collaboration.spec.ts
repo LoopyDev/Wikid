@@ -43,6 +43,28 @@ test.describe('editing together', () => {
     await expect.poll(() => blockTexts(alice)).toEqual(['Line one:', 'Line two: from Bob']);
   });
 
+  test("someone's cursor that isn't moving isn't sent again and again", async ({ alice, bob, workspaceId }) => {
+    await sharedPage(alice, bob, workspaceId);
+    // (Only an editor with the focus sends its cursor)
+    await expect(editor(alice)).toBeFocused();
+    await expect(editor(bob).locator('.collaboration-carets__caret')).toHaveCount(1);
+    // Each time it's sent, Bob's editor redraws: a key he pressed just before could be undone. Once
+    // what was sent on opening the page has arrived, a second goes by without any (it was about 200)
+    const redrawsInASecond = () =>
+      bob.evaluate(async () => {
+        const ed = (document.querySelector('.ProseMirror:not(.page-hold *)') as any).editor;
+        let count = 0;
+        const onTransaction = ({ transaction }: any) => {
+          if (Object.keys(transaction.meta).some((key) => key.startsWith('yjs-cursor'))) count += 1;
+        };
+        ed.on('transaction', onTransaction);
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        ed.off('transaction', onTransaction);
+        return count;
+      });
+    await expect.poll(redrawsInASecond, { timeout: 10_000 }).toBeLessThan(2);
+  });
+
   test('both typing fast in the same line keeps each person\'s text in order', async ({ alice, bob, workspaceId }) => {
     await sharedPage(alice, bob, workspaceId);
     await placeCursor(alice, 0, 'end');
