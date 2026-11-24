@@ -200,7 +200,7 @@ jobs:
       # One report of the browser tests, from all three machines (whatever they got to)
       - uses: actions/checkout@v7
         if: ${{ failure() && needs.browser.result != 'success' }}
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         if: ${{ failure() && needs.browser.result != 'success' }}
         with:
           pattern: blob-report-*
