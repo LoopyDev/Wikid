@@ -391,6 +391,11 @@ test.describe('loading', () => {
     await openPage(page, id);
     const title = page.getByRole('main').getByRole('textbox').first();
     await expect(title).toHaveValue(pageTitle);
+    // The page stays open in another tab, as the bug left it: only the live title was doubled.
+    // (Left by everyone, the page would be saved, doubled title and all, by the next periodic save.)
+    const other = await page.context().newPage();
+    await openPage(other, id);
+    await expect(other.getByRole('main').getByRole('textbox').first()).toHaveValue(pageTitle);
     // Double the live title directly, as the bug did
     await page.evaluate((t) => {
       const { state } = (document.querySelector('.ProseMirror') as any).editor;
@@ -401,6 +406,9 @@ test.describe('loading', () => {
     await page.waitForTimeout(1000);
     await page.reload();
     await expect(title).toHaveValue(pageTitle);
+    // Repaired for whoever else has it open too
+    await expect(other.getByRole('main').getByRole('textbox').first()).toHaveValue(pageTitle);
+    await other.close();
   });
 
   test('an image comes from the browser cache when its page is opened again', async ({ alice: page, workspaceId }) => {
