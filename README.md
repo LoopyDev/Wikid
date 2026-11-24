@@ -2,7 +2,7 @@
 
 # Wikid
 
-A self-hosted wiki and workspace with a block-based editor, structured databases, real-time collaboration, and built-in compliance workflows for records that need an audit trail.
+A self-hosted wiki and workspace with a block-based editor, structured databases and real-time collaboration.
 
 > **Status: early development, not production-ready.** See [Security](#security) before deploying anywhere reachable from the internet.
 
@@ -57,9 +57,11 @@ How far along each feature is (stable, beta, experimental or planned) is in [doc
   <img alt="An equipment database shown as a board, grouped by status" src="docs/images/database-board-light.png">
 </picture>
 
-### Compliance
+### Compliance (experimental)
 
-- A separate, append-only compliance database for regulated records
+Off unless the system admin turns it on (Admin → Settings), and not yet tested enough to rely on for regulated records.
+
+- A separate, append-only compliance database for records that need an audit trail
 - Versioned schemas and configurable workflows (Draft → Submitted → In Review → Closed/Sealed by default) with role and approval guards
 - Isolated attachment storage with hash verification on export
 
