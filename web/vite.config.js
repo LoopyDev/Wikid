@@ -71,10 +71,41 @@ const yTiptapSelectionFix = {
   },
 }
 
+// ProseMirror, drawing each block, looked through every decoration of the blocks around it for any
+// running into it (only inline ones can). A page's blocks each have one (their data-block marker,
+// see tiptap/blockIds.js), so each keystroke went through the page's blocks times its blocks: a
+// million checks on a 1,000-block page. A set of decorations never changes once made, so whether it
+// has any inline ones is worked out once, and the search skipped when it has none. Still so in
+// prosemirror-view 1.44 (worth offering upstream); the build fails if the code it replaces changes.
+// Applied when building, and to the pre-bundled copy in development (optimizeDeps below).
+let decorationLookupFixApplied = false
+const decorationLookupFix = {
+  name: 'prosemirror-view-decoration-lookup',
+  transform(code, id) {
+    if (!/[\\/]prosemirror-view[\\/]dist[\\/]index\.js(\?|$)/.test(id)) return null
+    const before =
+      '        let start = offset + 1, end = start + node.content.size;\n' +
+      '        for (let i = 0; i < this.local.length; i++) {'
+    if (!code.includes(before)) {
+      throw new Error('prosemirror-view changed: check whether the decoration lookup fix is still needed')
+    }
+    const after =
+      '        let start = offset + 1, end = start + node.content.size;\n' +
+      '        if (this.hasInlineLocal === undefined) this.hasInlineLocal = this.local.some(InlineType.is);\n' +
+      '        for (let i = 0; this.hasInlineLocal && i < this.local.length; i++) {'
+    decorationLookupFixApplied = true
+    return { code: code.replace(before, after), map: null }
+  },
+  generateBundle() {
+    if (!decorationLookupFixApplied) throw new Error('The prosemirror-view decoration lookup fix was not applied: was prosemirror-view moved or renamed?')
+  },
+}
+
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [
     yTiptapSelectionFix,
+    decorationLookupFix,
     vue({
       template: {
         compilerOptions: {
@@ -91,5 +122,7 @@ export default defineConfig({
   optimizeDeps: {
     // (y-tiptap not pre-bundled, so the fix above applies in development too)
     exclude: ['@editorjs/editorjs', '@tiptap/y-tiptap'],
+    // (prosemirror-view is pre-bundled: the fix above is applied to it there)
+    rolldownOptions: { plugins: [{ name: decorationLookupFix.name, transform: decorationLookupFix.transform }] },
   },
 })
