@@ -176,31 +176,29 @@ export function useSyncedBlocks({ props, workspace, activeWorkspaceId, getResolv
     const map = syncedWorkspaceMap.value;
     const doc = syncedWorkspaceDoc.value;
     if (!map || !doc || !getEditor() || !props.pageId || !isContentIn()) return;
+    // One pass through the page (it runs as people type): the blocks here, and the ones to send
     const localSourceKeys = new Set();
-    getEditor().state.doc.descendants((node) => {
-      if (!node.isBlock) return;
-      if (node.attrs?.[SYNCED_FROM_ATTR]) return;
-      const blockId = node.attrs?.id;
-      if (!blockId) return;
-      const key = workspaceSyncedKey(props.pageId, blockId);
-      if (key) localSourceKeys.add(key);
-    });
-    const updates = [];
+    const candidates = [];
     getEditor().state.doc.descendants((node) => {
       if (!node.isBlock) return;
       const syncedFrom = node.attrs?.[SYNCED_FROM_ATTR] || null;
-      const isReference = !!syncedFrom;
-      const blockId = node.attrs?.id;
-      const key = isReference ? resolveWorkspaceSyncedKey(syncedFrom, props.pageId) : workspaceSyncedKey(props.pageId, blockId);
-      if (!key) return;
-      if (isReference) {
-        if (localSourceKeys.has(key)) return;
-        if (isSyncedLocked(syncedFrom)) return;
-      } else if (!blockId || !hasRefs(key)) {
-        // Only blocks something is synced from: the document goes to everyone in the workspace
-        // (every block of every page opened made it megabytes, private pages' blocks included)
+      if (syncedFrom) {
+        const key = resolveWorkspaceSyncedKey(syncedFrom, props.pageId);
+        if (key) candidates.push({ node, key, syncedFrom });
         return;
       }
+      const blockId = node.attrs?.id;
+      const key = blockId ? workspaceSyncedKey(props.pageId, blockId) : null;
+      if (!key) return;
+      localSourceKeys.add(key);
+      // Only blocks something is synced from: the document goes to everyone in the workspace
+      // (every block of every page opened made it megabytes, private pages' blocks included)
+      if (hasRefs(key)) candidates.push({ node, key, syncedFrom: null });
+    });
+    const updates = [];
+    candidates.forEach(({ node, key, syncedFrom }) => {
+      // A copy of a block on this page, or locked, isn't sent from here
+      if (syncedFrom && (localSourceKeys.has(key) || isSyncedLocked(syncedFrom))) return;
       const payload = serializeSyncedNode(node);
       if (!payload) return;
       const existing = map.get(key);

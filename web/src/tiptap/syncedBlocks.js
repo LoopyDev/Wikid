@@ -37,6 +37,17 @@ export const createSyncedMirrorExtension = ({ isSyncedLocked }) => Extension.cre
       new Plugin({
         key: syncedMirrorKey,
         appendTransaction(transactions, oldState, newState) {
+          // The synced copies on the page, by the block they're copies of. With none there's nothing
+          // to mirror: most pages, and each keystroke went through every block several times
+          const syncedNodes = new Map();
+          newState.doc.descendants((node, pos) => {
+            if (node.isBlock && node.attrs?.[SYNCED_FROM_ATTR]) {
+              const sourceId = node.attrs[SYNCED_FROM_ATTR];
+              if (!syncedNodes.has(sourceId)) syncedNodes.set(sourceId, []);
+              syncedNodes.get(sourceId).push({ node, pos, sourceId });
+            }
+          });
+          if (!syncedNodes.size) return null;
           let tr = newState.tr;
           let changed = false;
           const oldSources = new Map();
@@ -50,7 +61,8 @@ export const createSyncedMirrorExtension = ({ isSyncedLocked }) => Extension.cre
               return;
             }
             const id = node.attrs?.id;
-            if (id && !oldSources.has(id)) {
+            // (Only blocks with copies: the others have nothing to mirror)
+            if (id && syncedNodes.has(id) && !oldSources.has(id)) {
               oldSources.set(id, { node, pos });
             }
           });
@@ -59,20 +71,12 @@ export const createSyncedMirrorExtension = ({ isSyncedLocked }) => Extension.cre
             if (!node.isBlock) return;
             if (node.attrs?.[SYNCED_FROM_ATTR]) return; // only originals are sources
             const id = node.attrs?.id;
-            if (id && !sources.has(id)) {
+            if (id && syncedNodes.has(id) && !sources.has(id)) {
               sources.set(id, { node, pos });
             }
           });
-          const syncedNodes = new Map();
-          newState.doc.descendants((node, pos) => {
-            if (node.isBlock && node.attrs?.[SYNCED_FROM_ATTR]) {
-              const sourceId = node.attrs[SYNCED_FROM_ATTR];
-              if (!syncedNodes.has(sourceId)) syncedNodes.set(sourceId, []);
-              syncedNodes.get(sourceId).push({ node, pos, sourceId });
-            }
-          });
           sources.forEach((source, sourceId) => {
-            const refs = syncedNodes.get(sourceId) || [];
+            const refs = syncedNodes.get(sourceId);
             const locked = isSyncedLocked(sourceId);
             let masterNode = source.node;
 

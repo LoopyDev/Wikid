@@ -68,7 +68,8 @@ export function useBlockSummarizer(editorRef) {
             const block = batch.find((b) => b.index === r.index);
             if (block && r.summary) blockSummaryCache.set(block.hash, r.summary);
           }
-          computeStats(doc);
+          // (The page as it is now: it may have changed while the batch was out)
+          if (!ed.isDestroyed) computeStats(ed.state.doc);
         } catch (err) {
           console.debug('[useBlockSummarizer] batch failed:', err?.message);
         }
@@ -83,9 +84,21 @@ export function useBlockSummarizer(editorRef) {
     if (_unsubscribe) { _unsubscribe(); _unsubscribe = null; }
     if (!ed) return;
 
-    const handler = ({ editor: e }) => { if (!e.isDestroyed) computeStats(e.state.doc); };
+    // Once typing pauses, not on every keystroke: it reads every block of the page, and the counts
+    // are only shown in the AI panel. At least every 2 s while someone keeps typing (or someone else)
+    let timer = null;
+    let waitingSince = null;
+    const handler = ({ editor: e }) => {
+      clearTimeout(timer);
+      waitingSince ??= Date.now();
+      const run = () => {
+        waitingSince = null;
+        if (!e.isDestroyed) computeStats(e.state.doc);
+      };
+      timer = setTimeout(run, Math.max(0, Math.min(300, waitingSince + 2000 - Date.now())));
+    };
     ed.on('update', handler);
-    _unsubscribe = () => ed.off('update', handler);
+    _unsubscribe = () => { clearTimeout(timer); ed.off('update', handler); };
 
     // Compute initial stats on mount
     if (!ed.isDestroyed) computeStats(ed.state.doc);
